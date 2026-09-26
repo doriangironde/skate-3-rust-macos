@@ -1,0 +1,28 @@
+name: Linux CI
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  linux:
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    timeout-minutes: 90
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Linux build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential pkg-config libasound2-dev libudev-dev python3 python3-venv
+      - name: Build and test Linux game
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --locked -p skate-game --bin skate3rust --no-default-features
+          cargo test --locked -p skate-game --bin skate3rust --no-default-features linux_map_tests
+      - name: Test Linux first-run setup
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r tools/requirements-setup.txt
+          .venv/bin/python -m unittest tools.test_setup_linux -v
