@@ -36,6 +36,24 @@ the `data` folder beside your executable. Each freshly unpacked copy runs its
 own setup; it does not adopt another installation. In-place updates refresh
 only changed asset groups.
 
+### Linux first run
+
+Linux builds ship no `skate3setup.exe`. On first launch the game finds
+`tools/setup.py` above the executable and runs it; without Tk it asks in the
+terminal for your extracted Skate 3 `default.xex` (keep its `data` folder beside
+it). You can also run it yourself, with `--base` pointing at the `data` folder
+beside the game executable:
+
+    python3 tools/setup.py --base target/release/data --game-exe target/release/skate3rust --source /path/to/default.xex
+
+`--source` selects the game and skips the prompt; a folder or `default.xex` is
+equivalent. Requires Python 3 with NumPy and Pillow (`python3 -m pip install -r
+tools/requirements-setup.txt`); Tk is optional. ISO extraction is Windows-only,
+so extract the ISO with a trusted tool and select `default.xex`; setup never
+downloads or runs an extractor on Linux. `--assets DIRECTORY` still selects a
+prepared asset set for development.
+Updating, the character importer and the Steam relay remain Windows-only.
+
 ## Build
 
 Requires Windows, Rust with the MSVC toolchain, and LLVM installed in its default

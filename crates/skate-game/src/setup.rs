@@ -51,11 +51,22 @@ pub(crate) fn asset_root() -> Result<PathBuf, String> {
             return Ok(assets.clone());
         }
     }
-    let setup = root.join("support/skate3setup.exe");
-    if !setup.is_file() {
-        return Err("This copy has not been set up. Use the complete Windows package, or --assets DIRECTORY for development.".into());
-    }
-    let mut command = Command::new(setup);
+    #[cfg(windows)]
+    let mut command = {
+        let setup = root.join("support/skate3setup.exe");
+        if !setup.is_file() {
+            return Err("This copy has not been set up. Use the complete Windows package, or --assets DIRECTORY for development.".into());
+        }
+        Command::new(setup)
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let setup = find_setup_script(root).ok_or_else(||
+            "This copy has not been set up. Extract your Skate 3 default.xex, then run tools/setup.py (see README) to prepare assets, or pass --assets DIRECTORY for development.".to_string())?;
+        let mut command = Command::new("python3");
+        command.arg(setup);
+        command
+    };
     command.arg("--base").arg(&base).arg("--game-exe").arg(&exe);
     if existing.is_some() { command.arg("--refresh"); }
     #[cfg(windows)] {
@@ -63,7 +74,12 @@ pub(crate) fn asset_root() -> Result<PathBuf, String> {
         command.creation_flags(0x08000000);
     }
     let status = command.status().map_err(|e| format!("Could not start setup: {e}"))?;
-    if !status.success() { return Err("Setup was cancelled or did not complete".into()); }
+    if !status.success() {
+        #[cfg(not(windows))]
+        return Err("Setup did not complete. Run tools/setup.py with --base DATA --game-exe GAME --source /path/to/default.xex (see README).".into());
+        #[cfg(windows)]
+        return Err("Setup was cancelled or did not complete".into());
+    }
     let (assets, marker) = installed(&base)?.ok_or("Setup did not publish a complete installation")?;
     if expected.as_ref().is_some_and(|versions| marker.get("pipelines") != Some(versions)) {
         return Err("Setup helper does not match this release's asset extractors. Unpack the complete package.".into());
@@ -72,6 +88,20 @@ pub(crate) fn asset_root() -> Result<PathBuf, String> {
         return Err("Character customiser preparation did not complete for this release.".into());
     }
     Ok(assets)
+}
+
+// A source checkout keeps the Python setup helper at tools/setup.py a couple
+// of levels above target/<profile>/skate3rust; a portable copy keeps it beside
+// the executable. Only the directory tree is inspected; nothing is downloaded.
+#[cfg(not(windows))]
+fn find_setup_script(root: &Path) -> Option<PathBuf> {
+    let mut directory = Some(root);
+    for _ in 0..4 {
+        let candidate = directory?.join("tools/setup.py");
+        if candidate.is_file() { return Some(candidate); }
+        directory = directory?.parent();
+    }
+    None
 }
 
 fn customiser_current(assets: &Path, expected: Option<&str>) -> bool {
@@ -119,6 +149,19 @@ fn receipt_present(root: &Path, files: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(windows))]
+    #[test]
+    fn setup_helper_is_found_above_a_build_directory() {
+        let root = std::env::temp_dir().join(format!("sk8-setup-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let binary = root.join("target/release");
+        std::fs::create_dir_all(&binary).unwrap();
+        assert_eq!(find_setup_script(&binary), None);
+        std::fs::create_dir_all(root.join("tools")).unwrap();
+        std::fs::write(root.join("tools/setup.py"), b"").unwrap();
+        assert_eq!(find_setup_script(&binary), Some(root.join("tools/setup.py")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn acknowledged_optional_failure_is_versioned_and_retained_data_is_checked() {
         let root = std::env::temp_dir().join(format!("sk8-availability-{}-{}", std::process::id(),

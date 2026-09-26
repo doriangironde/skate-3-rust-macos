@@ -248,13 +248,15 @@ fn trigger(keys: &[u16], axes: &[AbsSample], spec: u16, xpad: u16, digital: u16)
     if keys.contains(&digital) { 255 } else { 0 }
 }
 
+/// Normalize over the full advertised range: a signed trigger axis resting at
+/// its negative endpoint and an unsigned one both reach 0..255.
 fn scale_trigger(value: i32, min: i32, max: i32) -> u8 {
-    let min = min.max(0);
     if max <= min {
         return 0;
     }
-    let value = value.clamp(min, max);
-    ((i64::from(value - min) * 255) / i64::from(max - min)) as u8
+    let span = i64::from(max) - i64::from(min);
+    let shifted = (i64::from(value.clamp(min, max)) - i64::from(min)) * 255 / span;
+    shifted.clamp(0, 255) as u8
 }
 
 #[cfg(target_os = "linux")]
@@ -349,24 +351,45 @@ mod linux {
     }
 
     struct Hub {
-        pads: Vec<OpenPad>,
+        slots: [Option<OpenPad>; 4],
         last_scan: Option<Instant>,
         dirty: bool,
         complained: bool,
     }
 
+    /// Fixed slot layout: pads already in a slot keep it, and newly opened pads
+    /// take the lowest free slot. Unplugging a lower pad therefore never
+    /// renumbers a higher one, so slot indices and `--controller N` stay stable.
+    fn slot_assignments(live: &[Option<PathBuf>; 4], fresh: &[PathBuf]) -> [Option<PathBuf>; 4] {
+        let mut layout: [Option<PathBuf>; 4] = std::array::from_fn(|index| live[index].clone());
+        for path in fresh {
+            let Some(free) = layout.iter().position(Option::is_none) else {
+                break;
+            };
+            layout[free] = Some(path.clone());
+        }
+        layout
+    }
+
+    /// Warn only when nothing readable opened while at least one event node was
+    /// denied: an unrelated keyboard opening must not hide a blocked gamepad.
+    fn should_warn_pad_permission(occupied: usize, denied: u32, pads_opened: u32) -> bool {
+        occupied == 0 && denied > 0 && pads_opened == 0
+    }
+
     impl Hub {
         const fn new() -> Self {
-            Self { pads: Vec::new(), last_scan: None, dirty: true, complained: false }
+            Self { slots: [None, None, None, None], last_scan: None, dirty: true, complained: false }
         }
 
         fn sample(&mut self, index: usize) -> Result<(u32, XboxState), DeviceError> {
             let due = self.last_scan.is_none_or(|scan| scan.elapsed() >= Duration::from_secs(1));
-            if self.dirty || (self.pads.len() < 4 && due) {
+            let occupied = self.slots.iter().filter(|slot| slot.is_some()).count();
+            if self.dirty || (occupied < 4 && due) {
                 self.scan();
             }
             let pumped = {
-                let Some(pad) = self.pads.get_mut(index) else {
+                let Some(pad) = self.slots.get_mut(index).and_then(Option::as_mut) else {
                     return Err(DeviceError::Disconnected);
                 };
                 pad.pump()
@@ -374,7 +397,7 @@ mod linux {
             match pumped {
                 Ok(packet) => Ok(packet),
                 Err(error) => {
-                    self.pads.remove(index);
+                    self.slots[index] = None;
                     self.dirty = true;
                     Err(error)
                 }
@@ -396,41 +419,54 @@ mod linux {
                     })
                     .collect::<Vec<_>>(),
                 Err(error) => {
-                    self.pads.clear();
+                    self.slots = std::array::from_fn(|_| None);
                     self.complain(error.kind() == ErrorKind::PermissionDenied);
                     return;
                 }
             };
             paths.sort();
-            let mut kept = Vec::new();
-            let mut denied = 0u32;
-            let mut opened = 0u32;
-            for path in paths {
-                if let Some(index) = self.pads.iter().position(|pad| pad.path == path) {
-                    kept.push(self.pads.swap_remove(index));
-                    continue;
+            // A pad whose node disappeared frees only its own slot.
+            for slot in &mut self.slots {
+                if slot.as_ref().is_some_and(|pad| !paths.contains(&pad.path)) {
+                    *slot = None;
                 }
-                if kept.len() >= 4 {
+            }
+            let live: [Option<PathBuf>; 4] =
+                std::array::from_fn(|index| self.slots[index].as_ref().map(|pad| pad.path.clone()));
+            let mut denied = 0u32;
+            let mut pads_opened = 0u32;
+            let mut fresh = Vec::new();
+            let free = 4usize.saturating_sub(self.slots.iter().filter(|slot| slot.is_some()).count());
+            for path in paths {
+                if fresh.len() >= free {
+                    break;
+                }
+                if self.slots.iter().flatten().any(|pad| pad.path == path) {
                     continue;
                 }
                 match Device::open(&path) {
                     Ok(device) => {
-                        opened += 1;
                         if !is_gamepad(&device) {
                             continue;
                         }
                         if let Ok(pad) = OpenPad::open(path, device) {
-                            kept.push(pad);
+                            pads_opened += 1;
+                            fresh.push(pad);
                         }
                     }
                     Err(error) if error.kind() == ErrorKind::PermissionDenied => denied += 1,
                     Err(_) => {}
                 }
             }
-            kept.sort_by(|left, right| left.path.cmp(&right.path));
-            kept.truncate(4);
-            self.pads = kept;
-            if self.pads.is_empty() && denied > 0 && opened == 0 {
+            let fresh_paths: Vec<PathBuf> = fresh.iter().map(|pad| pad.path.clone()).collect();
+            let layout = slot_assignments(&live, &fresh_paths);
+            for pad in fresh {
+                if let Some(index) = layout.iter().position(|path| path.as_deref() == Some(pad.path.as_path())) {
+                    self.slots[index] = Some(pad);
+                }
+            }
+            let occupied = self.slots.iter().filter(|slot| slot.is_some()).count();
+            if should_warn_pad_permission(occupied, denied, pads_opened) {
                 self.complain(true);
             }
         }
@@ -469,6 +505,58 @@ mod linux {
         Ok(DevicePacket { number, state, subtype })
     }
 
+    #[cfg(test)]
+    mod tests {
+        use super::{should_warn_pad_permission, slot_assignments};
+        use std::path::PathBuf;
+
+        fn event(name: &str) -> PathBuf {
+            PathBuf::from(name)
+        }
+
+        #[test]
+        fn slots_stay_fixed_when_a_lower_pad_unplugs_or_reorders() {
+            // Slot 1 still holds event6 while slot 0 is free; the pad must not shift down.
+            let live = [None, Some(event("/dev/input/event6")), None, None];
+            assert_eq!(slot_assignments(&live, &[]), live);
+            // A pad appearing on a lower event number fills slot 0 without moving event6.
+            let layout = slot_assignments(&live, &[event("/dev/input/event4")]);
+            assert_eq!(layout, [
+                Some(event("/dev/input/event4")),
+                Some(event("/dev/input/event6")),
+                None,
+                None,
+            ]);
+        }
+
+        #[test]
+        fn hotplug_fills_the_lowest_free_slots_only() {
+            let live = [None, None, None, Some(event("/dev/input/event9"))];
+            let layout = slot_assignments(
+                &live,
+                &[
+                    event("/dev/input/event3"),
+                    event("/dev/input/event4"),
+                    event("/dev/input/event5"),
+                    event("/dev/input/event6"),
+                ],
+            );
+            assert_eq!(layout, [
+                Some(event("/dev/input/event3")),
+                Some(event("/dev/input/event4")),
+                Some(event("/dev/input/event5")),
+                Some(event("/dev/input/event9")),
+            ]);
+        }
+
+        #[test]
+        fn permission_warning_survives_unrelated_devices_opening() {
+            assert!(should_warn_pad_permission(0, 1, 0));
+            assert!(!should_warn_pad_permission(1, 3, 0));
+            assert!(!should_warn_pad_permission(0, 1, 1));
+            assert!(!should_warn_pad_permission(0, 0, 0));
+        }
+    }
 }
 
 pub(crate) fn poll_cached(
@@ -562,6 +650,33 @@ mod linux_map_tests {
         assert_eq!(state.triggers[1], ((512i64 * 255) / 1023) as u8);
         let digital = xbox_from_linux(&[0x138], &[]);
         assert_eq!(digital.triggers, [255, 0]);
+    }
+
+    #[test]
+    fn signed_trigger_axis_uses_the_full_advertised_range() {
+        // Some pads advertise a signed ABS_Z spanning the sign bit: both endpoints must map.
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, -32768, -32768, 32767)]).triggers[0], 0);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 32767, -32768, 32767)]).triggers[0], 255);
+        assert_eq!(
+            xbox_from_linux(&[], &[axis(0x02, 0, -32768, 32767)]).triggers[0],
+            ((32768i64 * 255) / 65535) as u8
+        );
+    }
+
+    #[test]
+    fn unsigned_trigger_axis_endpoints_reach_zero_and_full() {
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 0, 0, 255)]).triggers[0], 0);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 255, 0, 255)]).triggers[0], 255);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 0, 0, 1023)]).triggers[0], 0);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 1023, 0, 1023)]).triggers[0], 255);
+    }
+
+    #[test]
+    fn stick_endpoints_map_to_the_advertised_range() {
+        assert_eq!(xbox_from_linux(&[], &[axis(0x00, -32768, -32768, 32767)]).left[0], i16::MIN);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 32767, -32768, 32767)]).left[0], i16::MAX);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 0, 0, 1023)]).left[0], i16::MIN);
+        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 1023, 0, 1023)]).left[0], i16::MAX);
     }
 }
 

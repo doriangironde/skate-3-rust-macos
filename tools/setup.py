@@ -26,19 +26,31 @@ def main():
     parser.add_argument('--base',type=Path,required=True)
     parser.add_argument('--game-exe',type=Path,required=True)
     parser.add_argument('--refresh',action='store_true')
+    parser.add_argument('--source',type=Path,help='default.xex, extracted game folder or Xbox 360 ISO; runs without a window')
     args=parser.parse_args()
-    import tkinter as tk
-    from tkinter import filedialog,messagebox,ttk
+    try:
+        import tkinter as tk
+        from tkinter import filedialog,messagebox,ttk
+    except ImportError:
+        tk=None
+    # A packaged build always has Tk. Source checkouts and headless Linux
+    # machines fall back to the command-line flow so setup still completes.
+    if tk is None or args.source is not None:
+        return headless(args)
     from tools.asset_pipeline.customiser_setup import install
     from tools.asset_pipeline.versions import installed, fingerprints, changed_groups
     previous=installed(args.base) if args.refresh else None
     changed=changed_groups(previous[1].get('pipelines',{}),fingerprints()) if previous else set()
     updating=previous is not None
-    window=tk.Tk()
+    try:
+        window=tk.Tk()
+    except tk.TclError:
+        if os.name=='nt':raise
+        return headless(args)
     window.title('Skate 3 Rust Engine setup')
     window.geometry('700x420');window.resizable(False,False)
     icon=ROOT/'docs/images/skating-crab.ico'
-    if icon.is_file():window.iconbitmap(str(icon))
+    if os.name=='nt' and icon.is_file():window.iconbitmap(str(icon))
     frame=ttk.Frame(window,padding=24);frame.pack(fill='both',expand=True)
     ttk.Label(frame,text='Update game assets' if updating else 'Set up Skate 3 Rust Engine',font=('Segoe UI',20)).pack(anchor='w',pady=(0,16))
     ttk.Label(frame,text=('Asset version changes: '+(', '.join(sorted(changed)) or 'checking prepared content')+'.\nOnly changed or incomplete groups will be prepared again.\nYour previous character data remains until preparation succeeds.\nSelect your Skate 3 default.xex (or ISO) to continue.\nKeep the game data beside default.xex.') if updating else 'Select your Skate 3 Xbox 360 ISO, or default.xex inside an\nextracted game folder. Keep the game data beside default.xex.\nSetup prepares the skater, customiser, animations and disc maps.\nNo other apps need installing.\n\nISO extraction needs internet access. Allow free disk space\nand time for the first conversion.',
@@ -84,5 +96,38 @@ def main():
     window.protocol('WM_DELETE_WINDOW',close)
     window.after(100,poll);window.mainloop()
     return 0 if success else 2
+
+def headless(args):
+    """Command-line first-run path for copies without Tk."""
+    from tools.asset_pipeline.customiser_setup import install
+    from tools.asset_pipeline.optional_content import summary
+    from tools.asset_pipeline.versions import installed
+    source=args.source
+    if source is None:
+        # Never block a launch that has no terminal attached; point at --source.
+        if sys.stdin is None or not sys.stdin.isatty():
+            print('No window is available. Pass --source PATH (default.xex, extracted folder or Xbox 360 ISO) to run setup.')
+            return 2
+        try:
+            source=Path(input('Path to your Skate 3 default.xex, extracted game folder or Xbox 360 ISO: ').strip().strip('"'))
+        except EOFError:
+            print('No window is available. Pass --source PATH (default.xex, extracted folder or Xbox 360 ISO) to run setup.')
+            return 2
+    if not source.exists():
+        print('No such file or directory: '+str(source))
+        return 2
+    updating=args.refresh and installed(args.base) is not None
+    def report(text):print(text,flush=True)
+    try:
+        installed_root=install(source,args.base,args.game_exe,report,refresh=updating)
+        warnings=summary(installed_root)
+    except Exception as error:
+        args.base.mkdir(parents=True,exist_ok=True)
+        (args.base/'setup-error.log').write_text(traceback.format_exc(),encoding='utf-8')
+        print('Setup could not finish: '+str(error))
+        print('Details: '+str(args.base/'setup-error.log'))
+        return 2
+    print(f'Ready with {len(warnings)} unavailable components. Details: {installed_root / "setup-report.json"}' if warnings else 'Ready')
+    return 0
 
 if __name__=='__main__':raise SystemExit(main())

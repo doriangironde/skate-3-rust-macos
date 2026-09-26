@@ -167,8 +167,10 @@ def install(iso, base, game_exe, report, refresh=False):
     # Existing groups/fingerprints stay unchanged; a character-only update never
     # reconverts maps or overwrites settings and imported character libraries.
     from .setup_state import source_directory, setup_lock
-    base.parent.mkdir(parents=True, exist_ok=True)
     selected = iso.resolve()
+    # Reject an ISO before any workspace, temp directory or download is created.
+    core.require_iso_extraction(selected)
+    base.parent.mkdir(parents=True, exist_ok=True)
     with setup_lock(base), tempfile.TemporaryDirectory(prefix='character-source-', dir=base.parent) as temp:
         if selected.suffix.lower() == '.iso':
             if not selected.is_file():raise RuntimeError('Select an existing Skate 3 Xbox 360 ISO')

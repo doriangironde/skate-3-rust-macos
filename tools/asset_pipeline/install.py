@@ -25,6 +25,13 @@ XISO_SHA='fec88d03c7efd6205ab09be4abba70c0afd0eb27a5709f0a6235b828ba5ac11e'
 def digest(path):
     with path.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 
+def require_iso_extraction(selected):
+    # extract-xiso is only published as a Windows build here. Never download or
+    # execute an unverified extractor on other platforms: ask for a pre-extracted
+    # default.xex instead. Shared by every entry point that can receive an ISO.
+    if os.name!='nt' and Path(selected).suffix.lower()=='.iso':
+        raise RuntimeError('ISO extraction is unavailable on this platform. Extract your Skate 3 ISO with a trusted tool, then select the extracted default.xex (keep its data folder) instead of the ISO.')
+
 def remove_intermediate(path,root):
     target=path.resolve();root=root.resolve()
     if target==root or not target.is_relative_to(root):
@@ -178,6 +185,8 @@ def _install(iso,base,game_exe,report,game_root=None,refresh=False,finalize=None
             if selected.name.lower()!='default.xex' or not selected.is_file():
                 raise RuntimeError('Select default.xex inside your extracted Skate 3 game folder')
             game_root=selected.parent
+    if game_root is None:
+        require_iso_extraction(iso)
     base=base.resolve();base.mkdir(parents=True,exist_ok=True)
     from .setup_state import source_directory
     if game_root is not None:
