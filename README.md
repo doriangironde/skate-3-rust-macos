@@ -62,7 +62,7 @@ Install Rust stable (edition 2024), Python 3, and the Linux build libraries.
 On Debian/Ubuntu:
 
     sudo apt-get update
-    sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev python3-venv
+    sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libwayland-dev python3-venv
     python3 -m venv .venv
     .venv/bin/pip install -r tools/requirements-setup.txt
     cargo build --locked -p skate-game --bin skate3rust --no-default-features
