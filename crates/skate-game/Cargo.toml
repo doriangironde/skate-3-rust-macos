@@ -37,6 +37,9 @@ skate-net = { path = "../skate-net" }
 blake3 = "=1.8.7"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "=0.13.2"
+
 [dev-dependencies]
 naga = { version = "=27.0.3", features = ["wgsl-in"] }
 naga_oil = { version = "=0.20.0", default-features = false }

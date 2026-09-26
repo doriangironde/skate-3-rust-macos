@@ -3,12 +3,22 @@ import ctypes
 from pathlib import Path
 
 _library=None
-for path in (Path(__file__).with_name('refpack.dll'),Path(__file__).resolve().parents[2]/'target/native/refpack.dll'):
-    if path.is_file():
+_here=Path(__file__).resolve().parent
+_native=_here.parents[1]/'target'/'native'
+for path in (
+    _here/'refpack.dll', _native/'refpack.dll',
+    _here/'librefpack.so', _native/'librefpack.so',
+    _here/'refpack.so', _native/'refpack.so',
+):
+    if not path.is_file():
+        continue
+    try:
         _library=ctypes.CDLL(str(path))
-        _library.skate_refpack.argtypes=[ctypes.c_char_p,ctypes.c_size_t,ctypes.c_void_p,ctypes.c_size_t,ctypes.c_size_t,ctypes.c_bool]
-        _library.skate_refpack.restype=ctypes.c_int
-        break
+    except OSError:
+        continue
+    _library.skate_refpack.argtypes=[ctypes.c_char_p,ctypes.c_size_t,ctypes.c_void_p,ctypes.c_size_t,ctypes.c_size_t,ctypes.c_bool]
+    _library.skate_refpack.restype=ctypes.c_int
+    break
 
 def decode(data,size,start,early=False):
     if _library is None:return None
