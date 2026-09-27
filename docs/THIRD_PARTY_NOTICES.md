@@ -27,6 +27,10 @@ editor authoring scripts are excluded from release packages. XboxDev
 extract-xiso retains its own license files. Game assets are never downloaded
 from this project.
 
+The setup-time player-image helper dynamically links LZX units from libmspack 1.11
+(`tools/vendor/libmspack/`, LGPL-2.1, `COPYING.LIB`) and the public-domain Rijndael
+reference (`tools/vendor/rijndael/`). Those objects are not linked into the game.
+
 The setup executable bundles Python, NumPy, Pillow, Tcl/Tk and PyInstaller's
 bootloader. Their license information is retained by the packager alongside
 its bundled libraries. No game content is included in the release archive.

@@ -90,3 +90,9 @@ stutter*
 
 # pi harness state
 .pi/
+
+# Local native helper built by the player-image extractor.
+tools/asset_pipeline/.native/
+
+# Local native helper built by the player-image extractor.
+tools/asset_pipeline/.native/
