@@ -34,6 +34,25 @@ audio is **audible offline**; a real in-game clean-install capture is still outs
   open item in `docs/engine-defects.md`); `headless_rolling_speed_and_surface_sweep` stops at
   `0x40040004: no segment covers this address` and is an open investigation.
 
+## Runtime bridge and device output
+
+* `LivePcm` is a bounded interleaved queue (4096 frames): `push` rejects non-finite or mid-frame
+  input, discards the oldest complete frames on overflow and returns the discarded sample count.
+* The audio callback (`LivePlayback::next`) takes `try_lock`, copies at most 256 whole frames and
+  inserts silence on underflow; it performs no disk, FFmpeg, graph or blocking work.
+* Underruns and delivery are observable: `LivePcmSnapshot { pushed, consumed, consumed_nonzero,
+  underflow }` plus the 2-second `SKATE_PLAYER_AUDIO stream …` log; stale physics observations
+  overflow-report and are counted.
+* Device errors are non-fatal: with no ALSA device, Bevy logs `No audio device found`, the binary
+  still exits 0, and worker failures only log `skate-audio player graph stopped`.
+* `cargo test --release -p skate-game --bin skate3rust -- skate_audio::` passes 133 tests
+  (29 asset-dependent tests ignored), including the LivePcm continuity/underflow and downmix
+  cases.
+* Captured from the Linux output monitor (`parec` on the HDMI sink monitor) on this machine:
+  the 440 Hz test tone at **−14.0 dBFS**, and an owned retail bank sample
+  (`fstep_skateshoe1_sm.abk` slot 168) through the Bevy source at **−4.8 dBFS** — samples reach the
+  sound device, not just the sink's bookkeeping.
+
 ## The runtime image no longer needs a recomp capture
 
 The catalog reads `<assets>/private/stock/audio-runtime-image` as `g_XXXX.bin` guest pages.
