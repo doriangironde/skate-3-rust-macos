@@ -649,7 +649,9 @@ pub(crate) mod tests {
         use skate_audio_core::authored::AuthoredRuntime;
         use skate_data::audio::catalog::PlayerAudioCatalog;
         let assets = std::path::PathBuf::from(
-            r"C:\s3\installations\70eda9dc4644496d81ae73af95ff4285\assets",
+            std::env::var("SKATE_ASSETS").unwrap_or_else(|_| {
+                r"C:\s3\installations\70eda9dc4644496d81ae73af95ff4285\assets".into()
+            }),
         );
         let cache = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)

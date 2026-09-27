@@ -390,8 +390,83 @@ fn headless_landing_impact_is_audible() {
     );
 }
 
-fn write_wav(path: &std::path::Path, stereo: &[f32]) -> std::io::Result<()> {
-    use std::io::Write;
+/// A walking step must reach the DAC through the authored path: `update_footsteps` posts the
+/// `playercharacter_footstep` pair once and redelivers the per-frame update words, and the
+/// conditioner's alternating toe plants drive `step_code_740`.
+#[test]
+#[ignore = "needs the owner's assets; run explicitly"]
+fn headless_footstep_is_audible() {
+    use skate_audio_core::authored::{PCM_CHANNELS, PCM_FRAMES_PER_BLOCK};
+    let assets = std::env::var_os("SKATE_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| DEFAULT_ASSETS.into());
+    let super::Prepared {
+        mut runtime,
+        mut sound,
+        ..
+    } = super::prepare(&assets).expect("prepare the retail player-sound worker");
+    let blocks_per_frame = 48_000.0 / f64::from(PCM_FRAMES_PER_BLOCK) / 60.0;
+    let mut blocks_owed = 0.0f64;
+    let mut frames = 0u64;
+    let mut peak = 0f32;
+    let want_wav = std::env::var_os("SKATE_HEADLESS_WAV");
+    let mut stereo = Vec::new();
+    // Three seconds of an off-board push/walk: the push foot is down every frame, the free foot
+    // alternates, and each plant pair carries a toe rise above `STEP_HEIGHT` so the conditioner
+    // emits a step edge, plus the animation's AudibleFootStepStrength on the stride.
+    for i in 0..180u64 {
+        let supported = [true, i % 20 >= 10];
+        let mut observation = rolling(i, 1.6);
+        observation.state = 500;
+        observation.grounded = true;
+        observation.foot_push_speed = 1.4;
+        observation.feet_supported = supported;
+        observation.footstep_strength = if i % 20 == 2 || i % 20 == 12 { 0.6 } else { 0.0 };
+        observation.footstep_bone = ((i / 20) % 2) as i32;
+        observation.foot_surface = 3;
+        observation.retail.state = 500;
+        observation.retail.state_category = 500;
+        observation.retail.offboard_surface = 3;
+        observation.retail.offboard_feet = supported;
+        observation.retail.toe_positions = [
+            [0.0, if supported[0] { 0.0 } else { 0.25 }, 0.0],
+            [0.0, if supported[1] { 0.0 } else { 0.25 }, 0.0],
+        ];
+        sound
+            .frame(&mut runtime, &observation)
+            .expect("player-sound frame");
+        frames += 1;
+        blocks_owed += blocks_per_frame;
+        while blocks_owed >= 1.0 {
+            blocks_owed -= 1.0;
+            let native = runtime.pump_once().expect("render one block");
+            assert_eq!(
+                native.len(),
+                PCM_FRAMES_PER_BLOCK as usize * usize::from(PCM_CHANNELS)
+            );
+            for sample in &native {
+                peak = peak.max(sample.abs());
+            }
+            if want_wav.is_some() {
+                stereo.extend(super::downmix(&native));
+            }
+        }
+    }
+    let db = |v: f32| 20.0 * v.max(1e-9).log10();
+    eprintln!("footstep peak {:.1} dBFS over {frames} frames", db(peak));
+    if let Some(path) = want_wav {
+        let path = std::path::PathBuf::from(path).with_extension("footstep.wav");
+        write_wav(&path, &stereo).expect("write the footstep wav");
+        eprintln!("wrote {}", path.display());
+    }
+    assert!(
+        db(peak) > -60.0,
+        "the footstep must be audible: {:.1} dBFS",
+        db(peak)
+    );
+}
+
+fn write_wav(path: &std::path::Path, stereo: &[f32]) -> std::io::Result<()> {    use std::io::Write;
     let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
     let data = (stereo.len() * 2) as u32;
     out.write_all(b"RIFF")?;

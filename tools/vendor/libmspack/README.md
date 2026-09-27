@@ -1,0 +1,1 @@
+LZX units from libmspack 1.11 (`lzxd.c` and the headers it includes), used only by the setup-time player-image helper. LGPL-2.1: see `COPYING.LIB`. The helper is a separate shared library. Do not link these objects into the game.

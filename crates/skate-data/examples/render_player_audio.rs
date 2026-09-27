@@ -10,9 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .map(|p| p.join("Skate3RustEngine/audio-pcm-cache"));
     let selected = std::env::var("BANK").ok();
-    let catalog = if let Some(name) = &selected {
+    let archive = assets.join("private/stock/data/audio/audiofiles.big");
+    let mut catalog = if let Some(name) = &selected {
         PlayerAudioCatalog::load_banks(
-            &assets.join("private/stock/data/audio/audiofiles.big"),
+            &archive,
             &assets.join("private/stock/audio-runtime-image"),
             cache.as_deref(),
             &[name],
@@ -20,15 +21,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         PlayerAudioCatalog::from_assets(&assets, cache.as_deref())?
     };
+    // The same preparation the game's worker runs: splice collision banks, the three persistent
+    // boot utilities, then the authored MixMap -- without these the graph opens but stays silent.
+    catalog.load_splice_banks(&archive, cache.as_deref())?;
     eprintln!(
         "catalog: {} samples ({} cached)",
         catalog.samples.len(),
         catalog.cache_hits
     );
+    // `load_banks` (the BANK selector) does not read the MixMap; `from_assets` does. Fall back to
+    // the staged file so both paths replay with the authored mixer.
+    let mixmap = catalog
+        .mixmap
+        .clone()
+        .or_else(|| std::fs::read(assets.join("private/stock/data/audio/MixMapSK8.mxb")).ok());
     let mut runtime = AuthoredRuntime::new(catalog.guest, catalog.projects, catalog.banks)?;
     for sample in catalog.samples {
         let base = runtime.bank_base(&sample.bank).ok_or("missing bank")?;
         runtime.insert_pcm(base + sample.header_offset, sample.pcm)?;
+    }
+    let utility_relocations = [
+        (3, 0x1c),
+        (7, 0x2c),
+        (11, 0x3c),
+        (15, 0x4c),
+        (19, 0x5c),
+        (23, 0x6c),
+        (27, 0x7c),
+    ];
+    let utility_packet = [0u32; 28];
+    for object in ["c_emitter_utility", "Start_up_Play_ctl", "c_foley_utility"] {
+        if runtime.has_object(object) {
+            runtime.post_relocated(object, &utility_packet, &utility_relocations)?;
+        }
+    }
+    match &mixmap {
+        Some(mxb) => runtime.load_mixmap(mxb)?,
+        None => return Err("MixMapSK8.mxb is not staged in the assets".into()),
     }
     let object = std::env::var("OBJECT").unwrap_or_else(|_| "Class_grind".into());
     let payload = std::env::var("PAYLOAD")

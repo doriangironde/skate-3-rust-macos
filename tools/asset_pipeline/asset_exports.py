@@ -30,6 +30,15 @@ def core(game_root, stage, work, report, log, converted=None, audio_image=None):
     # distributable game asset, so accept it only as an explicit local setup input and keep it
     # alongside the owned audio archives. Missing images leave ordinary setup usable; the sound
     # runtime will report that exact capability as unavailable rather than substitute raw samples.
+    if audio_image is None:
+        # A normal supported-disc install extracts the pinned TU3 image from the owner's own
+        # default.xex + default.xexp, so no debug environment variable or recomp capture is
+        # needed. An unknown edition or a missing update only disables player audio.
+        from .player_image import install_player_image
+        extracted = work/'audio-image'
+        report(install_player_image(game_root, extracted))
+        if (extracted/'receipt.json').is_file():
+            audio_image = extracted
     if audio_image is not None:
         image_root=Path(audio_image).resolve()
         regions=sorted(image_root.glob('g_*.bin')) if image_root.is_dir() else []
@@ -39,6 +48,9 @@ def core(game_root, stage, work, report, log, converted=None, audio_image=None):
         target_root.mkdir(parents=True,exist_ok=True)
         for source in regions:
             shutil.copy2(source,target_root/source.name)
+        receipt=image_root/'receipt.json'
+        if receipt.is_file():
+            shutil.copy2(receipt,target_root/receipt.name)
     report('Converting physics and difficulty settings')
     database=work/'database'
     engine.extract(game_root/'data/big/db.big',database,lambda e:Path(e.path).name.lower() in {
