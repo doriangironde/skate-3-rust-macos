@@ -466,6 +466,181 @@ fn headless_footstep_is_audible() {
     );
 }
 
+/// One stage per named skating group, driven through the game's own `sound.frame` path. Every
+/// stage must be audible; the expected authored object is named beside it, and the
+/// `SKATE_PLAYER_AUDIO`/`SKATE_AUDIO_TRACE` lines name what the stage posted.
+#[test]
+#[ignore = "needs the owner's assets; run explicitly"]
+fn headless_group_coverage_is_audible() {
+    use skate_audio_core::authored::{PCM_CHANNELS, PCM_FRAMES_PER_BLOCK};
+    let assets = std::env::var_os("SKATE_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| DEFAULT_ASSETS.into());
+    let super::Prepared {
+        mut runtime,
+        mut sound,
+        ..
+    } = super::prepare(&assets).expect("prepare the retail player-sound worker");
+    let blocks_per_frame = 48_000.0 / f64::from(PCM_FRAMES_PER_BLOCK) / 60.0;
+
+    fn take(
+        tick: &mut u64,
+        count: u64,
+        mut build: impl FnMut(u64) -> PlayerAudioObservation,
+    ) -> Vec<PlayerAudioObservation> {
+        (0..count)
+            .map(|_| {
+                let observation = build(*tick);
+                *tick += 1;
+                observation
+            })
+            .collect()
+    }
+
+    let mut tick = 0u64;
+    let mut stage = |tick: &mut u64, count: u64, build: &mut dyn FnMut(u64) -> PlayerAudioObservation| {
+        take(tick, count, build)
+    };
+    let mut stages: Vec<(&'static str, &'static str, Vec<PlayerAudioObservation>)> = Vec::new();
+    stages.push((
+        "rolling",
+        "Class_rolling",
+        stage(&mut tick, 90, &mut |i| rolling(i, 5.0)),
+    ));
+    stages.push((
+        "speed (wind/rattle/jet)",
+        "Rolling_Rattle_Class",
+        stage(&mut tick, 120, &mut |i| rolling(i, 12.0)),
+    ));
+    stages.push((
+        "skid (powerslide)",
+        "Class_Squeaks",
+        stage(&mut tick, 60, &mut |i| {
+            let mut o = rolling(i, 8.0);
+            o.powersliding = true;
+            o
+        }),
+    ));
+    stages.push((
+        "board contact (seams)",
+        "Class_Seams",
+        stage(&mut tick, 60, &mut |i| {
+            let mut o = rolling(i, 6.0);
+            o.retail.wheel_seam_patterns = [11, 0, 4, 8];
+            o.retail.wheel_positions = [[i as f32 * 0.4, 1.0, 0.0]; 4];
+            o
+        }),
+    ));
+    stages.push((
+        "grind",
+        "Class_grind",
+        stage(&mut tick, 90, &mut |i| {
+            let mut o = rolling(i, 4.0);
+            o.grinding = true;
+            o.grind_family = 0;
+            o.grind_substate = 1;
+            o.grind_audio_surface = 3;
+            o.grind_impact_speed = 2.0;
+            o
+        }),
+    ));
+    stages.push((
+        "trick (flip)",
+        "Class_Flips",
+        stage(&mut tick, 60, &mut |i| {
+            let mut o = airborne(i, 6.0, (i as f32) / 60.0, 1.2);
+            o.trick_identifier = Some("N_Kickflip".into());
+            o
+        }),
+    ));
+    stages.push((
+        "landing",
+        "Class_Treatment",
+        stage(&mut tick, 60, &mut |i| {
+            let mut o = rolling(i, 6.0);
+            o.landed = i < 5;
+            o.landing_impact_speed = 6.0;
+            o.landing_clean = true;
+            o
+        }),
+    ));
+    stages.push((
+        "footstep",
+        "playercharacter_footstep",
+        stage(&mut tick, 120, &mut |i| {
+            let supported = [true, i % 20 >= 10];
+            let mut o = rolling(i, 1.6);
+            o.state = 500;
+            o.foot_push_speed = 1.4;
+            o.feet_supported = supported;
+            o.footstep_strength = if i % 20 == 2 || i % 20 == 12 { 0.6 } else { 0.0 };
+            o.footstep_bone = ((i / 20) % 2) as i32;
+            o.foot_surface = 3;
+            o.retail.state = 500;
+            o.retail.state_category = 500;
+            o.retail.offboard_surface = 3;
+            o.retail.offboard_feet = supported;
+            o.retail.toe_positions = [
+                [0.0, if supported[0] { 0.0 } else { 0.25 }, 0.0],
+                [0.0, if supported[1] { 0.0 } else { 0.25 }, 0.0],
+            ];
+            o
+        }),
+    ));
+    stages.push((
+        "body/cloth (wipeout)",
+        "body slide",
+        stage(&mut tick, 80, &mut |i| {
+            let mut o = rolling(i, 3.0);
+            o.wiping_out = true;
+            o.retail.state_flags[59 - 52] = true;
+            o.retail.limb_speeds = [4.0, 3.0, 2.0, 1.0];
+            o.retail.ragdoll_spin = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+            o
+        }),
+    ));
+
+    let mut rows = Vec::new();
+    for (group, object, script) in stages {
+        let opened_before = runtime.stats().voices_opened;
+        let mut peak = 0f32;
+        let mut blocks_owed = 0.0f64;
+        for observation in &script {
+            sound
+                .frame(&mut runtime, observation)
+                .expect("player-sound frame");
+            blocks_owed += blocks_per_frame;
+            while blocks_owed >= 1.0 {
+                blocks_owed -= 1.0;
+                let native = runtime.pump_once().expect("render one block");
+                assert_eq!(
+                    native.len(),
+                    PCM_FRAMES_PER_BLOCK as usize * usize::from(PCM_CHANNELS)
+                );
+                for sample in &native {
+                    peak = peak.max(sample.abs());
+                }
+            }
+        }
+        let db = 20.0 * peak.max(1e-9).log10();
+        rows.push((group, object, db, runtime.stats().voices_opened - opened_before));
+    }
+
+    eprintln!("group                       object                      peak dBFS  voices");
+    for (group, object, db, opened) in &rows {
+        eprintln!("{group:28} {object:28} {db:8.1}  {opened}");
+    }
+    let quiet: Vec<&str> = rows
+        .iter()
+        .filter(|(_, _, db, _)| *db <= -60.0)
+        .map(|(group, _, _, _)| *group)
+        .collect();
+    assert!(
+        quiet.is_empty(),
+        "these named groups produced no audible output: {quiet:?}"
+    );
+}
+
 fn write_wav(path: &std::path::Path, stereo: &[f32]) -> std::io::Result<()> {    use std::io::Write;
     let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
     let data = (stereo.len() * 2) as u32;

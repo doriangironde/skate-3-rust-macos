@@ -203,6 +203,16 @@ def _install(iso,base,game_exe,report,game_root=None,refresh=False,finalize=None
         if finalize:finalize(previous[0])
         from .optional_content import summary
         summary(previous[0])
+        # An installation prepared before player audio existed has no banks or runtime image.
+        # Stage them here too, so a plain refresh repairs the audio path without re-preparing
+        # every group. The helper is optional for third-party exporters.
+        if game_root is not None and getattr(exports, 'player_audio', None) is not None:
+            work=base/'player-audio-work'
+            work.mkdir(parents=True,exist_ok=True)
+            try:
+                exports.player_audio(game_root, previous[0], work, report, audio_image=audio_image)
+            finally:
+                remove_intermediate(work, base)
         atomic_json(base/'installation.json', {**previous[1], 'pipelines':target_versions,
                     'outputs':outputs(previous[0]), 'source':source})
         report('Game assets are current')

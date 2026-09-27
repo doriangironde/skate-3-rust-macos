@@ -6,15 +6,16 @@ from . import install as engine
 from .vlt import convert as convert_vlt
 from .physics_skeleton import convert as convert_skeleton
 
-def core(game_root, stage, work, report, log, converted=None, audio_image=None):
-    private=stage/"assets/private"
-    stock=private/"stock"
-    report('Extracting animation banks, graphs and gameplay inputs')
-    engine.extract(game_root/'data/big/miscload.big',stock)
-    engine.extract(game_root/'data/big/miscboot.big',stock,lambda e:e.path.lower()=='data/config/input.cfg')
-    # Some disc banks are loose files rather than members of miscload.
-    loose=game_root/'data/anim'
-    if loose.is_dir():shutil.copytree(loose,stock/'data/anim',dirs_exist_ok=True)
+def player_audio(game_root, stage, work, report, audio_image=None):
+    """Stage the owned player-audio inputs: banks, MixMap and the TU3 runtime image.
+
+    Called for every install or refresh, including an installation whose groups are already
+    current: an installation prepared before player audio existed has no audio files, and the
+    sound runtime must not be the only thing that reports it. Missing inputs leave ordinary setup
+    usable and the runtime reports that capability as unavailable rather than substituting raw
+    samples.
+    """
+    stock=stage/"assets/private/stock"
     # Player/board sound banks are owned-disc inputs. Keep them inside the private prepared
     # installation so a normal launch does not depend on a developer-specific extraction path.
     # They remain ignored local assets and are never included in source control or release media.
@@ -28,12 +29,10 @@ def core(game_root, stage, work, report, log, converted=None, audio_image=None):
             shutil.copy2(source,target)
     # The evaluator also needs the owner's TU3 runtime image. It is decrypted code, not a
     # distributable game asset, so accept it only as an explicit local setup input and keep it
-    # alongside the owned audio archives. Missing images leave ordinary setup usable; the sound
-    # runtime will report that exact capability as unavailable rather than substitute raw samples.
+    # alongside the owned audio archives: a normal supported-disc install extracts it from the
+    # owner's own default.xex + default.xexp, so no debug environment variable or recomp capture
+    # is needed. An unknown edition or a missing update only disables player audio.
     if audio_image is None:
-        # A normal supported-disc install extracts the pinned TU3 image from the owner's own
-        # default.xex + default.xexp, so no debug environment variable or recomp capture is
-        # needed. An unknown edition or a missing update only disables player audio.
         from .player_image import install_player_image
         extracted = work/'audio-image'
         report(install_player_image(game_root, extracted))
@@ -51,6 +50,18 @@ def core(game_root, stage, work, report, log, converted=None, audio_image=None):
         receipt=image_root/'receipt.json'
         if receipt.is_file():
             shutil.copy2(receipt,target_root/receipt.name)
+
+
+def core(game_root, stage, work, report, log, converted=None, audio_image=None):
+    private=stage/"assets/private"
+    stock=private/"stock"
+    report('Extracting animation banks, graphs and gameplay inputs')
+    engine.extract(game_root/'data/big/miscload.big',stock)
+    engine.extract(game_root/'data/big/miscboot.big',stock,lambda e:e.path.lower()=='data/config/input.cfg')
+    # Some disc banks are loose files rather than members of miscload.
+    loose=game_root/'data/anim'
+    if loose.is_dir():shutil.copytree(loose,stock/'data/anim',dirs_exist_ok=True)
+    player_audio(game_root, stage, work, report, audio_image=audio_image)
     report('Converting physics and difficulty settings')
     database=work/'database'
     engine.extract(game_root/'data/big/db.big',database,lambda e:Path(e.path).name.lower() in {
