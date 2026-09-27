@@ -16,6 +16,13 @@ __pycache__/
 *.7z
 *.rar
 *.xex
+*.xexp
+# Never stage decrypted guest audio image or retail audio archives.
+**/g_8[23]*.bin
+**/default_82000000_*.bin
+**/audiofiles.big
+**/wheels.big
+**/grains.big
 *.iso
 *.i64
 *.idb
@@ -77,3 +84,6 @@ __pycache__/
 /PLAY-NATIVE-TRAINER.bat
 /PLAY-SCROLL-SETTINGS.bat
 /PLAY-SHOWCASE.bat
+
+audiofork/
+stutter*

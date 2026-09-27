@@ -13,6 +13,7 @@ mod scoring_runtime;
 mod scoring_hud;
 mod animation_pose;
 mod app;
+mod skate_audio;
 mod assets;
 mod camera;
 mod config;

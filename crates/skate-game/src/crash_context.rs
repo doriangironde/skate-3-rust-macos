@@ -16,11 +16,18 @@ pub(crate) fn requested(tick: u64, from: PhysicalStateId, to: PhysicalStateId) {
     }
 }
 
+fn changed(previous: &mut String, current: &str) -> bool {
+    if previous == current { return false; }
+    current.clone_into(previous);
+    true
+}
+
 #[derive(Default)]
 pub(crate) struct Snapshot {
     next: f64,
     state: String,
     graphics: String,
+    network: String,
     gpu_recorded: bool,
 }
 
@@ -65,9 +72,6 @@ pub(crate) fn sample(
             previous.gpu_recorded = true;
         }
     }
-    if let Some(multiplayer) = &multiplayer {
-        eprintln!("REPORT_META network={}", multiplayer.diagnostic_summary());
-    }
     let state = format!(
         "map_fingerprint:{:016x} generation:{} difficulty:{} physical:{:?} paused:{} map_loading:{} multiplayer_active:{} physics_failed:{}",
         config.map_fingerprint,
@@ -79,19 +83,41 @@ pub(crate) fn sample(
         multiplayer.as_ref().is_some_and(|m| m.active()),
         physics.failed
     );
-    if state != previous.state {
+    if changed(&mut previous.state, &state) {
         eprintln!("REPORT_TRANSITION {state}");
-        previous.state = state.clone();
+        eprintln!(
+            "REPORT_META state={state} physics_tick:{} contacts:{} network_contacts:{}",
+            physics.ticks, physics.contact_count, physics.network_contacts
+        );
     }
-    eprintln!(
-        "REPORT_META state={state} physics_tick:{} contacts:{} network_contacts:{}",
-        physics.ticks, physics.contact_count, physics.network_contacts
-    );
+    if let Some(multiplayer) = &multiplayer {
+        let network = multiplayer.diagnostic_summary();
+        if changed(&mut previous.network, &network) {
+            eprintln!("REPORT_META network={network}");
+        }
+    }
     if let Some(menu) = menu {
         let graphics = menu.diagnostic_settings();
-        if graphics != previous.graphics {
+        if changed(&mut previous.graphics, &graphics) {
             eprintln!("REPORT_META graphics={graphics}");
-            previous.graphics = graphics;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::changed;
+
+    #[test]
+    fn only_changed_snapshots_are_reported() {
+        let mut previous = String::new();
+        assert!(changed(&mut previous, "skating"));
+        assert!(!changed(&mut previous, "skating"));
+        assert!(changed(&mut previous, "paused"));
+        let mut network = String::new();
+        assert!(changed(&mut network, "provider:inactive"));
+        assert!(!changed(&mut network, "provider:inactive"));
+        assert!(changed(&mut network, "provider:active"));
+        assert!(!changed(&mut previous, "paused"));
     }
 }

@@ -71,6 +71,18 @@ The binary is `target/debug/skate3rust`. Forgejo runs these Linux build and
 first-run tests on pushes and pull requests using a Docker runner labeled
 `docker`; it does not publish downloads or run game assets in CI.
 
+Retail audio playback (Linux, experimental) needs `ffmpeg` and your own extracted
+`data/audio` archives. To test an actual University ambience stream:
+
+    sudo apt-get install -y ffmpeg
+    SKATE_AMBIENCE="$PWD/data/disc/data/audio/ambienceresident.big:$PWD/data/disc/data/audio/ambience.big:University" cargo run -p skate-game --bin skate3-audio-check -- 5
+
+In the game, `SKATE_AUDIO_PLAY="<absolute-path>/ambience.big:07_univ_mt_high.sns:5:48000:40"`
+plays that entry at startup. This is a manual sound check, not yet gameplay-triggered
+skating audio; the imported fork does not implement player-event playback either.
+Playback currently decodes at most 128 archive blocks (roughly 14 seconds) into memory;
+this is not suitable for uninterrupted full-length ambience or music.
+
 ### Windows
 
 Requires Rust with the MSVC toolchain and LLVM installed in its default location.

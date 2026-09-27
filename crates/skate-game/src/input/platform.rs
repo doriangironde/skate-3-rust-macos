@@ -1,6 +1,5 @@
-//! Device transport. Raw signed axes and trigger bytes reach the TU3 converter
-//! without Bevy/gilrs deadzones or normalized-axis reconstruction.
-//! Windows reads XInput. Linux reads evdev gamepads and emits the same Xbox state.
+//! Device transport. Windows reads raw XInput; Linux maps gilrs controller
+//! states to Xbox values on a background input worker.
 use skate_core::input::xbox::XboxState;
 
 pub(crate) struct DevicePacket {
@@ -132,429 +131,194 @@ mod windows {
     }
 }
 
-/// One kernel absolute axis, already carrying the device's reported range.
-#[derive(Clone, Copy)]
-pub(crate) struct AbsSample {
-    pub code: u16,
-    pub value: i32,
-    pub min: i32,
-    pub max: i32,
-}
-
-/// Linux gamepad specification plus the `xpad` trigger axes, as XInput state.
-/// Stick Y is negated: the kernel reports negative as up, XInput reports positive as up.
-pub(crate) fn xbox_from_linux(keys: &[u16], axes: &[AbsSample]) -> XboxState {
-    const BTN_SOUTH: u16 = 0x130;
-    const BTN_EAST: u16 = 0x131;
-    const BTN_NORTH: u16 = 0x133;
-    const BTN_WEST: u16 = 0x134;
-    const BTN_TL: u16 = 0x136;
-    const BTN_TR: u16 = 0x137;
-    const BTN_TL2: u16 = 0x138;
-    const BTN_TR2: u16 = 0x139;
-    const BTN_SELECT: u16 = 0x13a;
-    const BTN_START: u16 = 0x13b;
-    const BTN_THUMBL: u16 = 0x13d;
-    const BTN_THUMBR: u16 = 0x13e;
-    const BTN_DPAD_UP: u16 = 0x220;
-    const BTN_DPAD_DOWN: u16 = 0x221;
-    const BTN_DPAD_LEFT: u16 = 0x222;
-    const BTN_DPAD_RIGHT: u16 = 0x223;
-    const ABS_X: u16 = 0x00;
-    const ABS_Y: u16 = 0x01;
-    const ABS_Z: u16 = 0x02;
-    const ABS_RX: u16 = 0x03;
-    const ABS_RY: u16 = 0x04;
-    const ABS_RZ: u16 = 0x05;
-    const ABS_HAT0X: u16 = 0x10;
-    const ABS_HAT0Y: u16 = 0x11;
-    const ABS_HAT2X: u16 = 0x14;
-    const ABS_HAT2Y: u16 = 0x15;
-
-    let mut buttons = 0u16;
-    for code in keys {
-        buttons |= match *code {
-            BTN_SOUTH => 0x1000,
-            BTN_EAST => 0x2000,
-            BTN_WEST => 0x4000,
-            BTN_NORTH => 0x8000,
-            BTN_TL => 0x0100,
-            BTN_TR => 0x0200,
-            BTN_SELECT => 0x0020,
-            BTN_START => 0x0010,
-            BTN_THUMBL => 0x0040,
-            BTN_THUMBR => 0x0080,
-            BTN_DPAD_UP => 0x0001,
-            BTN_DPAD_DOWN => 0x0002,
-            BTN_DPAD_LEFT => 0x0004,
-            BTN_DPAD_RIGHT => 0x0008,
-            _ => 0,
-        };
-    }
-    if let Some(hat) = axis(axes, ABS_HAT0X) {
-        if hat.value < 0 {
-            buttons |= 0x0004;
-        } else if hat.value > 0 {
-            buttons |= 0x0008;
-        }
-    }
-    if let Some(hat) = axis(axes, ABS_HAT0Y) {
-        if hat.value < 0 {
-            buttons |= 0x0001;
-        } else if hat.value > 0 {
-            buttons |= 0x0002;
-        }
-    }
-    XboxState {
-        buttons,
-        triggers: [
-            trigger(keys, axes, ABS_HAT2Y, ABS_Z, BTN_TL2),
-            trigger(keys, axes, ABS_HAT2X, ABS_RZ, BTN_TR2),
-        ],
-        left: [stick(axes, ABS_X, false), stick(axes, ABS_Y, true)],
-        right: [stick(axes, ABS_RX, false), stick(axes, ABS_RY, true)],
-    }
-}
-
-fn axis(axes: &[AbsSample], code: u16) -> Option<&AbsSample> {
-    axes.iter().find(|sample| sample.code == code)
-}
-
-fn stick(axes: &[AbsSample], code: u16, negate_y: bool) -> i16 {
-    let Some(sample) = axis(axes, code) else {
-        return 0;
-    };
-    let scaled = scale_stick(sample.value, sample.min, sample.max);
-    if negate_y {
-        if scaled == i16::MIN { i16::MAX } else { -scaled }
-    } else {
-        scaled
-    }
-}
-
-fn scale_stick(value: i32, min: i32, max: i32) -> i16 {
-    if max <= min {
-        return 0;
-    }
-    let span = i64::from(max) - i64::from(min);
-    let shifted = (i64::from(value.clamp(min, max)) - i64::from(min)) * 65535 / span - 32768;
-    shifted.clamp(-32768, 32767) as i16
-}
-
-fn trigger(keys: &[u16], axes: &[AbsSample], spec: u16, xpad: u16, digital: u16) -> u8 {
-    if let Some(sample) = axis(axes, spec).or_else(|| axis(axes, xpad)) {
-        return scale_trigger(sample.value, sample.min, sample.max);
-    }
-    if keys.contains(&digital) { 255 } else { 0 }
-}
-
-/// Normalize over the full advertised range: a signed trigger axis resting at
-/// its negative endpoint and an unsigned one both reach 0..255.
-fn scale_trigger(value: i32, min: i32, max: i32) -> u8 {
-    if max <= min {
-        return 0;
-    }
-    let span = i64::from(max) - i64::from(min);
-    let shifted = (i64::from(value.clamp(min, max)) - i64::from(min)) * 255 / span;
-    shifted.clamp(0, 255) as u8
-}
-
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{AbsSample, CapabilityCache, DeviceError, DevicePacket, xbox_from_linux};
-    use evdev::{Device, EventSummary, KeyCode};
+    use super::{CapabilityCache, DeviceError, DevicePacket};
+    use gilrs::{Axis, Button, EventType, Gamepad, GilrsBuilder};
     use skate_core::input::xbox::XboxState;
-    use std::{
-        io::ErrorKind,
-        path::PathBuf,
-        sync::Mutex,
-        time::{Duration, Instant},
-    };
+    use std::{sync::{Arc, Mutex, OnceLock}, time::Duration};
 
-    struct OpenPad {
-        path: PathBuf,
-        device: Device,
-        keys: Vec<u16>,
-        axes: Vec<AbsSample>,
-        number: u32,
-        state: XboxState,
+    #[derive(Clone, Copy, Default, PartialEq, Eq)]
+    struct PadState {
+        buttons: u16,
+        triggers: [u8; 2],
+        left: [i16; 2],
+        right: [i16; 2],
     }
 
-    impl OpenPad {
-        fn open(path: PathBuf, device: Device) -> Result<Self, ()> {
-            device.set_nonblocking(true).map_err(|_| ())?;
-            let mut keys = Vec::new();
-            if let Ok(state) = device.get_key_state() {
-                for key in state.iter() {
-                    keys.push(key.code());
-                }
-            }
-            let mut axes = Vec::new();
-            if let Ok(info) = device.get_absinfo() {
-                for (code, abs) in info {
-                    axes.push(AbsSample {
-                        code: code.0,
-                        value: abs.value(),
-                        min: abs.minimum(),
-                        max: abs.maximum(),
-                    });
-                }
-            }
-            let state = xbox_from_linux(&keys, &axes);
-            Ok(Self { path, device, keys, axes, number: 0, state })
-        }
+    #[derive(Default)]
+    struct Snapshot {
+        slots: [Option<PadState>; 4],
+        numbers: [u32; 4],
+    }
 
-        fn pump(&mut self) -> Result<(u32, XboxState), DeviceError> {
-            match self.device.fetch_events() {
-                Ok(events) => {
-                    for event in events {
-                        match event.destructure() {
-                            EventSummary::Key(_, key, value) => set_key(&mut self.keys, key.code(), value),
-                            EventSummary::AbsoluteAxis(_, axis, value) => set_axis(&mut self.axes, axis.0, value),
-                            _ => {}
-                        }
-                    }
-                }
-                Err(error) if error.kind() == ErrorKind::WouldBlock => {}
-                Err(_) => return Err(DeviceError::Disconnected),
-            }
-            let next = xbox_from_linux(&self.keys, &self.axes);
-            if next.buttons != self.state.buttons
-                || next.triggers != self.state.triggers
-                || next.left != self.state.left
-                || next.right != self.state.right
-            {
-                self.number = self.number.wrapping_add(1);
-                self.state = next;
-            }
-            Ok((self.number, XboxState {
-                buttons: self.state.buttons,
-                triggers: self.state.triggers,
-                left: self.state.left,
-                right: self.state.right,
-            }))
+    fn stick(value: f32) -> i16 {
+        (value.clamp(-1., 1.) * 32767.).round() as i16
+    }
+    fn trigger(value: f32) -> u8 {
+        (value.clamp(0., 1.) * 255.).round() as u8
+    }
+
+    fn buttons(pressed: impl Fn(Button) -> bool) -> u16 {
+        let mut bits = 0;
+        for (button, bit) in [
+            (Button::South, 0x1000), (Button::East, 0x2000),
+            (Button::West, 0x4000), (Button::North, 0x8000),
+            (Button::LeftTrigger, 0x0100), (Button::RightTrigger, 0x0200),
+            (Button::Select, 0x0020), (Button::Start, 0x0010),
+            (Button::LeftThumb, 0x0040), (Button::RightThumb, 0x0080),
+            (Button::DPadUp, 0x0001), (Button::DPadDown, 0x0002),
+            (Button::DPadLeft, 0x0004), (Button::DPadRight, 0x0008),
+        ] {
+            if pressed(button) { bits |= bit; }
+        }
+        bits
+    }
+
+    fn dpad(x: f32, y: f32) -> u16 {
+        (if x < -0.5 { 0x0004 } else if x > 0.5 { 0x0008 } else { 0 })
+            | (if y > 0.5 { 0x0001 } else if y < -0.5 { 0x0002 } else { 0 })
+    }
+
+    fn state(g: &Gamepad<'_>) -> PadState {
+        // Gilrs normalizes stick Y to positive-up, like XInput.
+        PadState {
+            buttons: buttons(|button| g.is_pressed(button))
+                | dpad(g.value(Axis::DPadX), g.value(Axis::DPadY)),
+            triggers: [(Button::LeftTrigger2, Axis::LeftZ), (Button::RightTrigger2, Axis::RightZ)]
+                .map(|(button, axis)| trigger(g.button_data(button).map(|data| data.value())
+                    .or_else(|| g.axis_data(axis).map(|data| (data.value() + 1.) * 0.5))
+                    .unwrap_or(0.))),
+            left: [stick(g.value(Axis::LeftStickX)), stick(g.value(Axis::LeftStickY))],
+            right: [stick(g.value(Axis::RightStickX)), stick(g.value(Axis::RightStickY))],
         }
     }
 
-    fn set_key(keys: &mut Vec<u16>, code: u16, value: i32) {
-        if value == 0 {
-            keys.retain(|pressed| *pressed != code);
-        } else if !keys.contains(&code) {
-            keys.push(code);
+    // Retain occupied slots on disconnect; a new device fills the lowest vacancy.
+    fn reconcile<T: Copy + Eq>(ids: &mut [Option<T>; 4], live: &[T]) {
+        for slot in ids.iter_mut() {
+            if slot.is_some_and(|id| !live.contains(&id)) { *slot = None; }
+        }
+        for &id in live {
+            if ids.contains(&Some(id)) { continue; }
+            if let Some(slot) = ids.iter_mut().find(|slot| slot.is_none()) { *slot = Some(id); }
         }
     }
 
-    fn set_axis(axes: &mut [AbsSample], code: u16, value: i32) {
-        if let Some(sample) = axes.iter_mut().find(|sample| sample.code == code) {
-            sample.value = value;
+    fn publish<T: Copy + Eq>(snapshot: &mut Snapshot, before: [Option<T>; 4], after: [Option<T>; 4], next: [Option<PadState>; 4], lifecycle: &[T]) {
+        for i in 0..4 {
+            if before[i] != after[i] || snapshot.slots[i] != next[i]
+                || after[i].is_some_and(|id| lifecycle.contains(&id)) {
+                snapshot.numbers[i] = snapshot.numbers[i].wrapping_add(1);
+                snapshot.slots[i] = next[i];
+            }
         }
     }
 
-    struct Hub {
-        slots: [Option<OpenPad>; 4],
-        last_scan: Option<Instant>,
-        dirty: bool,
-        complained: bool,
-    }
-
-    /// Fixed slot layout: pads already in a slot keep it, and newly opened pads
-    /// take the lowest free slot. Unplugging a lower pad therefore never
-    /// renumbers a higher one, so slot indices and `--controller N` stay stable.
-    fn slot_assignments(live: &[Option<PathBuf>; 4], fresh: &[PathBuf]) -> [Option<PathBuf>; 4] {
-        let mut layout: [Option<PathBuf>; 4] = std::array::from_fn(|index| live[index].clone());
-        for path in fresh {
-            let Some(free) = layout.iter().position(Option::is_none) else {
-                break;
-            };
-            layout[free] = Some(path.clone());
-        }
-        layout
-    }
-
-    /// Warn only when nothing readable opened while at least one event node was
-    /// denied: an unrelated keyboard opening must not hide a blocked gamepad.
-    fn should_warn_pad_permission(occupied: usize, denied: u32, pads_opened: u32) -> bool {
-        occupied == 0 && denied > 0 && pads_opened == 0
-    }
-
-    impl Hub {
-        const fn new() -> Self {
-            Self { slots: [None, None, None, None], last_scan: None, dirty: true, complained: false }
-        }
-
-        fn sample(&mut self, index: usize) -> Result<(u32, XboxState), DeviceError> {
-            let due = self.last_scan.is_none_or(|scan| scan.elapsed() >= Duration::from_secs(1));
-            let occupied = self.slots.iter().filter(|slot| slot.is_some()).count();
-            if self.dirty || (occupied < 4 && due) {
-                self.scan();
-            }
-            let pumped = {
-                let Some(pad) = self.slots.get_mut(index).and_then(Option::as_mut) else {
-                    return Err(DeviceError::Disconnected);
-                };
-                pad.pump()
-            };
-            match pumped {
-                Ok(packet) => Ok(packet),
-                Err(error) => {
-                    self.slots[index] = None;
-                    self.dirty = true;
-                    Err(error)
+    fn run(shared: Arc<Mutex<Snapshot>>) {
+        // Gameplay applies its own deadzone. Map axis D-pads above instead of enabling gilrs filters.
+        let mut gilrs = match GilrsBuilder::new().with_default_filters(false).with_force_feedback(false).build() {
+            Ok(gilrs) => gilrs,
+            Err(error) => { eprintln!("Controller initialization failed: {error}"); return; }
+        };
+        let mut ids = [None; 4];
+        loop {
+            // Gilrs owns device discovery/events on this worker, never under the snapshot lock.
+            // Timeout also samples initial state and clears disconnected controllers.
+            let mut lifecycle = Vec::new();
+            let first = gilrs.next_event_blocking(Some(Duration::from_millis(8)));
+            for event in first.into_iter().chain((0..128).map_while(|_| gilrs.next_event())) {
+                if matches!(event.event, EventType::Connected | EventType::Disconnected) {
+                    lifecycle.push(event.id);
                 }
             }
-        }
-
-        fn scan(&mut self) {
-            self.last_scan = Some(Instant::now());
-            self.dirty = false;
-            let mut paths = match std::fs::read_dir("/dev/input") {
-                Ok(entries) => entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| {
-                        path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-                            let rest = name.strip_prefix("event");
-                            rest.is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-                Err(error) => {
-                    self.slots = std::array::from_fn(|_| None);
-                    self.complain(error.kind() == ErrorKind::PermissionDenied);
-                    return;
-                }
-            };
-            paths.sort();
-            // A pad whose node disappeared frees only its own slot.
-            for slot in &mut self.slots {
-                if slot.as_ref().is_some_and(|pad| !paths.contains(&pad.path)) {
-                    *slot = None;
-                }
-            }
-            let live: [Option<PathBuf>; 4] =
-                std::array::from_fn(|index| self.slots[index].as_ref().map(|pad| pad.path.clone()));
-            let mut denied = 0u32;
-            let mut pads_opened = 0u32;
-            let mut fresh = Vec::new();
-            let free = 4usize.saturating_sub(self.slots.iter().filter(|slot| slot.is_some()).count());
-            for path in paths {
-                if fresh.len() >= free {
-                    break;
-                }
-                if self.slots.iter().flatten().any(|pad| pad.path == path) {
-                    continue;
-                }
-                match Device::open(&path) {
-                    Ok(device) => {
-                        if !is_gamepad(&device) {
-                            continue;
-                        }
-                        if let Ok(pad) = OpenPad::open(path, device) {
-                            pads_opened += 1;
-                            fresh.push(pad);
-                        }
-                    }
-                    Err(error) if error.kind() == ErrorKind::PermissionDenied => denied += 1,
-                    Err(_) => {}
-                }
-            }
-            let fresh_paths: Vec<PathBuf> = fresh.iter().map(|pad| pad.path.clone()).collect();
-            let layout = slot_assignments(&live, &fresh_paths);
-            for pad in fresh {
-                if let Some(index) = layout.iter().position(|path| path.as_deref() == Some(pad.path.as_path())) {
-                    self.slots[index] = Some(pad);
-                }
-            }
-            let occupied = self.slots.iter().filter(|slot| slot.is_some()).count();
-            if should_warn_pad_permission(occupied, denied, pads_opened) {
-                self.complain(true);
-            }
-        }
-
-        fn complain(&mut self, denied: bool) {
-            if !denied || self.complained {
-                return;
-            }
-            self.complained = true;
-            eprintln!(
-                "Gamepad input is not readable (/dev/input/event* denied). Add this user to the input group, or grant the local session access, then start the game again."
-            );
+            let live: Vec<_> = gilrs.gamepads().map(|(id, _)| id).collect();
+            let previous_ids = ids;
+            reconcile(&mut ids, &live);
+            let next = ids.map(|id| id.map(|id| state(&gilrs.gamepad(id))));
+            let mut snapshot = shared.lock().unwrap_or_else(|e| e.into_inner());
+            publish(&mut snapshot, previous_ids, ids, next, &lifecycle);
         }
     }
 
-    fn is_gamepad(device: &Device) -> bool {
-        device.supported_keys().is_some_and(|keys| keys.contains(KeyCode::BTN_SOUTH))
-    }
-
-    fn hub() -> std::sync::MutexGuard<'static, Hub> {
-        static HUB: Mutex<Hub> = Mutex::new(Hub::new());
-        HUB.lock().unwrap_or_else(|poison| poison.into_inner())
+    fn shared() -> &'static Arc<Mutex<Snapshot>> {
+        static STATE: OnceLock<Arc<Mutex<Snapshot>>> = OnceLock::new();
+        STATE.get_or_init(|| {
+            let state = Arc::new(Mutex::new(Snapshot::default()));
+            let worker = Arc::clone(&state);
+            if let Err(error) = std::thread::Builder::new().name("gilrs-input".into()).spawn(move || run(worker)) {
+                eprintln!("Controller worker failed: {error}");
+            }
+            state
+        })
     }
 
     pub(super) fn poll(index: usize, cache: &mut CapabilityCache) -> Result<DevicePacket, DeviceError> {
-        let (number, state) = match hub().sample(index) {
-            Ok(packet) => packet,
-            Err(error) => {
-                cache.invalidate();
-                return Err(error);
-            }
+        let snapshot = shared().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(state) = snapshot.slots[index] else {
+            cache.invalidate();
+            return Err(DeviceError::Disconnected);
         };
-        // Linux gamepads are ordinary pads. Subtype 7 is the guitar layout and would
-        // zero the triggers inside the native converter.
-        let subtype = cache.get(std::time::Instant::now(), || Ok(1))?;
-        Ok(DevicePacket { number, state, subtype })
+        Ok(DevicePacket {
+            number: snapshot.numbers[index],
+            state: XboxState { buttons: state.buttons, triggers: state.triggers,
+                left: state.left, right: state.right },
+            subtype: 1,
+        })
     }
 
     #[cfg(test)]
     mod tests {
-        use super::{should_warn_pad_permission, slot_assignments};
-        use std::path::PathBuf;
-
-        fn event(name: &str) -> PathBuf {
-            PathBuf::from(name)
-        }
-
+        use super::*;
         #[test]
-        fn slots_stay_fixed_when_a_lower_pad_unplugs_or_reorders() {
-            // Slot 1 still holds event6 while slot 0 is free; the pad must not shift down.
-            let live = [None, Some(event("/dev/input/event6")), None, None];
-            assert_eq!(slot_assignments(&live, &[]), live);
-            // A pad appearing on a lower event number fills slot 0 without moving event6.
-            let layout = slot_assignments(&live, &[event("/dev/input/event4")]);
-            assert_eq!(layout, [
-                Some(event("/dev/input/event4")),
-                Some(event("/dev/input/event6")),
-                None,
-                None,
-            ]);
+        fn neutral_and_axis_endpoints() {
+            assert_eq!(stick(0.), 0);
+            assert_eq!(stick(1.), i16::MAX);
+            assert_eq!(stick(-1.), -i16::MAX);
+            assert_eq!(trigger(0.), 0);
+            assert_eq!(trigger(1.), 255);
+            assert_eq!(trigger(0.5), 128);
         }
-
         #[test]
-        fn hotplug_fills_the_lowest_free_slots_only() {
-            let live = [None, None, None, Some(event("/dev/input/event9"))];
-            let layout = slot_assignments(
-                &live,
-                &[
-                    event("/dev/input/event3"),
-                    event("/dev/input/event4"),
-                    event("/dev/input/event5"),
-                    event("/dev/input/event6"),
-                ],
-            );
-            assert_eq!(layout, [
-                Some(event("/dev/input/event3")),
-                Some(event("/dev/input/event4")),
-                Some(event("/dev/input/event5")),
-                Some(event("/dev/input/event9")),
-            ]);
+        fn stable_slots_and_disconnect() {
+            let (a, b, c) = (1, 2, 3);
+            let mut ids = [None; 4];
+            reconcile(&mut ids, &[a, b]);
+            assert_eq!(ids, [Some(a), Some(b), None, None]);
+            reconcile(&mut ids, &[b, c]);
+            assert_eq!(ids, [Some(c), Some(b), None, None]);
+            reconcile(&mut ids, &[]);
+            assert_eq!(ids, [None; 4]);
         }
-
         #[test]
-        fn permission_warning_survives_unrelated_devices_opening() {
-            assert!(should_warn_pad_permission(0, 1, 0));
-            assert!(!should_warn_pad_permission(1, 3, 0));
-            assert!(!should_warn_pad_permission(0, 1, 1));
-            assert!(!should_warn_pad_permission(0, 0, 0));
+        fn controller_buttons_keep_xbox_layout() {
+            assert_eq!(buttons(|_| false), 0);
+            assert_eq!(buttons(|button| button == Button::South), 0x1000);
+            assert_eq!(buttons(|button| button == Button::West), 0x4000);
+            assert_eq!(buttons(|button| button == Button::DPadUp), 0x0001);
+            assert_eq!(buttons(|button| button == Button::LeftTrigger), 0x0100);
+            assert_eq!(dpad(0., 0.), 0);
+            assert_eq!(dpad(-1., 1.), 0x0004 | 0x0001);
+            assert_eq!(dpad(1., -1.), 0x0008 | 0x0002);
+        }
+        #[test]
+        fn snapshot_tracks_changes_and_replacement_even_with_identical_buttons() {
+            let mut snapshot = Snapshot::default();
+            let neutral = PadState::default();
+            publish(&mut snapshot, [None; 4], [Some(1); 4], [Some(neutral); 4], &[]);
+            assert_eq!(snapshot.numbers, [1; 4]);
+            publish(&mut snapshot, [Some(1); 4], [Some(1); 4], [Some(neutral); 4], &[]);
+            assert_eq!(snapshot.numbers, [1; 4]);
+            let pressed = PadState { buttons: 0x1000, ..neutral };
+            publish(&mut snapshot, [Some(1); 4], [Some(1); 4], [Some(pressed); 4], &[]);
+            assert_eq!(snapshot.numbers, [2; 4]);
+            publish(&mut snapshot, [Some(1); 4], [None; 4], [None; 4], &[]);
+            assert_eq!(snapshot.numbers, [3; 4]);
+            publish(&mut snapshot, [None; 4], [Some(2); 4], [Some(neutral); 4], &[]);
+            publish(&mut snapshot, [Some(2); 4], [Some(3); 4], [Some(neutral); 4], &[]);
+            assert_eq!(snapshot.numbers, [5; 4]);
+            publish(&mut snapshot, [Some(3); 4], [Some(3); 4], [Some(neutral); 4], &[3]);
+            assert_eq!(snapshot.numbers, [6; 4]);
         }
     }
 }
@@ -598,85 +362,6 @@ mod cache_tests {
         assert_eq!(cache.get(start, || Ok(3)), Ok(3));
         cache.invalidate();
         assert_eq!(cache.get(start, || Ok(4)), Ok(4));
-    }
-}
-
-#[cfg(test)]
-mod linux_map_tests {
-    use super::{AbsSample, xbox_from_linux};
-
-    fn axis(code: u16, value: i32, min: i32, max: i32) -> AbsSample {
-        AbsSample { code, value, min, max }
-    }
-
-    #[test]
-    fn face_buttons_and_resting_sticks() {
-        let state = xbox_from_linux(&[0x130, 0x134], &[]);
-        assert_eq!(state.buttons, 0x1000 | 0x4000);
-        assert_eq!(state.triggers, [0, 0]);
-        assert_eq!(state.left, [0, 0]);
-        assert_eq!(state.right, [0, 0]);
-    }
-
-    #[test]
-    fn stick_y_is_negated_into_xinput_up() {
-        let full = [axis(0x00, 32767, -32768, 32767), axis(0x01, -32767, -32768, 32767)];
-        let state = xbox_from_linux(&[], &full);
-        assert_eq!(state.left, [32767, 32767]);
-        let down = [axis(0x01, 32767, -32768, 32767), axis(0x04, -32768, -32768, 32767)];
-        let state = xbox_from_linux(&[], &down);
-        assert_eq!(state.left[1], -32767);
-        assert_eq!(state.right[1], 32767);
-    }
-
-    #[test]
-    fn hat_dpad_and_xpad_triggers() {
-        let axes = [
-            axis(0x10, -1, -1, 1),
-            axis(0x11, 1, -1, 1),
-            axis(0x02, 255, 0, 255),
-            axis(0x05, 0, 0, 255),
-        ];
-        let state = xbox_from_linux(&[], &axes);
-        assert_eq!(state.buttons & 0x000f, 0x0004 | 0x0002);
-        assert_eq!(state.triggers, [255, 0]);
-    }
-
-    #[test]
-    fn spec_triggers_win_over_xpad_axes_and_digital_fallback() {
-        let axes = [axis(0x15, 0, 0, 1023), axis(0x02, 255, 0, 255), axis(0x14, 512, 0, 1023)];
-        let state = xbox_from_linux(&[0x138, 0x139], &axes);
-        assert_eq!(state.triggers[0], 0);
-        assert_eq!(state.triggers[1], ((512i64 * 255) / 1023) as u8);
-        let digital = xbox_from_linux(&[0x138], &[]);
-        assert_eq!(digital.triggers, [255, 0]);
-    }
-
-    #[test]
-    fn signed_trigger_axis_uses_the_full_advertised_range() {
-        // Some pads advertise a signed ABS_Z spanning the sign bit: both endpoints must map.
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, -32768, -32768, 32767)]).triggers[0], 0);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 32767, -32768, 32767)]).triggers[0], 255);
-        assert_eq!(
-            xbox_from_linux(&[], &[axis(0x02, 0, -32768, 32767)]).triggers[0],
-            ((32768i64 * 255) / 65535) as u8
-        );
-    }
-
-    #[test]
-    fn unsigned_trigger_axis_endpoints_reach_zero_and_full() {
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 0, 0, 255)]).triggers[0], 0);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 255, 0, 255)]).triggers[0], 255);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 0, 0, 1023)]).triggers[0], 0);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x02, 1023, 0, 1023)]).triggers[0], 255);
-    }
-
-    #[test]
-    fn stick_endpoints_map_to_the_advertised_range() {
-        assert_eq!(xbox_from_linux(&[], &[axis(0x00, -32768, -32768, 32767)]).left[0], i16::MIN);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 32767, -32768, 32767)]).left[0], i16::MAX);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 0, 0, 1023)]).left[0], i16::MIN);
-        assert_eq!(xbox_from_linux(&[], &[axis(0x00, 1023, 0, 1023)]).left[0], i16::MAX);
     }
 }
 
