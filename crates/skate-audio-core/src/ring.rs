@@ -138,10 +138,19 @@ const _: () = assert!(LIS_82160000 == 0x8216_0000, "lis r6,-32234");
 /// loads it through the guest map, as the original does, so a patched image reaches the port.
 pub const FILL_CONSTANT_CELL: u32 = LIS_82160000 + 23056;
 const _: () = assert!(FILL_CONSTANT_CELL == 0x8216_5A10, "lis -32234 ; lfs 23056");
-const _: () = assert!(FILL_CONSTANT_CELL == crate::eval::ZERO_SINGLE, "the pool's 0.0f cell");
+const _: () = assert!(
+    FILL_CONSTANT_CELL == crate::eval::ZERO_SINGLE,
+    "the pool's 0.0f cell"
+);
 const _: () = assert!(SEG_STRIDE == 1 << 4, "rlwinm r11,r11,4,0,27");
-const _: () = assert!(OBJ_SPAN_LOW == OBJ_SPAN_HIGH + 4, "lwz r11,20(r3) ; lwz r10,24(r3)");
-const _: () = assert!(OBJ_LIMIT1 == OBJ_LIMIT0 + 4, "lwz r9,40(r3) ; lwz r11,44(r3)");
+const _: () = assert!(
+    OBJ_SPAN_LOW == OBJ_SPAN_HIGH + 4,
+    "lwz r11,20(r3) ; lwz r10,24(r3)"
+);
+const _: () = assert!(
+    OBJ_LIMIT1 == OBJ_LIMIT0 + 4,
+    "lwz r9,40(r3) ; lwz r11,44(r3)"
+);
 const _: () = assert!(BUFFER1 == BUFFER0 + 4, "lwz 4(r5) ; lwz 8(r5)");
 
 // ------------------------------------------------------------------------------ shared idioms
@@ -183,11 +192,18 @@ struct Plan {
 fn make_plan(g: &Guest, object: u64, ring: u32, limit: u64, want_in: u64) -> Result<Plan> {
     // cmpwi cr6,r7,0 ; bne cr6 — a zero request copies nothing. The test is on the low word.
     if want_in as u32 as i32 == 0 {
-        return Ok(Plan { empty: true, ..Plan::default() });
+        return Ok(Plan {
+            empty: true,
+            ..Plan::default()
+        });
     }
     // cmpw cr6,r31,r6 ; blt cr6 ; mr r31,r6 — clamp the request to the window. The compare is
     // signed on the low words and the `mr` keeps whichever register's full 64 bits.
-    let want = if (want_in as u32 as i32) < (limit as u32 as i32) { want_in } else { limit };
+    let want = if (want_in as u32 as i32) < (limit as u32 as i32) {
+        want_in
+    } else {
+        limit
+    };
 
     let cursor = g.u32(ring.wrapping_add(RING_CURSOR))?; // lwz r11,12(r28)
     let behind = words_to_bytes(limit); // rlwinm r10,r6,2,0,29
@@ -316,7 +332,14 @@ fn make_step(g: &Guest, segments_base: u32, rank: u32, dest: u64, running: u64) 
         let want = (if carry { 0u64 } else { !0u64 }) & left;
         (out, running, want) // mr r6,r31
     };
-    Ok(Step { entry, out, limit, want, need_up, over })
+    Ok(Step {
+        entry,
+        out,
+        limit,
+        want,
+        need_up,
+        over,
+    })
 }
 
 /// `sub_82B3DC48` — rank the output segments by size, then fill each one out of the ring. Returns
@@ -475,7 +498,11 @@ fn fill(g: &mut Guest, fpscr: &mut Fpscr, slot: u32, count: u32, value: f64) -> 
             let p = g.u32(slot)?;
             // stfs f0,-4(rX) off a pointer the original has already advanced by 12 — the same
             // address as `+8`, written the way the instruction pair forms it.
-            fp::store_single(g, p.wrapping_add(off).wrapping_add(12).wrapping_sub(4), value)?;
+            fp::store_single(
+                g,
+                p.wrapping_add(off).wrapping_add(12).wrapping_sub(4),
+                value,
+            )?;
             let p = g.u32(slot)?;
             fp::store_single(g, p.wrapping_add(off).wrapping_add(12), value)?; // stfsx f0,r10,rY
             off = off.wrapping_add(16); // addi r11,r11,16
@@ -570,7 +597,10 @@ pub const OUT_END: u32 = 16;
 /// stream object in `r3`, which is a different structure that happens to keep its ring base at the
 /// same offset.
 pub const OBJ_RING: u32 = 0;
-const _: () = assert!(OBJ_RING == RING_BASE, "both structures keep a ring base at +0");
+const _: () = assert!(
+    OBJ_RING == RING_BASE,
+    "both structures keep a ring base at +0"
+);
 
 /// Everything both copies need, all of it fixed at entry.
 ///
@@ -670,7 +700,12 @@ pub fn write_into_ring(
     let wrapped_source = plan.first_bytes.wrapping_add(plan.source);
     // bl 0x82edf460 — the remainder, from the window's start. Length zero when the first run took
     // the whole block; the guest routine still returns its own r3, which is what this call leaves.
-    mem::memcpy(g, plan.ring_start as u32, wrapped_source as u32, plan.rest_bytes)?;
+    mem::memcpy(
+        g,
+        plan.ring_start as u32,
+        wrapped_source as u32,
+        plan.rest_bytes,
+    )?;
     Ok(plan.ring_start)
 }
 
@@ -697,8 +732,7 @@ fn make_write_plan(
     let doubled_less_one = (doubled as i64).wrapping_sub(1) as u64; // addi r29,r10,-1
     let block_bytes = words_to_bytes(block); // rlwinm r10,r4,2,0,29
     // mullw r4,r31,r3 — again 64-bit; the remainder below is a 64-bit subtraction of it.
-    let whole =
-        ((quotient as u32 as i32 as i64).wrapping_mul(span as u32 as i32 as i64)) as u64;
+    let whole = ((quotient as u32 as i32 as i64).wrapping_mul(span as u32 as i32 as i64)) as u64;
     plan.ring_start = block_bytes.wrapping_add(ring); // add r31,r10,r9
     let remainder = position.wrapping_sub(whole); // subf r10,r4,r7
     let span_bytes = words_to_bytes(span); // rlwinm r9,r3,2,0,29
@@ -899,7 +933,10 @@ mod tests {
         assert_eq!(got, 8);
         // Words 56..63 of the ring, because the source is measured *back* from the cursor by
         // `limit` words, not forward from the base.
-        assert_eq!(words(&g, DEST, 8), (56..64).map(|i| 0x1000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, DEST, 8),
+            (56..64).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
         assert_eq!(g.u32(DEST + 32).unwrap(), 0, "nothing past the run");
     }
 
@@ -917,9 +954,12 @@ mod tests {
         let got = copy_from_ring(&mut g, OBJECT as u64, WINDOW as u64, DEST as u64, 8, 8).unwrap();
         assert_eq!(got, 8);
         let last = RING_BYTES / 4; // 256 words
-        let expected: Vec<u32> =
-            (last - 4..last).chain(0..4).map(|i| 0x1000 + i).collect();
-        assert_eq!(words(&g, DEST, 8), expected, "four from the end, then four from the base");
+        let expected: Vec<u32> = (last - 4..last).chain(0..4).map(|i| 0x1000 + i).collect();
+        assert_eq!(
+            words(&g, DEST, 8),
+            expected,
+            "four from the end, then four from the base"
+        );
     }
 
     #[test]
@@ -933,7 +973,10 @@ mod tests {
         let got = copy_from_ring(&mut g, OBJECT as u64, WINDOW as u64, DEST as u64, 8, 4).unwrap();
         assert_eq!(got, 4);
         // src = (RING + 16) - 32 = RING - 16, below the base, so + 96*4 = RING + 368 -> word 92.
-        assert_eq!(words(&g, DEST, 4), (92..96).map(|i| 0x1000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, DEST, 4),
+            (92..96).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -948,7 +991,10 @@ mod tests {
         let got = copy_from_ring(&mut g, OBJECT as u64, WINDOW as u64, DEST as u64, 8, 4).unwrap();
         assert_eq!(got, 4);
         // src = RING + 0x440 - 32 = RING + 0x420, past the end; -32 words -> RING + 0x3A0.
-        assert_eq!(words(&g, DEST, 4), (232..236).map(|i| 0x1000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, DEST, 4),
+            (232..236).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -974,7 +1020,10 @@ mod tests {
         assert_eq!(got, 4);
         // Negative: kept, and the copy then runs off the map rather than hanging.
         let r = copy_from_ring(&mut g, OBJECT as u64, WINDOW as u64, DEST as u64, 4, !0u64);
-        assert!(r.is_err(), "a negative word count is an Err here, a 4 GB memcpy in the original");
+        assert!(
+            r.is_err(),
+            "a negative word count is an Err here, a 4 GB memcpy in the original"
+        );
     }
 
     #[test]
@@ -1013,13 +1062,23 @@ mod tests {
         ring(&mut g, RING + 512);
         segment(&mut g, 0, 32, 32);
 
-        let end =
-            fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 1).unwrap();
+        let end = fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 1).unwrap();
 
-        assert_eq!(g.u32(SEGMENTS + SEG_RANK).unwrap(), 0, "the rank word is written on every path");
-        assert_eq!(g.u32(SEGMENTS + SEG_OUT).unwrap(), DEST, "pad is zero, so out == dest");
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_RANK).unwrap(),
+            0,
+            "the rank word is written on every path"
+        );
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_OUT).unwrap(),
+            DEST,
+            "pad is zero, so out == dest"
+        );
         assert_eq!(end, (DEST + 128) as u64, "32 words copied");
-        assert_eq!(words(&g, DEST, 4), (96..100).map(|i| 0x1000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, DEST, 4),
+            (96..100).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1034,7 +1093,11 @@ mod tests {
 
         fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 2).unwrap();
 
-        assert_eq!(g.u32(SEGMENTS + SEG_RANK).unwrap(), 1, "the bigger segment leads");
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_RANK).unwrap(),
+            1,
+            "the bigger segment leads"
+        );
         assert_eq!(g.u32(SEGMENTS + SEG_STRIDE + SEG_RANK).unwrap(), 0);
 
         // And the other way round, where the compare goes the other way.
@@ -1058,7 +1121,11 @@ mod tests {
         segment(&mut g, 0, 0x8000_0000, 32);
         segment(&mut g, 1, 32, 32);
         fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 2).unwrap();
-        assert_eq!(g.u32(SEGMENTS + SEG_RANK).unwrap(), 1, "the negative need does not lead");
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_RANK).unwrap(),
+            1,
+            "the negative need does not lead"
+        );
         assert_eq!(g.u32(SEGMENTS + SEG_STRIDE + SEG_RANK).unwrap(), 0);
     }
 
@@ -1072,8 +1139,16 @@ mod tests {
         let end = fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 0).unwrap();
 
         assert_eq!(end, DEST as u64);
-        assert_eq!(g.u32(SEGMENTS + SEG_RANK).unwrap(), 0, "the unconditional store still ran");
-        assert_eq!(g.u32(SEGMENTS + SEG_OUT).unwrap(), 0xFFFF_FFFF, "and nothing else did");
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_RANK).unwrap(),
+            0,
+            "the unconditional store still ran"
+        );
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_OUT).unwrap(),
+            0xFFFF_FFFF,
+            "and nothing else did"
+        );
         assert_eq!(g.u32(DEST).unwrap(), 0);
     }
 
@@ -1108,13 +1183,27 @@ mod tests {
 
         let end = fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 2).unwrap();
 
-        assert_eq!(g.u32(SEGMENTS + SEG_RANK).unwrap(), 0, "the 64-word segment leads");
-        assert_eq!(g.u32(SEGMENTS + SEG_OUT).unwrap(), DEST, "segment 0 at the start");
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_RANK).unwrap(),
+            0,
+            "the 64-word segment leads"
+        );
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_OUT).unwrap(),
+            DEST,
+            "segment 0 at the start"
+        );
         // Segment 1's output word is 32 words in, which is only true if `dest` moved.
-        assert_eq!(g.u32(SEGMENTS + SEG_STRIDE + SEG_OUT).unwrap(), DEST + 4 * 32);
+        assert_eq!(
+            g.u32(SEGMENTS + SEG_STRIDE + SEG_OUT).unwrap(),
+            DEST + 4 * 32
+        );
         assert_eq!(end, (DEST + 4 * 64) as u64, "32 words then 32 more");
         // And the two runs abut: ring words 64..127, contiguous, with no gap or overlap.
-        assert_eq!(words(&g, DEST, 64), (64..128).map(|i| 0x1000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, DEST, 64),
+            (64..128).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1130,9 +1219,20 @@ mod tests {
 
         let end = fill_segments(&mut g, OBJECT as u64, WINDOW as u64, SEGMENTS, 2).unwrap();
 
-        assert_eq!(end, (DEST + 4 * 64) as u64, "the second segment contributed nothing");
-        assert_eq!(words(&g, DEST, 64), (64..128).map(|i| 0x1000 + i).collect::<Vec<_>>());
-        assert_eq!(g.u32(DEST + 4 * 64).unwrap(), 0, "and wrote nothing past the first run");
+        assert_eq!(
+            end,
+            (DEST + 4 * 64) as u64,
+            "the second segment contributed nothing"
+        );
+        assert_eq!(
+            words(&g, DEST, 64),
+            (64..128).map(|i| 0x1000 + i).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            g.u32(DEST + 4 * 64).unwrap(),
+            0,
+            "and wrote nothing past the first run"
+        );
     }
 
     // ------------------------------------------------------------------ sub_82B3DF90
@@ -1175,7 +1275,11 @@ mod tests {
         for i in 0..7 {
             assert_eq!(g.f32(BUF0 + 4 * i).unwrap(), -2.5, "float {i}");
         }
-        assert_eq!(g.u32(BUF0 + 28).unwrap(), 0x7F7F_7F7F, "nothing past the count");
+        assert_eq!(
+            g.u32(BUF0 + 28).unwrap(),
+            0x7F7F_7F7F,
+            "nothing past the count"
+        );
     }
 
     #[test]
@@ -1193,9 +1297,17 @@ mod tests {
             fill_tail(&mut g, OBJECT, 0, RECORD).unwrap();
 
             for i in 0..count {
-                assert_eq!(g.f32(BUF0 + 4 * i).unwrap(), 1.5, "count {count}, float {i}");
+                assert_eq!(
+                    g.f32(BUF0 + 4 * i).unwrap(),
+                    1.5,
+                    "count {count}, float {i}"
+                );
             }
-            assert_eq!(g.u32(BUF0 + 4 * count).unwrap(), 0x7F7F_7F7F, "count {count}: overrun");
+            assert_eq!(
+                g.u32(BUF0 + 4 * count).unwrap(),
+                0x7F7F_7F7F,
+                "count {count}: overrun"
+            );
         }
     }
 
@@ -1208,7 +1320,11 @@ mod tests {
         poison(&mut g, BUF1, 4);
         fill_tail(&mut g, OBJECT, 0, RECORD).unwrap();
         assert_eq!(words(&g, BUF1, 4), vec![0x7F7F_7F7F; 4]);
-        assert_eq!(words(&g, BUF0, 4), vec![0; 4], "buffer 0 still got its fill");
+        assert_eq!(
+            words(&g, BUF0, 4),
+            vec![0; 4],
+            "buffer 0 still got its fill"
+        );
     }
 
     #[test]
@@ -1246,9 +1362,21 @@ mod tests {
         // below reads 127 and not 255, which is the whole content of "the second cap is dead".
         // Both are written out anyway, because the original has both.
         assert_eq!(count0(100_000, 0, 0, 0), 255, "capped at block + 255");
-        assert_eq!(count1(100_000, 0, 0, 0), 127, "capped at block + 127, and left there");
-        assert_eq!(count0(1000, 0, 700, 0), 955, "block + 255 == 955, below the 1000 asked for");
-        assert_eq!(count1(1000, 0, 700, 0), 827, "block + 127 == 827 for the same block");
+        assert_eq!(
+            count1(100_000, 0, 0, 0),
+            127,
+            "capped at block + 127, and left there"
+        );
+        assert_eq!(
+            count0(1000, 0, 700, 0),
+            955,
+            "block + 255 == 955, below the 1000 asked for"
+        );
+        assert_eq!(
+            count1(1000, 0, 700, 0),
+            827,
+            "block + 127 == 827 for the same block"
+        );
         // Below the cap both are the length asked for, so the caps are caps and not constants.
         assert_eq!(count0(40, 0, 1000, 0), 40);
         assert_eq!(count1(40, 0, 1000, 0), 40);
@@ -1276,11 +1404,23 @@ mod tests {
 
         fill_tail(&mut g, OBJECT, 0, RECORD).unwrap();
 
-        assert_eq!(g.u32(RECORD + BUFFER0).unwrap(), BUF1, "the slot now holds the new pointer");
+        assert_eq!(
+            g.u32(RECORD + BUFFER0).unwrap(),
+            BUF1,
+            "the slot now holds the new pointer"
+        );
         // Stores 1 and 2 went through the reloaded pointer, at BUF1 + 4 and BUF1 + 8.
-        assert_eq!(g.u32(BUF1 + 4).unwrap(), BUF1, "store 1 followed the reload");
+        assert_eq!(
+            g.u32(BUF1 + 4).unwrap(),
+            BUF1,
+            "store 1 followed the reload"
+        );
         assert_eq!(g.u32(BUF1 + 8).unwrap(), BUF1, "store 2 followed it too");
-        assert_eq!(g.u32(BUF1).unwrap(), 0x7F7F_7F7F, "and store 0 did not land here");
+        assert_eq!(
+            g.u32(BUF1).unwrap(),
+            0x7F7F_7F7F,
+            "and store 0 did not land here"
+        );
     }
 
     #[test]
@@ -1358,9 +1498,21 @@ mod tests {
         let got = write_into_ring(&mut g, OBJECT as u64, 0, 8, RECORD as u64).unwrap();
 
         assert_eq!(words(&g, RING + 64, 8), ramp(8));
-        assert_eq!(g.u32(RING + 60).unwrap(), 0x7F7F_7F7F, "one word below the cursor");
-        assert_eq!(g.u32(RING + 96).unwrap(), 0x7F7F_7F7F, "one word above the run");
-        assert_eq!(g.u32(RING).unwrap(), 0x7F7F_7F7F, "the second copy wrote nothing");
+        assert_eq!(
+            g.u32(RING + 60).unwrap(),
+            0x7F7F_7F7F,
+            "one word below the cursor"
+        );
+        assert_eq!(
+            g.u32(RING + 96).unwrap(),
+            0x7F7F_7F7F,
+            "one word above the run"
+        );
+        assert_eq!(
+            g.u32(RING).unwrap(),
+            0x7F7F_7F7F,
+            "the second copy wrote nothing"
+        );
         // No `mr r3` follows the second memcpy, so the return is that call's own destination.
         assert_eq!(got, RING as u64);
     }
@@ -1375,13 +1527,21 @@ mod tests {
 
         let got = write_into_ring(&mut g, OBJECT as u64, 0, 8, RECORD as u64).unwrap();
 
-        assert_eq!(words(&g, RING + 240, 4), ramp(4), "the run to the window end");
+        assert_eq!(
+            words(&g, RING + 240, 4),
+            ramp(4),
+            "the run to the window end"
+        );
         assert_eq!(
             words(&g, RING, 4),
             vec![0x2004, 0x2005, 0x2006, 0x2007],
             "and the remainder from its start"
         );
-        assert_eq!(g.u32(RING + 16).unwrap(), 0x7F7F_7F7F, "nothing past the wrapped run");
+        assert_eq!(
+            g.u32(RING + 16).unwrap(),
+            0x7F7F_7F7F,
+            "nothing past the wrapped run"
+        );
         assert_eq!(got, RING as u64);
     }
 
@@ -1425,7 +1585,11 @@ mod tests {
         // into bit 32 and the returned `r3` is *not* a 32-bit address. Only the low word is the
         // cursor. Truncating this chain would leave every written byte identical and this register
         // wrong, which is the whole of `CLAUDE.md`'s 64-bit-intermediates rule in one value.
-        assert_eq!(got, 0x1_0000_0000 + (RING + 4 * 9) as u64, "position 9 words on, lags cancelled");
+        assert_eq!(
+            got,
+            0x1_0000_0000 + (RING + 4 * 9) as u64,
+            "position 9 words on, lags cancelled"
+        );
         assert_eq!(got as u32, RING + 4 * 9);
     }
 
@@ -1440,7 +1604,11 @@ mod tests {
         let got = write_into_ring(&mut g, OBJECT as u64, 1, 8, RECORD as u64).unwrap();
 
         assert_eq!(words(&g, RING + 256 + 64, 8), ramp(8));
-        assert_eq!(words(&g, RING, 64), vec![0x7F7F_7F7F; 64], "channel 0's window is untouched");
+        assert_eq!(
+            words(&g, RING, 64),
+            vec![0x7F7F_7F7F; 64],
+            "channel 0's window is untouched"
+        );
         assert_eq!(got, (RING + 256) as u64);
     }
 
@@ -1462,11 +1630,23 @@ mod tests {
 
         let got = write_into_ring(&mut g, OBJECT as u64, 0, 8, RECORD as u64).unwrap();
 
-        assert_eq!(words(&g, RING, 8), ramp(8), "the whole block, at the window's start");
+        assert_eq!(
+            words(&g, RING, 8),
+            ramp(8),
+            "the whole block, at the window's start"
+        );
         for i in 0..4u32 {
-            assert_eq!(g.u32(RING - 16 + 4 * i).unwrap(), 0x0BAD_0BAD, "below the window");
+            assert_eq!(
+                g.u32(RING - 16 + 4 * i).unwrap(),
+                0x0BAD_0BAD,
+                "below the window"
+            );
         }
-        assert_eq!(g.u32(RING + 256).unwrap(), 0x7F7F_7F7F, "and nothing at the end it wrapped to");
+        assert_eq!(
+            g.u32(RING + 256).unwrap(),
+            0x7F7F_7F7F,
+            "and nothing at the end it wrapped to"
+        );
         assert_eq!(got, RING as u64);
     }
 
@@ -1485,7 +1665,11 @@ mod tests {
         write_object(&mut h, 8, 0, 0);
         block(&mut h, 7);
         write_into_ring(&mut h, OBJECT as u64, 0, 7, RECORD as u64).unwrap();
-        assert_eq!(words(&h, RING, 7), ramp(7), "one word short of the window does write");
+        assert_eq!(
+            words(&h, RING, 7),
+            ramp(7),
+            "one word short of the window does write"
+        );
     }
 
     #[test]
@@ -1503,7 +1687,10 @@ mod tests {
         write_into_ring(&mut g, OBJECT as u64, 0, 8, RECORD as u64).unwrap();
 
         // end - 16 means words 0..7 of the twelve, not 4..11.
-        assert_eq!(words(&g, RING + 64, 8), (0..8).map(|i| 0x3000 + i).collect::<Vec<_>>());
+        assert_eq!(
+            words(&g, RING + 64, 8),
+            (0..8).map(|i| 0x3000 + i).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1515,8 +1702,14 @@ mod tests {
         // guest memory byte-identical and the returned register wrong — the failure `CLAUDE.md`
         // records surfacing on the 120th call of another function.
         let mut g = Guest::from_segments(vec![
-            crate::Segment { base: 0x0000_0000, bytes: vec![0x7Fu8; 0x200] },
-            crate::Segment { base: BASE, bytes: vec![0u8; 0x4000] },
+            crate::Segment {
+                base: 0x0000_0000,
+                bytes: vec![0x7Fu8; 0x200],
+            },
+            crate::Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x4000],
+            },
         ]);
         g.set_u32(OBJECT + OBJ_RING, 0xFFFF_FF00).unwrap();
         g.set_u32(OBJECT + OBJ_SPAN_HIGH, 8).unwrap();
@@ -1529,7 +1722,11 @@ mod tests {
         let got = write_into_ring(&mut g, OBJECT as u64, 16, 4, RECORD as u64).unwrap();
 
         assert_eq!(got, 0x1_0000_0100, "bit 32 survives into the returned r3");
-        assert_eq!(words(&g, 0x100, 4), ramp(4), "and the copy lands at the truncated address");
+        assert_eq!(
+            words(&g, 0x100, 4),
+            ramp(4),
+            "and the copy lands at the truncated address"
+        );
     }
 
     // ------------------------------------------------------------------ sub_82B3DD90
@@ -1569,7 +1766,11 @@ mod tests {
         g.set_u32(RECORD + OUT_END, end as u32).unwrap();
         let s0 = g.u32(SEGMENTS + SEG_OUT).unwrap();
         g.set_u32(RECORD + BUFFER0, s0).unwrap();
-        let s1 = if count == 2 { g.u32(SEGMENTS + SEG_STRIDE + SEG_OUT).unwrap() } else { 0 };
+        let s1 = if count == 2 {
+            g.u32(SEGMENTS + SEG_STRIDE + SEG_OUT).unwrap()
+        } else {
+            0
+        };
         g.set_u32(RECORD + BUFFER1, s1).unwrap();
         fill_tail(g, OBJECT, CONSUMED, RECORD).unwrap();
     }
@@ -1583,13 +1784,25 @@ mod tests {
             let r = build_window(&mut g, OBJECT as u64, 0, CONSUMED as u64, RECORD as u64, SP);
             assert_eq!(r.unwrap(), 256);
             window_reference(&mut h, if two { 2 } else { 1 });
-            assert_eq!(words(&g, DEST, 512), words(&h, DEST, 512), "the copies and fills, two={two}");
+            assert_eq!(
+                words(&g, DEST, 512),
+                words(&h, DEST, 512),
+                "the copies and fills, two={two}"
+            );
             for off in [BUFFER0, BUFFER1, OUT_END] {
-                assert_eq!(g.u32(RECORD + off).unwrap(), h.u32(RECORD + off).unwrap(), "+{off}, two={two}");
+                assert_eq!(
+                    g.u32(RECORD + off).unwrap(),
+                    h.u32(RECORD + off).unwrap(),
+                    "+{off}, two={two}"
+                );
             }
             assert_eq!(g.u32(SP - WINDOW_FRAME).unwrap(), SP, "the back chain");
             let win = SP - WINDOW_FRAME + WINDOW_OFFSET;
-            assert_eq!(g.u32(win + WIN_LAGGED).unwrap(), RING + RING_BYTES, "no lag: the lagged end is the end");
+            assert_eq!(
+                g.u32(win + WIN_LAGGED).unwrap(),
+                RING + RING_BYTES,
+                "no lag: the lagged end is the end"
+            );
         }
     }
 
@@ -1601,7 +1814,11 @@ mod tests {
         build_window(&mut g, OBJECT as u64, 0, CONSUMED as u64, RECORD as u64, SP).unwrap();
         assert_eq!(g.u32(RECORD + BUFFER1).unwrap(), 0);
         let segs = SP - WINDOW_FRAME + SEGMENTS_OFFSET;
-        assert_eq!(g.u32(segs + SEG_STRIDE + SEG_OUT).unwrap(), 0xFFFF_FFFF, "that slot was never written");
+        assert_eq!(
+            g.u32(segs + SEG_STRIDE + SEG_OUT).unwrap(),
+            0xFFFF_FFFF,
+            "that slot was never written"
+        );
     }
 
     #[test]
@@ -1631,7 +1848,15 @@ mod tests {
         g.set_u32(OBJECT + OBJ_SPAN_HIGH, 0).unwrap();
         let _ = build_window(&mut g, OBJECT as u64, 3, CONSUMED as u64, RECORD as u64, SP);
         let win = SP - WINDOW_FRAME + WINDOW_OFFSET;
-        assert_eq!(g.u32(win + RING_BASE).unwrap(), RING, "a zero span makes every block start at the base");
-        assert_eq!(g.u32(win + RING_CURSOR).unwrap(), RING + 128 * 4, "the whole reach is the remainder");
+        assert_eq!(
+            g.u32(win + RING_BASE).unwrap(),
+            RING,
+            "a zero span makes every block start at the base"
+        );
+        assert_eq!(
+            g.u32(win + RING_CURSOR).unwrap(),
+            RING + 128 * 4,
+            "the whole reach is the remainder"
+        );
     }
 }

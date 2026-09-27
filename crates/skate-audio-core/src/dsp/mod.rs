@@ -58,10 +58,10 @@
 
 pub mod allpass;
 pub mod biquad;
-pub mod gain_ramp;
 pub mod clip;
-pub mod resample;
+pub mod gain_ramp;
 pub mod ramps;
+pub mod resample;
 pub mod scale;
 pub mod scale_add;
 pub mod sine;

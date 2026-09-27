@@ -6,11 +6,15 @@
 use skate_audio_formats::{banks, eb};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: list_exports ARCHIVE")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: list_exports ARCHIVE")?;
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
     for entry in &archive.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".abk") || entry.is_compressed() {
             continue;
         }

@@ -83,17 +83,30 @@ mod tests {
     #[test]
     fn writes_the_ten_words_and_zeroes_both_buffers() {
         let mut g = guest();
-        assert_eq!(init_buffer_pair(&mut g, OBJECT, SECOND, 196, FIRST, 192).unwrap(), OBJECT);
+        assert_eq!(
+            init_buffer_pair(&mut g, OBJECT, SECOND, 196, FIRST, 192).unwrap(),
+            OBJECT
+        );
 
         assert_eq!(g.u32(OBJECT + PAIR_FIRST).unwrap(), FIRST);
         assert_eq!(g.u32(OBJECT + PAIR_FIRST_LEN).unwrap(), 192);
         assert_eq!(g.u32(OBJECT + PAIR_SECOND).unwrap(), SECOND);
         assert_eq!(g.u32(OBJECT + PAIR_SECOND_LEN).unwrap(), 196);
         for off in [0x04u32, 0x0C, 0x10, 0x18, 0x20, 0x24] {
-            assert_eq!(g.u32(OBJECT + off).unwrap(), 0, "word at +{off:#x} must be cleared");
+            assert_eq!(
+                g.u32(OBJECT + off).unwrap(),
+                0,
+                "word at +{off:#x} must be cleared"
+            );
         }
-        assert!(g.span(FIRST, 192).unwrap().iter().all(|&b| b == 0), "first buffer zeroed");
-        assert!(g.span(SECOND, 196).unwrap().iter().all(|&b| b == 0), "second buffer zeroed");
+        assert!(
+            g.span(FIRST, 192).unwrap().iter().all(|&b| b == 0),
+            "first buffer zeroed"
+        );
+        assert!(
+            g.span(SECOND, 196).unwrap().iter().all(|&b| b == 0),
+            "second buffer zeroed"
+        );
     }
 
     #[test]

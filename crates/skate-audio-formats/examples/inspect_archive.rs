@@ -8,14 +8,20 @@
 use skate_audio_formats::{eaac, eb};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: inspect_archive <file.big>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: inspect_archive <file.big>")?;
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
 
     println!("{path}");
     println!("  entries      {}", archive.entries.len());
     println!("  offset shift {}", archive.offset_shift);
-    println!("  total size   {} (actual {})", archive.total_size, data.len());
+    println!(
+        "  total size   {} (actual {})",
+        archive.total_size,
+        data.len()
+    );
     match archive.validate() {
         Ok(()) => println!("  bounds       all members inside the archive"),
         Err(e) => println!("  bounds       VIOLATION: {e}"),
@@ -30,7 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let named = archive.entries.iter().filter(|e| e.name.is_some()).count();
     println!("  named        {named}");
 
-    for entry in archive.entries.iter().take(6) {
+    let show_all = std::env::args().nth(2).as_deref() == Some("--all");
+    for entry in archive.entries.iter().take(if show_all { usize::MAX } else { 6 }) {
         let name = entry.name.as_deref().unwrap_or("<unnamed>");
         print!("    {name:44.44} {:>10} bytes", entry.uncompressed_size);
         // Anything with an EAAC header should decode as codec 3 at a sane rate.

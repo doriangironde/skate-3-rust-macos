@@ -29,14 +29,24 @@ fn word(value: u64) -> i32 {
 
 /// `sub_82B3CA60`: deliver `requested` frames from `stream` into the caller's descriptor `dest`.
 /// Returns the frames delivered, all 64 bits of the accumulator as the original leaves it.
-pub fn deliver_frames(g: &mut Guest, fill: &mut dyn StreamFill, stream: u32, dest: u32, requested: u64) -> Result<u64> {
+pub fn deliver_frames(
+    g: &mut Guest,
+    fill: &mut dyn StreamFill,
+    stream: u32,
+    dest: u32,
+    requested: u64,
+) -> Result<u64> {
     let mut delivered: u64 = 0;
     if g.u8(stream + 51)? != 0 {
         let scratch = g.u32(stream + 40)?.wrapping_add(stream);
         let pending = g.u16(stream + 44)? as u64;
         if pending != 0 {
             // min(pending, requested), signed; when requested wins its full 64 bits are kept.
-            delivered = if word(pending) < word(requested) { pending } else { requested };
+            delivered = if word(pending) < word(requested) {
+                pending
+            } else {
+                requested
+            };
             if g.u8(stream + 46)? != 0 {
                 let bytes = ((delivered as u32) << 2) as u64;
                 let mut channel: u64 = 0;
@@ -48,7 +58,9 @@ pub fn deliver_frames(g: &mut Guest, fill: &mut dyn StreamFill, stream: u32, des
                     let dst_stride = g.u16(dest + 14)? as u64;
                     let src_base = g.u32(scratch + 4)? as u64;
                     let dst_base = g.u32(dest + 4)? as u64;
-                    let src_index = (src_channel as u64).wrapping_sub(pending_now).wrapping_add(filled);
+                    let src_index = (src_channel as u64)
+                        .wrapping_sub(pending_now)
+                        .wrapping_add(filled);
                     let dst_channel = word(dst_stride) as i64 * word(channel) as i64;
                     let dst_ptr = (((dst_channel as u32) << 2) as u64).wrapping_add(dst_base);
                     let src_ptr = (((src_index as u32) << 2) as u64).wrapping_add(src_base);
@@ -66,13 +78,19 @@ pub fn deliver_frames(g: &mut Guest, fill: &mut dyn StreamFill, stream: u32, des
         }
 
         while word(delivered) < word(requested) {
-            let entry = (24 * g.u8(stream + 49)? as u32).wrapping_add(stream).wrapping_add(g.u32(stream + 36)?);
+            let entry = (24 * g.u8(stream + 49)? as u32)
+                .wrapping_add(stream)
+                .wrapping_add(g.u32(stream + 36)?);
             if word(g.u32(entry + 12)? as u64) == 0 {
                 break;
             }
             let src_stride = g.u16(scratch + 14)? as u64;
             let remaining = requested.wrapping_sub(delivered);
-            let ask = if word(remaining) < word(src_stride) { remaining } else { src_stride };
+            let ask = if word(remaining) < word(src_stride) {
+                remaining
+            } else {
+                src_stride
+            };
             let produced = fill.fill(g, stream, scratch, ask)?;
 
             let total = g.u32(entry + 12)? as u64;
@@ -84,7 +102,11 @@ pub fn deliver_frames(g: &mut Guest, fill: &mut dyn StreamFill, stream: u32, des
             g.set_u16(stream + 44, accepted as u16)?;
             g.set_u16(scratch + 12, accepted as u16)?;
             let pending_now = g.u16(stream + 44)? as u64; // reloaded: the two stores may alias
-            let chunk = if word(pending_now) < word(remaining) { pending_now } else { remaining };
+            let chunk = if word(pending_now) < word(remaining) {
+                pending_now
+            } else {
+                remaining
+            };
 
             if g.u8(stream + 46)? != 0 {
                 let bytes = ((chunk as u32) << 2) as u64;
@@ -119,7 +141,9 @@ pub fn deliver_frames(g: &mut Guest, fill: &mut dyn StreamFill, stream: u32, des
     // ignored -- the request size is credited.
     if word(requested) > 0 {
         loop {
-            let entry = (24 * g.u8(stream + 49)? as u32).wrapping_add(stream).wrapping_add(g.u32(stream + 36)?);
+            let entry = (24 * g.u8(stream + 49)? as u32)
+                .wrapping_add(stream)
+                .wrapping_add(g.u32(stream + 36)?);
             let total = g.u32(entry + 12)? as u64;
             if word(total) == 0 {
                 break;
@@ -161,7 +185,13 @@ mod tests {
     }
 
     impl StreamFill for Ramp {
-        fn fill(&mut self, g: &mut Guest, stream: u32, descriptor: u32, frames: u64) -> Result<u64> {
+        fn fill(
+            &mut self,
+            g: &mut Guest,
+            stream: u32,
+            descriptor: u32,
+            frames: u64,
+        ) -> Result<u64> {
             self.calls.push(frames);
             let channels = g.u8(stream + 46)? as u32;
             let stride = g.u16(descriptor + 14)? as u32;
@@ -193,38 +223,68 @@ mod tests {
     }
 
     fn dest_channel(g: &Guest, ch: u32, frames: u32) -> Vec<u32> {
-        (0..frames).map(|i| g.u32(DEST_DATA + 4 * (16 * ch + i)).unwrap()).collect()
+        (0..frames)
+            .map(|i| g.u32(DEST_DATA + 4 * (16 * ch + i)).unwrap())
+            .collect()
     }
 
     #[test]
     fn through_the_scratch_the_refills_are_capped_and_copied_in_order() {
         let mut g = guest(true, 1000);
-        let mut fill = Ramp { produced: 0, calls: vec![], overfill: false };
-        assert_eq!(deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(), 10);
+        let mut fill = Ramp {
+            produced: 0,
+            calls: vec![],
+            overfill: false,
+        };
+        assert_eq!(
+            deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(),
+            10
+        );
         assert_eq!(fill.calls, vec![4, 4, 2]);
         assert_eq!(dest_channel(&g, 0, 10), (0..10).collect::<Vec<_>>());
         assert_eq!(dest_channel(&g, 1, 10), (10000..10010).collect::<Vec<_>>());
-        assert_eq!(g.u32(STREAM + 28).unwrap(), 10, "the position advanced by what was delivered");
+        assert_eq!(
+            g.u32(STREAM + 28).unwrap(),
+            10,
+            "the position advanced by what was delivered"
+        );
         assert_eq!(g.u16(STREAM + 44).unwrap(), 0, "nothing left pending");
     }
 
     #[test]
     fn a_short_entry_leaves_the_rest_pending_for_the_next_call() {
         let mut g = guest(true, 1000);
-        let mut fill = Ramp { produced: 0, calls: vec![], overfill: true };
+        let mut fill = Ramp {
+            produced: 0,
+            calls: vec![],
+            overfill: true,
+        };
         // Ask for 6: two refills of 4 (the second asked for 2), the second only half consumed.
-        assert_eq!(deliver_frames(&mut g, &mut fill, STREAM, DEST, 6).unwrap(), 6);
+        assert_eq!(
+            deliver_frames(&mut g, &mut fill, STREAM, DEST, 6).unwrap(),
+            6
+        );
         assert_eq!(g.u16(STREAM + 44).unwrap(), 2);
         // The next call drains the two pending frames first, then refills.
-        assert_eq!(deliver_frames(&mut g, &mut fill, STREAM, DEST, 3).unwrap(), 3);
+        assert_eq!(
+            deliver_frames(&mut g, &mut fill, STREAM, DEST, 3).unwrap(),
+            3
+        );
         assert_eq!(dest_channel(&g, 0, 3), vec![6, 7, 8]);
     }
 
     #[test]
     fn without_a_scratch_the_fill_writes_directly_and_the_request_is_credited() {
         let mut g = guest(false, 1000);
-        let mut fill = Ramp { produced: 0, calls: vec![], overfill: false };
-        assert_eq!(deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(), 10);
+        let mut fill = Ramp {
+            produced: 0,
+            calls: vec![],
+            overfill: false,
+        };
+        assert_eq!(
+            deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(),
+            10
+        );
         assert_eq!(fill.calls, vec![10]);
         assert_eq!(dest_channel(&g, 1, 3), vec![10000, 10001, 10002]);
     }
@@ -232,8 +292,15 @@ mod tests {
     #[test]
     fn an_empty_entry_delivers_nothing() {
         let mut g = guest(true, 0);
-        let mut fill = Ramp { produced: 0, calls: vec![], overfill: false };
-        assert_eq!(deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(), 0);
+        let mut fill = Ramp {
+            produced: 0,
+            calls: vec![],
+            overfill: false,
+        };
+        assert_eq!(
+            deliver_frames(&mut g, &mut fill, STREAM, DEST, 10).unwrap(),
+            0
+        );
         assert!(fill.calls.is_empty());
     }
 }

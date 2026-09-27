@@ -13,7 +13,9 @@
 use skate_audio_formats::mus;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: verify_mus <file.mus>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: verify_mus <file.mus>")?;
     let data = std::fs::read(&path)?;
     let header = mus::Header::parse(&data)?;
 
@@ -21,7 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  segments           {}", header.segment_count);
     println!("  SNR table at       {:#x}", header.snr_table_offset);
     println!("  first block at     {:#x}", header.first_block_offset);
-    println!("  0x28 / 0x38        {:#010x} / {}", header.unknown_28, header.unknown_38);
+    println!(
+        "  0x28 / 0x38        {:#010x} / {}",
+        header.unknown_28, header.unknown_38
+    );
 
     let segments = mus::segments(&data)?;
     let blocks: usize = segments.iter().map(|s| s.blocks.len()).sum();
@@ -36,7 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     println!("  ---");
-    println!("  walked             {} segments, {blocks} blocks, {samples} samples", segments.len());
+    println!(
+        "  walked             {} segments, {blocks} blocks, {samples} samples",
+        segments.len()
+    );
     println!("  every segment agreed with the SNR table (mus::segments errors otherwise)");
     println!(
         "  last block ends at {end:#x}; file is {:#x} ({} bytes unused)",

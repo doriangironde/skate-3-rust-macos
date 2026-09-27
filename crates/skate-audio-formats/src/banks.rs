@@ -19,7 +19,7 @@
 //! between the header and the sample bank), the `.bnk` per-sample parameter block, and
 //! the `.csi`'s own graph -- only its symbol table is read here.
 
-use crate::{be16, be32, Error, Result};
+use crate::{Error, Result, be16, be32};
 
 // ---------------------------------------------------------------------------
 // .abk -- "ABKC", a patch bank
@@ -91,16 +91,25 @@ impl Abk {
         if declared_size != data.len() {
             return Err(Error::new(
                 0x14,
-                format!("header says {declared_size} bytes, member is {}", data.len()),
+                format!(
+                    "header says {declared_size} bytes, member is {}",
+                    data.len()
+                ),
             ));
         }
         let first_section = be32(data, 0x1C)? as usize;
         if first_section != Self::HEADER_SIZE {
-            return Err(Error::new(0x1C, format!("first section at {first_section:#x}")));
+            return Err(Error::new(
+                0x1C,
+                format!("first section at {first_section:#x}"),
+            ));
         }
         let sample_bank_offset = be32(data, 0x18)? as usize;
         if be32(data, 0x20)? as usize != sample_bank_offset {
-            return Err(Error::new(0x20, "0x18 and 0x20 disagree on the sample bank"));
+            return Err(Error::new(
+                0x20,
+                "0x18 and 0x20 disagree on the sample bank",
+            ));
         }
         let sample_bank_size = be32(data, 0x24)?;
         let patch_table_offset = be32(data, 0x30)? as usize;
@@ -146,7 +155,10 @@ impl Abk {
 
     /// How many slots hold a real sample. Equal to the index of the first absent slot.
     pub fn present(&self) -> usize {
-        self.samples.iter().take_while(|&&o| o != Self::SAMPLE_ABSENT).count()
+        self.samples
+            .iter()
+            .take_while(|&&o| o != Self::SAMPLE_ABSENT)
+            .count()
     }
 
     /// Byte range of one sample within the whole bank, or `None` for an index past the table or
@@ -185,7 +197,10 @@ fn read_sample_bank(data: &[u8], at: usize) -> Result<Vec<u32>> {
     if let Some(&first) = samples.first() {
         let expected = 12 + 4 * count as u32;
         if first != expected {
-            return Err(Error::new(at + 12, format!("first sample at {first}, want {expected}")));
+            return Err(Error::new(
+                at + 12,
+                format!("first sample at {first}, want {expected}"),
+            ));
         }
     }
     Ok(samples)
@@ -209,14 +224,26 @@ fn read_exports(data: &[u8], at: usize) -> Result<Vec<Export>> {
         let project_id = be16(data, record_offset)?;
         let name_id = be16(data, record_offset + 2)?;
         let name = read_cstr(data, record_offset + 4)?;
-        out.push(Export { record_offset, project_id, name_id, name, target, kind });
+        out.push(Export {
+            record_offset,
+            project_id,
+            name_id,
+            name,
+            target,
+            kind,
+        });
     }
     Ok(out)
 }
 
 fn read_cstr(data: &[u8], at: usize) -> Result<String> {
-    let rest = data.get(at..).ok_or_else(|| Error::new(at, "string starts past end"))?;
-    let end = rest.iter().position(|&b| b == 0).ok_or_else(|| Error::new(at, "unterminated"))?;
+    let rest = data
+        .get(at..)
+        .ok_or_else(|| Error::new(at, "string starts past end"))?;
+    let end = rest
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| Error::new(at, "unterminated"))?;
     if end == 0 {
         return Err(Error::new(at, "empty name"));
     }
@@ -276,7 +303,12 @@ impl Csi {
             let stride = if group == 2 { 16 } else { 12 };
             for _ in 0..count {
                 let (unknown_a, unknown_b, name_at, id) = if stride == 12 {
-                    (be32(data, at)?, 0, be32(data, at + 4)? as usize, be16(data, at + 8)?)
+                    (
+                        be32(data, at)?,
+                        0,
+                        be32(data, at + 4)? as usize,
+                        be16(data, at + 8)?,
+                    )
                 } else {
                     (
                         be32(data, at)?,
@@ -295,12 +327,20 @@ impl Csi {
                 at += stride;
             }
         }
-        Ok(Self { project_id, group_counts, symbols, pool_offset: at })
+        Ok(Self {
+            project_id,
+            group_counts,
+            symbols,
+            pool_offset: at,
+        })
     }
 
     /// Resolve one of the project's own name ids.
     pub fn name(&self, id: u16) -> Option<&str> {
-        self.symbols.iter().find(|s| s.id == id).map(|s| s.name.as_str())
+        self.symbols
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.name.as_str())
     }
 }
 
@@ -349,7 +389,10 @@ impl Ems {
         if want != data.len() {
             return Err(Error::new(
                 0,
-                format!("{count} emitters need {want} bytes, member is {}", data.len()),
+                format!(
+                    "{count} emitters need {want} bytes, member is {}",
+                    data.len()
+                ),
             ));
         }
         let f = |at: usize| -> Result<f32> { Ok(f32::from_bits(be32(data, at)?)) };
@@ -443,9 +486,20 @@ impl Bnk {
             for (j, v) in values.iter_mut().enumerate() {
                 *v = f32::from_bits(be32(data, e + 4 + 4 * j)?);
             }
-            entries.push(BnkEntry { index, unknown: be16(data, e + 2)?, values });
+            entries.push(BnkEntry {
+                index,
+                unknown: be16(data, e + 2)?,
+                values,
+            });
         }
-        Ok(Self { version, payload_offset, unknown_10, unknown_18, name, entries })
+        Ok(Self {
+            version,
+            payload_offset,
+            unknown_10,
+            unknown_18,
+            name,
+            entries,
+        })
     }
 }
 
@@ -525,8 +579,14 @@ mod tests {
         assert_eq!(bank.patches, vec![0x5C]);
         assert_eq!(bank.exports.len(), 1);
         let e = &bank.exports[0];
-        assert_eq!((e.project_id, e.name_id, e.name.as_str()), (0x5C48, 0x09BA, "a_msg"));
-        assert_eq!(bank.sample_range(0), Some(bank.sample_bank_offset + 16..bank.patch_table_offset));
+        assert_eq!(
+            (e.project_id, e.name_id, e.name.as_str()),
+            (0x5C48, 0x09BA, "a_msg")
+        );
+        assert_eq!(
+            bank.sample_range(0),
+            Some(bank.sample_bank_offset + 16..bank.patch_table_offset)
+        );
     }
 
     #[test]
@@ -600,7 +660,10 @@ mod tests {
         v[4 + 48..4 + 56].copy_from_slice(&0x91C4_1263_C312_C84Bu64.to_be_bytes());
         let e = Ems::parse(&v).unwrap();
         assert_eq!(e.emitters.len(), 1);
-        assert_eq!(e.emitters[0].sound, crate::hash::name_id_str("trees_rustle"));
+        assert_eq!(
+            e.emitters[0].sound,
+            crate::hash::name_id_str("trees_rustle")
+        );
         v.push(0);
         assert!(Ems::parse(&v).is_err());
     }

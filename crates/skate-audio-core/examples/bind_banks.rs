@@ -18,7 +18,9 @@ const ARENA: u32 = 0x5000_0000;
 const QUERY: u32 = 0x4000_0000;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: bind_banks <audiofiles.big>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: bind_banks <audiofiles.big>")?;
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
     let mut g = Guest::single(QUERY, 0x200);
@@ -35,7 +37,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Projects, installed in archive order: list order is the reverse.
     let mut projects: Vec<(u32, banks::Csi)> = Vec::new();
     for e in &archive.entries {
-        let Some(name) = e.name.as_deref() else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
         if name.ends_with(".csi") {
             let bytes = &data[e.range()];
             let csi = banks::Csi::parse(bytes)?;
@@ -48,20 +52,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (mut exports, mut first, mut second, mut missing, mut disagree) = (0, 0, 0, 0, 0);
     let player = [
-        "Class_grind", "Class_Flips", "c_board_slide", "Class_rolling", "playercharacter_footstep",
-        "c_body_slide", "Class_wheels_skid", "Class_foot_drag",
+        "Class_grind",
+        "Class_Flips",
+        "c_board_slide",
+        "Class_rolling",
+        "playercharacter_footstep",
+        "c_body_slide",
+        "Class_wheels_skid",
+        "Class_foot_drag",
     ];
     for e in &archive.entries {
-        let Some(member) = e.name.as_deref() else { continue };
+        let Some(member) = e.name.as_deref() else {
+            continue;
+        };
         if !member.ends_with(".abk") {
             continue;
         }
         let bytes = &data[e.range()];
-        let Ok(abk) = banks::Abk::parse(bytes) else { continue };
+        let Ok(abk) = banks::Abk::parse(bytes) else {
+            continue;
+        };
         let bank = place(&mut g, bytes);
         for x in &abk.exports {
             exports += 1;
-            let table = match x.kind >> 24 { 0 => 2u8, 1 => 1, _ => 0 };
+            let table = match x.kind >> 24 {
+                0 => 2u8,
+                1 => 1,
+                _ => 0,
+            };
             g.set_u32(QUERY, bank + x.record_offset as u32 + 4)?;
             g.set_u16(QUERY + 4, x.project_id)?;
             g.set_u16(QUERY + 6, x.name_id)?;
@@ -100,12 +118,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 None
             };
-            let expected = find(true).map(|r| (r, false)).or_else(|| find(false).map(|r| (r, true)));
+            let expected = find(true)
+                .map(|r| (r, false))
+                .or_else(|| find(false).map(|r| (r, true)));
             let actual = (got.status == 0).then(|| (g.u32(slot).unwrap(), got.second_pass));
             if expected != actual {
                 disagree += 1;
                 if disagree <= 10 {
-                    println!("  DISAGREE {member} {}: expected {expected:x?}, got {actual:x?}", x.name);
+                    println!(
+                        "  DISAGREE {member} {}: expected {expected:x?}, got {actual:x?}",
+                        x.name
+                    );
                 }
             }
             match actual {
@@ -113,18 +136,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some((_, true)) => second += 1,
                 None => {
                     missing += 1;
-                    println!("  not found: {member} {} {:#06x}:{:#06x} table {table}", x.name, x.project_id, x.name_id);
+                    println!(
+                        "  not found: {member} {} {:#06x}:{:#06x} table {table}",
+                        x.name, x.project_id, x.name_id
+                    );
                 }
             }
             if player.contains(&x.name.as_str()) {
                 println!(
                     "  {member:34} {:26} {:#06x}:{:#06x} table {table}: {}",
-                    x.name, x.project_id, x.name_id,
-                    match actual { Some((_, false)) => "first pass", Some((_, true)) => "second pass", None => "NOT FOUND" }
+                    x.name,
+                    x.project_id,
+                    x.name_id,
+                    match actual {
+                        Some((_, false)) => "first pass",
+                        Some((_, true)) => "second pass",
+                        None => "NOT FOUND",
+                    }
                 );
             }
         }
     }
-    println!("{} projects installed; {exports} exports: {first} first pass, {second} second pass, {missing} not found; {disagree} disagree with the independent search", projects.len());
+    println!(
+        "{} projects installed; {exports} exports: {first} first pass, {second} second pass, {missing} not found; {disagree} disagree with the independent search",
+        projects.len()
+    );
     Ok(())
 }

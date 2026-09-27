@@ -172,7 +172,9 @@ fn main() {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{root}/vectors.bin: {e}");
-            eprintln!("run probe/vmx128/run.sh first — it generates the vectors and the reference.");
+            eprintln!(
+                "run probe/vmx128/run.sh first — it generates the vectors and the reference."
+            );
             std::process::exit(2);
         }
     };
@@ -184,7 +186,10 @@ fn main() {
     let nvec = n / 4;
 
     // Compute this crate's answers in the probe's own layout: ftz outer, then op, then vector.
-    let mut g = Guest::from_segments(vec![Segment { base: STAGE, bytes: vec![0u8; 64] }]);
+    let mut g = Guest::from_segments(vec![Segment {
+        base: STAGE,
+        bytes: vec![0u8; 64],
+    }]);
     let mut ours = Vec::with_capacity(2 * OPS.len() * nvec * 16);
     let mut fpscr = Fpscr::capture();
     for ftz in 0..2 {
@@ -199,8 +204,10 @@ fn main() {
             for v in 0..nvec {
                 unsafe {
                     let a = _mm_loadu_si128(lanes.as_ptr().add(v * 4) as *const __m128i);
-                    let b = _mm_loadu_si128(lanes.as_ptr().add(((v + 1) % nvec) * 4) as *const __m128i);
-                    let c = _mm_loadu_si128(lanes.as_ptr().add(((v + 2) % nvec) * 4) as *const __m128i);
+                    let b =
+                        _mm_loadu_si128(lanes.as_ptr().add(((v + 1) % nvec) * 4) as *const __m128i);
+                    let c =
+                        _mm_loadu_si128(lanes.as_ptr().add(((v + 2) % nvec) * 4) as *const __m128i);
                     let r = apply(index, &mut g, a, b, c);
                     let mut out = [0u8; 16];
                     _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, r);
@@ -211,7 +218,11 @@ fn main() {
     }
     drop(fpscr);
 
-    println!("ops={} vectors={nvec} ftz states=2 -> {} lane comparisons per reference", OPS.len(), OPS.len() * nvec * 4 * 2);
+    println!(
+        "ops={} vectors={nvec} ftz states=2 -> {} lane comparisons per reference",
+        OPS.len(),
+        OPS.len() * nvec * 4 * 2
+    );
 
     let mut any = false;
     let mut hard_failure = false;
@@ -223,7 +234,11 @@ fn main() {
         };
         any = true;
         if reference.len() != ours.len() {
-            println!("\n{build:<16} SIZE MISMATCH {} vs {}", reference.len(), ours.len());
+            println!(
+                "\n{build:<16} SIZE MISMATCH {} vs {}",
+                reference.len(),
+                ours.len()
+            );
             hard_failure = true;
             continue;
         }
@@ -250,7 +265,10 @@ fn main() {
             continue;
         }
         let ok = OPS.len() * 2 - bad.len();
-        println!("\n{build:<16} {ok}/{} (op, ftz) pairs bit-identical", OPS.len() * 2);
+        println!(
+            "\n{build:<16} {ok}/{} (op, ftz) pairs bit-identical",
+            OPS.len() * 2
+        );
         for (name, ftz, count) in &bad {
             let tag = if RULE_4.contains(name) && !pinned {
                 "rule 4, expected on a _plain build"
@@ -260,7 +278,10 @@ fn main() {
             if tag == "UNEXPECTED" {
                 hard_failure = true;
             }
-            println!("   {name:<16} ftz={ftz}  {count}/{} lanes differ   [{tag}]", nvec * 4);
+            println!(
+                "   {name:<16} ftz={ftz}  {count}/{} lanes differ   [{tag}]",
+                nvec * 4
+            );
         }
     }
 

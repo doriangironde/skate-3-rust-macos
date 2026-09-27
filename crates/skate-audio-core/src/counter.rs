@@ -47,7 +47,11 @@ pub fn advance(g: &mut Guest) -> Result<u64> {
     // Each word accumulates the one below it, carrying upward. The carry tests are the
     // `subfc`/`subfe` pairs of the original, which look only at the low words.
     let s16 = (w16 as u64).wrapping_add(w20 as u64);
-    let carry16 = if (s16 as u32) < w20 || (s16 as u32) < w16 { 1u64 } else { 0 };
+    let carry16 = if (s16 as u32) < w20 || (s16 as u32) < w16 {
+        1u64
+    } else {
+        0
+    };
     let s12 = (w12 as u64).wrapping_add(s16).wrapping_add(carry16);
     let carry12 = if (s12 as u32) < w12 { 1u64 } else { 0 };
     let s8 = (w8 as u64).wrapping_add(s12).wrapping_add(carry12);
@@ -135,11 +139,18 @@ mod tests {
             g.set_u32(COUNTER + 4 * i, 0xFFFF_FFFF).unwrap();
         }
         let draw = advance(&mut g).unwrap();
-        assert!(draw > u32::MAX as u64, "the draw must not be truncated: {draw:#x}");
+        assert!(
+            draw > u32::MAX as u64,
+            "the draw must not be truncated: {draw:#x}"
+        );
         // s16 = 0x1FFFFFFFE and each level adds one more maximal word plus its carry, so the
         // top total is 0x5FFFFFFFE with only 0xFFFFFFFE reaching memory.
         assert_eq!(draw, 0x5_FFFF_FFFE);
-        assert_eq!(words(&g)[0], 0xFFFF_FFFE, "the store keeps the low word only");
+        assert_eq!(
+            words(&g)[0],
+            0xFFFF_FFFE,
+            "the store keeps the low word only"
+        );
         // +20 wrapped, so the ripple ran: it incremented +16 to 0xFFFFFFFF and stopped there
         // because that low word is non-zero.
         assert_eq!(words(&g)[5], 0, "+20 wrapped");

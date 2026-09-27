@@ -96,13 +96,19 @@ pub const TAP_TABLE: u32 = POOL + 1028;
 const _: () = assert!(TAP_TABLE == 0x822F_8A04, "lfs f30,1028(r7)");
 /// Sixteen taps, and therefore the leading 64 bytes of each row.
 pub const TAP_COUNT: usize = 16;
-const _: () = assert!(TAP_TABLE + 4 * (TAP_COUNT as u32 - 1) == 0x822F_8A40, "lfs f0,1088(r7)");
+const _: () = assert!(
+    TAP_TABLE + 4 * (TAP_COUNT as u32 - 1) == 0x822F_8A40,
+    "lfs f0,1088(r7)"
+);
 
 const LIS_82160000: u32 = ((-32234i32 as u32) & 0xFFFF) << 16;
 const _: () = assert!(LIS_82160000 == 0x8216_0000, "lis r8,-32234");
 /// `lfs f29,23056(r8)` — the `0.0f` cell, stored over each delta once it has been consumed.
 pub const ZERO_SINGLE: u32 = LIS_82160000 + 23056;
-const _: () = assert!(ZERO_SINGLE == crate::eval::ZERO_SINGLE, "the same pool cell eval names");
+const _: () = assert!(
+    ZERO_SINGLE == crate::eval::ZERO_SINGLE,
+    "the same pool cell eval names"
+);
 
 // ------------------------------------------------------------------ sub_82B443F8: the fill state
 
@@ -126,7 +132,10 @@ pub const PLAN_BUFFER: u32 = 4;
 pub const PLAN_STRIDE: u32 = 14;
 
 const _: () = assert!(LIMIT == POSITION + 4, "lfs f0,44(r4) ; lfs f13,48(r4)");
-const _: () = assert!(LAYOUT_CHANNELS == CHANNELS, "both structures put the count at +42");
+const _: () = assert!(
+    LAYOUT_CHANNELS == CHANNELS,
+    "both structures put the count at +42"
+);
 
 // ------------------------------------------------------------------------------- shared idioms
 
@@ -553,7 +562,10 @@ mod tests {
     /// replay seeds it, so a word the loops never wrote is visible.
     fn refold_guest(old_count: u8, new_count: u8, length: u32) -> Guest {
         let mut g = Guest::single(BASE, 0xA000);
-        g.put(crate::routing::UNITY_GAIN, 1.0f32.to_bits().to_be_bytes().to_vec());
+        g.put(
+            crate::routing::UNITY_GAIN,
+            1.0f32.to_bits().to_be_bytes().to_vec(),
+        );
         g.set_u8(MIXER + CHANNELS, new_count).unwrap();
         g.set_u8(MIXER + MIRRORED_COUNT, 0xFF).unwrap();
         g.set_u32(PAIR + PAIR_BACK, OWNER_A).unwrap();
@@ -568,23 +580,30 @@ mod tests {
             for i in 0..ROW_FLOATS {
                 let src = SRC_ROWS + row * 4 * u32::from(PITCH_SINGLES) + i * 4;
                 let dst = DST_ROWS + row * 4 * u32::from(PITCH_SINGLES) + i * 4;
-                g.set_u32(src, ((row + 1) as f32 * 10.0 + i as f32).to_bits()).unwrap();
+                g.set_u32(src, ((row + 1) as f32 * 10.0 + i as f32).to_bits())
+                    .unwrap();
                 g.set_u32(dst, REFOLD_POISON).unwrap();
             }
         }
         // The frame, seeded: 176 bytes below SP.
         for w in 0..(REFOLD_FRAME_BYTES / 4) {
-            g.set_u32(SP - REFOLD_FRAME_BYTES + w * 4, REFOLD_POISON).unwrap();
+            g.set_u32(SP - REFOLD_FRAME_BYTES + w * 4, REFOLD_POISON)
+                .unwrap();
         }
         g
     }
 
     fn src_row(row: u32) -> Vec<f32> {
-        (0..ROW_FLOATS).map(|i| (row + 1) as f32 * 10.0 + i as f32).collect()
+        (0..ROW_FLOATS)
+            .map(|i| (row + 1) as f32 * 10.0 + i as f32)
+            .collect()
     }
     fn dst_row(g: &Guest, row: u32) -> Vec<f32> {
         (0..ROW_FLOATS)
-            .map(|i| g.f32(DST_ROWS + row * 4 * u32::from(PITCH_SINGLES) + i * 4).unwrap())
+            .map(|i| {
+                g.f32(DST_ROWS + row * 4 * u32::from(PITCH_SINGLES) + i * 4)
+                    .unwrap()
+            })
             .collect()
     }
 
@@ -594,10 +613,21 @@ mod tests {
         // and the remap is skipped.
         let mut g = refold_guest(2, 4, 0);
         assert_eq!(refold_rows(&mut g, MIXER, PAIR, SP).unwrap(), 1);
-        assert_eq!(g.u8(MIXER + MIRRORED_COUNT).unwrap(), 2, "the old count was mirrored");
+        assert_eq!(
+            g.u8(MIXER + MIRRORED_COUNT).unwrap(),
+            2,
+            "the old count was mirrored"
+        );
         // No rows were touched, but the owners still swapped and the new count was recorded.
-        assert_eq!(dst_row(&g, 0), vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]);
-        assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_B, "owners exchanged");
+        assert_eq!(
+            dst_row(&g, 0),
+            vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]
+        );
+        assert_eq!(
+            g.u32(PAIR + PAIR_BACK).unwrap(),
+            OWNER_B,
+            "owners exchanged"
+        );
         assert_eq!(g.u32(PAIR + PAIR_FRONT).unwrap(), OWNER_A);
         assert_eq!(g.u8(PAIR + PAIR_FOLD_COUNT).unwrap(), 4);
     }
@@ -606,10 +636,21 @@ mod tests {
     fn equal_counts_leave_everything_alone() {
         let mut g = refold_guest(4, 4, ROW_FLOATS);
         assert_eq!(refold_rows(&mut g, MIXER, PAIR, SP).unwrap(), 1);
-        assert_eq!(g.u8(MIXER + MIRRORED_COUNT).unwrap(), 0xFF, "a pair with rows mirrors nothing");
+        assert_eq!(
+            g.u8(MIXER + MIRRORED_COUNT).unwrap(),
+            0xFF,
+            "a pair with rows mirrors nothing"
+        );
         assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_A, "no swap");
-        assert_eq!(g.u8(PAIR + PAIR_FOLD_COUNT).unwrap(), 4, "and no count write");
-        assert_eq!(dst_row(&g, 0), vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]);
+        assert_eq!(
+            g.u8(PAIR + PAIR_FOLD_COUNT).unwrap(),
+            4,
+            "and no count write"
+        );
+        assert_eq!(
+            dst_row(&g, 0),
+            vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]
+        );
     }
 
     #[test]
@@ -623,10 +664,17 @@ mod tests {
             assert_eq!(dst_row(&g, row), src_row(row), "row {row} copied");
         }
         for row in 3..5u32 {
-            assert_eq!(dst_row(&g, row), vec![0.0f32; ROW_FLOATS as usize], "row {row} zeroed");
+            assert_eq!(
+                dst_row(&g, row),
+                vec![0.0f32; ROW_FLOATS as usize],
+                "row {row} zeroed"
+            );
         }
         // The sixth row is outside the new count and keeps its poison.
-        assert_eq!(dst_row(&g, 5), vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]);
+        assert_eq!(
+            dst_row(&g, 5),
+            vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]
+        );
         assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_B);
         assert_eq!(g.u32(PAIR + PAIR_FRONT).unwrap(), OWNER_A);
         assert_eq!(g.u8(PAIR + PAIR_FOLD_COUNT).unwrap(), 5);
@@ -641,14 +689,25 @@ mod tests {
         let frame = SP - REFOLD_FRAME_BYTES;
         for i in 0..3u32 {
             let want = SRC_ROWS + i * 4 * u32::from(PITCH_SINGLES);
-            assert_eq!(g.u32(frame + REFOLD_SOURCE_ARRAY + i * 4).unwrap(), want, "source {i}");
+            assert_eq!(
+                g.u32(frame + REFOLD_SOURCE_ARRAY + i * 4).unwrap(),
+                want,
+                "source {i}"
+            );
         }
         for i in 0..5u32 {
             let want = DST_ROWS + i * 4 * u32::from(PITCH_SINGLES);
-            assert_eq!(g.u32(frame + REFOLD_DEST_ARRAY + i * 4).unwrap(), want, "dest {i}");
+            assert_eq!(
+                g.u32(frame + REFOLD_DEST_ARRAY + i * 4).unwrap(),
+                want,
+                "dest {i}"
+            );
         }
         // The fourth source word was never written: only `old_count` of them are.
-        assert_eq!(g.u32(frame + REFOLD_SOURCE_ARRAY + 3 * 4).unwrap(), REFOLD_POISON);
+        assert_eq!(
+            g.u32(frame + REFOLD_SOURCE_ARRAY + 3 * 4).unwrap(),
+            REFOLD_POISON
+        );
         // And the back chain is in the frame's first word.
         assert_eq!(g.u32(frame).unwrap(), SP);
     }
@@ -664,9 +723,17 @@ mod tests {
         let frame = SP - REFOLD_FRAME_BYTES;
         for i in 0..8u32 {
             let want = SRC_ROWS + i * 4 * u32::from(PITCH_SINGLES);
-            assert_eq!(g.u32(frame + REFOLD_SOURCE_ARRAY + i * 4).unwrap(), want, "source {i}");
+            assert_eq!(
+                g.u32(frame + REFOLD_SOURCE_ARRAY + i * 4).unwrap(),
+                want,
+                "source {i}"
+            );
         }
-        assert_eq!(REFOLD_SOURCE_ARRAY + 4 * REFOLD_ARRAY_WORDS, REFOLD_DEST_ARRAY, "they abut");
+        assert_eq!(
+            REFOLD_SOURCE_ARRAY + 4 * REFOLD_ARRAY_WORDS,
+            REFOLD_DEST_ARRAY,
+            "they abut"
+        );
         assert_eq!(
             g.u32(frame + REFOLD_DEST_ARRAY).unwrap(),
             REFOLD_POISON,
@@ -687,8 +754,15 @@ mod tests {
         let mut g = refold_guest(2, 0, ROW_FLOATS);
         refold_rows(&mut g, MIXER, PAIR, SP).unwrap();
         let frame = SP - REFOLD_FRAME_BYTES;
-        assert_eq!(g.u32(frame + REFOLD_DEST_ARRAY).unwrap(), REFOLD_POISON, "loop skipped");
-        assert_eq!(dst_row(&g, 0), vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]);
+        assert_eq!(
+            g.u32(frame + REFOLD_DEST_ARRAY).unwrap(),
+            REFOLD_POISON,
+            "loop skipped"
+        );
+        assert_eq!(
+            dst_row(&g, 0),
+            vec![f32::from_bits(REFOLD_POISON); ROW_FLOATS as usize]
+        );
         // The swap and the count still happen.
         assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_B);
         assert_eq!(g.u8(PAIR + PAIR_FOLD_COUNT).unwrap(), 0);
@@ -711,7 +785,13 @@ mod tests {
     fn each_delta_is_spread_over_sixteen_taps_of_its_own_row() {
         let mut g = guest();
         owner(&mut g, OWNER_A, ROWS, 256); // 1024-byte rows
-        taps(&mut g, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]);
+        taps(
+            &mut g,
+            &[
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                16.0,
+            ],
+        );
         let deltas = BASE + 0x300;
         g.set_u32(deltas, 0.5f32.to_bits()).unwrap();
         g.set_u32(deltas + 4, (-2.0f32).to_bits()).unwrap();
@@ -724,7 +804,11 @@ mod tests {
 
         for k in 0..TAP_COUNT {
             let tap = (k + 1) as f32;
-            assert_eq!(g.f32(ROWS + 4 * k as u32).unwrap(), 0.5 * tap, "row 0 tap {k}");
+            assert_eq!(
+                g.f32(ROWS + 4 * k as u32).unwrap(),
+                0.5 * tap,
+                "row 0 tap {k}"
+            );
             assert_eq!(
                 g.f32(ROWS + 1024 + 4 * k as u32).unwrap(),
                 100.0 + -2.0 * tap,
@@ -753,7 +837,11 @@ mod tests {
 
         fold_deltas(&mut g, OWNER_A, deltas, 1).unwrap();
 
-        assert_eq!(g.f32(ROWS).unwrap(), 4.0, "the first tap lands on the first word");
+        assert_eq!(
+            g.f32(ROWS).unwrap(),
+            4.0,
+            "the first tap lands on the first word"
+        );
         assert_eq!(g.f32(ROWS + 60).unwrap(), 0.0, "and not on the sixteenth");
     }
 
@@ -769,7 +857,11 @@ mod tests {
         fold_deltas(&mut g, OWNER_A, deltas, 0).unwrap();
 
         assert_eq!(g.f32(ROWS).unwrap(), 7.0);
-        assert_eq!(g.f32(deltas).unwrap(), 3.0, "the delta is not cleared either");
+        assert_eq!(
+            g.f32(deltas).unwrap(),
+            3.0,
+            "the delta is not cleared either"
+        );
     }
 
     #[test]
@@ -794,7 +886,11 @@ mod tests {
 
         fold_deltas(&mut g, OWNER_A, deltas, 1).unwrap();
 
-        assert_eq!(g.f32(ROWS).unwrap(), fused, "the multiply-add must round once, not twice");
+        assert_eq!(
+            g.f32(ROWS).unwrap(),
+            fused,
+            "the multiply-add must round once, not twice"
+        );
     }
 
     #[test]
@@ -847,7 +943,11 @@ mod tests {
 
         assert_eq!(flush_accumulator(&mut g, OBJECT, PAIR).unwrap(), 0);
 
-        assert_eq!(g.u32(PAIR + PAIR_FRONT).unwrap(), OWNER_A, "the pair is not swapped");
+        assert_eq!(
+            g.u32(PAIR + PAIR_FRONT).unwrap(),
+            OWNER_A,
+            "the pair is not swapped"
+        );
         assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_B);
     }
 
@@ -859,7 +959,11 @@ mod tests {
             let mut g = guest();
             mixer(&mut g, 1, 0x800);
             g.set_u8(OBJECT + FORCE_BYTE, force).unwrap();
-            assert_eq!(flush_accumulator(&mut g, OBJECT, PAIR).unwrap(), expect, "force {force}");
+            assert_eq!(
+                flush_accumulator(&mut g, OBJECT, PAIR).unwrap(),
+                expect,
+                "force {force}"
+            );
         }
         // And the delta flag on its own.
         let mut g = guest();
@@ -867,7 +971,11 @@ mod tests {
         g.set_u8(OBJECT + DELTA_FLAG, 1).unwrap();
         taps(&mut g, &[0.0; TAP_COUNT]);
         assert_eq!(flush_accumulator(&mut g, OBJECT, PAIR).unwrap(), 1);
-        assert_eq!(g.u8(OBJECT + DELTA_FLAG).unwrap(), 0, "and it is cleared after the fold");
+        assert_eq!(
+            g.u8(OBJECT + DELTA_FLAG).unwrap(),
+            0,
+            "and it is cleared after the fold"
+        );
     }
 
     #[test]
@@ -887,7 +995,11 @@ mod tests {
         // The accumulator is zeroed afterwards, all 2 KB of it.
         assert_eq!(g.u32(ACCUM_AT).unwrap(), 0);
         assert_eq!(g.u32(ACCUM_AT + 1024).unwrap(), 0);
-        assert_eq!(g.u32(ACCUM_AT + 0x800).unwrap(), 0, "and so is the pending word");
+        assert_eq!(
+            g.u32(ACCUM_AT + 0x800).unwrap(),
+            0,
+            "and so is the pending word"
+        );
         // The pair is swapped.
         assert_eq!(g.u32(PAIR + PAIR_FRONT).unwrap(), OWNER_B);
         assert_eq!(g.u32(PAIR + PAIR_BACK).unwrap(), OWNER_A);
@@ -921,7 +1033,11 @@ mod tests {
 
         flush_accumulator(&mut g, OBJECT, PAIR).unwrap();
 
-        assert_eq!(g.u32(ROWS).unwrap(), 0xABCD_1234, "owner A's rows, the pre-swap front");
+        assert_eq!(
+            g.u32(ROWS).unwrap(),
+            0xABCD_1234,
+            "owner A's rows, the pre-swap front"
+        );
         assert_eq!(g.u32(ROWS + 0x2000).unwrap(), 0, "owner B's are untouched");
     }
 
@@ -935,7 +1051,11 @@ mod tests {
         assert_eq!(flush_accumulator(&mut g, OBJECT, PAIR).unwrap(), 1);
 
         assert_eq!(g.u32(ROWS).unwrap(), 0x9999_9999, "no row loop ran");
-        assert_eq!(g.u32(ACCUM_AT + 0x800).unwrap(), 0, "but the pending word was cleared");
+        assert_eq!(
+            g.u32(ACCUM_AT + 0x800).unwrap(),
+            0,
+            "but the pending word was cleared"
+        );
         // `channels * 1024` is zero, so the closing memset writes nothing — which is why the
         // pending word above survives as a zero rather than being re-cleared by it.
         assert_eq!(g.u32(ACCUM_AT).unwrap(), 0);
@@ -957,9 +1077,17 @@ mod tests {
 
         flush_accumulator(&mut g, OBJECT, PAIR).unwrap();
 
-        assert_eq!(g.f32(ROWS).unwrap(), 15.0, "10 copied in, then 1 * 5 folded on top");
+        assert_eq!(
+            g.f32(ROWS).unwrap(),
+            15.0,
+            "10 copied in, then 1 * 5 folded on top"
+        );
         assert_eq!(g.u8(OBJECT + DELTA_FLAG).unwrap(), 0);
-        assert_eq!(g.f32(OBJECT + DELTAS).unwrap(), 0.0, "the delta is consumed");
+        assert_eq!(
+            g.f32(OBJECT + DELTAS).unwrap(),
+            0.0,
+            "the delta is consumed"
+        );
     }
 
     #[test]
@@ -975,8 +1103,16 @@ mod tests {
 
         flush_accumulator(&mut g, OBJECT, PAIR).unwrap();
 
-        assert_eq!(g.u32(ACCUM_AT + 3 * 1024 - 4).unwrap(), 0, "the last word of 3 KB");
-        assert_eq!(g.u32(ACCUM_AT + 3 * 1024).unwrap(), 0x7777_7777, "and not one byte more");
+        assert_eq!(
+            g.u32(ACCUM_AT + 3 * 1024 - 4).unwrap(),
+            0,
+            "the last word of 3 KB"
+        );
+        assert_eq!(
+            g.u32(ACCUM_AT + 3 * 1024).unwrap(),
+            0x7777_7777,
+            "and not one byte more"
+        );
     }
 
     // --------------------------------------------------------------------- sub_82B443F8
@@ -1008,12 +1144,23 @@ mod tests {
         g.set_u32(CHANBUF, 0x1234_5678).unwrap();
         g.set_u32(OBJECT + FRAMES_CLEARED, 0xDEAD).unwrap();
 
-        assert_eq!(advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 8).unwrap(), 0);
+        assert_eq!(
+            advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 8).unwrap(),
+            0
+        );
 
         assert_eq!(g.u8(STATE + IDLE_FLAG).unwrap(), 0);
-        assert_eq!(g.f32(STATE + POSITION).unwrap(), 5.0, "the position did not move");
+        assert_eq!(
+            g.f32(STATE + POSITION).unwrap(),
+            5.0,
+            "the position did not move"
+        );
         assert_eq!(g.u32(CHANBUF).unwrap(), 0x1234_5678, "nothing was cleared");
-        assert_eq!(g.u32(OBJECT + FRAMES_CLEARED).unwrap(), 0xDEAD, "and nothing published");
+        assert_eq!(
+            g.u32(OBJECT + FRAMES_CLEARED).unwrap(),
+            0xDEAD,
+            "and nothing published"
+        );
     }
 
     #[test]
@@ -1024,11 +1171,22 @@ mod tests {
         fill_state(&mut g, 100.0, 5.0, 1.0); // limit 1 < position 5, but floor 100 > 5
         plan(&mut g, 1, 64);
 
-        assert_eq!(advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 8).unwrap(), 1);
+        assert_eq!(
+            advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 8).unwrap(),
+            1
+        );
 
-        assert_eq!(g.f32(STATE + LIMIT).unwrap(), 100.0, "the limit was raised and stored");
+        assert_eq!(
+            g.f32(STATE + LIMIT).unwrap(),
+            100.0,
+            "the limit was raised and stored"
+        );
         assert_eq!(g.f32(STATE + POSITION).unwrap(), 13.0, "5 + 8");
-        assert_eq!(g.u8(STATE + IDLE_FLAG).unwrap(), 0xFF, "the idle byte is not touched here");
+        assert_eq!(
+            g.u8(STATE + IDLE_FLAG).unwrap(),
+            0xFF,
+            "the idle byte is not touched here"
+        );
     }
 
     #[test]
@@ -1047,15 +1205,31 @@ mod tests {
         let mut g = guest();
         fill_state(&mut g, 1.0, 0.0, f32::NAN);
         plan(&mut g, 1, 64);
-        assert_eq!(advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(), 0);
-        assert!(g.f32(STATE + LIMIT).unwrap().is_nan(), "the clamp store was skipped");
-        assert_eq!(g.u8(STATE + IDLE_FLAG).unwrap(), 0, "and it took the idle exit");
+        assert_eq!(
+            advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(),
+            0
+        );
+        assert!(
+            g.f32(STATE + LIMIT).unwrap().is_nan(),
+            "the clamp store was skipped"
+        );
+        assert_eq!(
+            g.u8(STATE + IDLE_FLAG).unwrap(),
+            0,
+            "and it took the idle exit"
+        );
 
         let mut h = guest();
         fill_state(&mut h, 1.0, f32::NAN, 50.0);
         plan(&mut h, 1, 64);
-        assert_eq!(advance_and_clear(&mut h, OBJECT, STATE, LAYOUT, 4).unwrap(), 0);
-        assert!(h.f32(STATE + POSITION).unwrap().is_nan(), "and the position did not move");
+        assert_eq!(
+            advance_and_clear(&mut h, OBJECT, STATE, LAYOUT, 4).unwrap(),
+            0
+        );
+        assert!(
+            h.f32(STATE + POSITION).unwrap().is_nan(),
+            "and the position did not move"
+        );
     }
 
     #[test]
@@ -1069,11 +1243,18 @@ mod tests {
             }
         }
 
-        assert_eq!(advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(), 1);
+        assert_eq!(
+            advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(),
+            1
+        );
 
         for i in 0..3u32 {
             for w in 0..4u32 {
-                assert_eq!(g.u32(CHANBUF + 256 * i + 4 * w).unwrap(), 0, "channel {i} word {w}");
+                assert_eq!(
+                    g.u32(CHANBUF + 256 * i + 4 * w).unwrap(),
+                    0,
+                    "channel {i} word {w}"
+                );
             }
             assert_eq!(
                 g.u32(CHANBUF + 256 * i + 16).unwrap(),
@@ -1092,11 +1273,22 @@ mod tests {
         plan(&mut g, 0, 64);
         g.set_u32(CHANBUF, 0x9999_9999).unwrap();
 
-        assert_eq!(advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(), 1);
+        assert_eq!(
+            advance_and_clear(&mut g, OBJECT, STATE, LAYOUT, 4).unwrap(),
+            1
+        );
 
         assert_eq!(g.u32(CHANBUF).unwrap(), 0x9999_9999);
-        assert_eq!(g.u32(OBJECT + FRAMES_CLEARED).unwrap(), 4, "published anyway");
-        assert_eq!(g.f32(STATE + POSITION).unwrap(), 4.0, "and the position still moved");
+        assert_eq!(
+            g.u32(OBJECT + FRAMES_CLEARED).unwrap(),
+            4,
+            "published anyway"
+        );
+        assert_eq!(
+            g.f32(STATE + POSITION).unwrap(),
+            4.0,
+            "and the position still moved"
+        );
     }
 
     #[test]

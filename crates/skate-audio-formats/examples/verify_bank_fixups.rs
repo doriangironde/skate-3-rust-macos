@@ -11,23 +11,30 @@ use skate_audio_formats::{banks, eb};
 use std::collections::BTreeMap;
 
 fn be32(b: &[u8], at: usize) -> Option<u32> {
-    b.get(at..at + 4).map(|s| u32::from_be_bytes(s.try_into().unwrap()))
+    b.get(at..at + 4)
+        .map(|s| u32::from_be_bytes(s.try_into().unwrap()))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: verify_bank_fixups <archive>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: verify_bank_fixups <archive>")?;
     let data = std::fs::read(&path)?;
     let (mut banks_seen, mut failures) = (0, 0);
     let mut code_counts = BTreeMap::<u32, usize>::new();
     let (mut rebases, mut rebase_in_bank) = (0usize, 0usize);
     let mut rebase_targets = BTreeMap::<&'static str, usize>::new();
     for e in &eb::Archive::parse(&data)?.entries {
-        let Some(name) = e.name.as_deref() else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".abk") {
             continue;
         }
         let b = &data[e.range()];
-        let Ok(abk) = banks::Abk::parse(b) else { continue };
+        let Ok(abk) = banks::Abk::parse(b) else {
+            continue;
+        };
         banks_seen += 1;
         let code_at = be32(b, 0x30).unwrap() as usize;
         let rebase_at = be32(b, 0x34).unwrap() as usize;
@@ -74,6 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("{banks_seen} banks, {failures} failures");
     println!("code-reference counts -> banks: {code_counts:?}");
-    println!("rebased words: {rebases}, {rebase_in_bank} inside their bank, by target region {rebase_targets:?}");
+    println!(
+        "rebased words: {rebases}, {rebase_in_bank} inside their bank, by target region {rebase_targets:?}"
+    );
     Ok(())
 }

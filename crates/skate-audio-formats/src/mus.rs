@@ -17,7 +17,7 @@
 //! Note the file's segment count at offset 4 is **little-endian** while everything else
 //! in the format is big-endian.
 
-use crate::{be32, eaac, Error, Result};
+use crate::{Error, Result, be32, eaac};
 
 /// Byte size of a block header.
 pub const HEADER_SIZE: usize = 12;
@@ -63,7 +63,10 @@ impl Header {
 
     pub fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < Self::SIZE {
-            return Err(Error::new(0, format!("`.mus` is {} bytes, want {}", data.len(), Self::SIZE)));
+            return Err(Error::new(
+                0,
+                format!("`.mus` is {} bytes, want {}", data.len(), Self::SIZE),
+            ));
         }
         let segment_count = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
         let header = Self {
@@ -78,7 +81,10 @@ impl Header {
         }
         let table_end = header.snr_table_offset + Self::SNR_RECORD_SIZE * segment_count as usize;
         if table_end > data.len() {
-            return Err(Error::new(0x30, format!("SNR table ends at {table_end}, past the file")));
+            return Err(Error::new(
+                0x30,
+                format!("SNR table ends at {table_end}, past the file"),
+            ));
         }
         if header.first_block_offset + HEADER_SIZE > data.len() {
             return Err(Error::new(0x34, "first block offset is past the file"));
@@ -89,7 +95,10 @@ impl Header {
     /// The stream header for segment `i`, read from the SNR table.
     pub fn snr(&self, data: &[u8], i: usize) -> Result<eaac::Header> {
         if i >= self.segment_count as usize {
-            return Err(Error::new(0, format!("segment {i} of {}", self.segment_count)));
+            return Err(Error::new(
+                0,
+                format!("segment {i} of {}", self.segment_count),
+            ));
         }
         eaac::Header::parse(data, self.snr_table_offset + Self::SNR_RECORD_SIZE * i)
     }
@@ -110,8 +119,10 @@ pub fn segments(data: &[u8]) -> Result<Vec<Segment>> {
         if u64::from(declared) != seg.num_samples() {
             return Err(Error::new(
                 seg.blocks[0].offset,
-                format!("segment {i}: blocks sum to {} but the SNR table says {declared}",
-                        seg.num_samples()),
+                format!(
+                    "segment {i}: blocks sum to {} but the SNR table says {declared}",
+                    seg.num_samples()
+                ),
             ));
         }
         let end = seg.end();
@@ -119,7 +130,12 @@ pub fn segments(data: &[u8]) -> Result<Vec<Segment>> {
         match next_segment_start(data, end) {
             Some(n) => at = n,
             None if i + 1 == header.segment_count as usize => break,
-            None => return Err(Error::new(end, format!("file ends after segment {i} of {}", header.segment_count))),
+            None => {
+                return Err(Error::new(
+                    end,
+                    format!("file ends after segment {i} of {}", header.segment_count),
+                ));
+            }
         }
     }
     Ok(out)
@@ -152,7 +168,10 @@ impl Block {
         let word = be32(data, at)?;
         let size = word & 0x00FF_FFFF;
         if (size as usize) <= HEADER_SIZE {
-            return Err(Error::new(at, format!("block size {size} does not advance")));
+            return Err(Error::new(
+                at,
+                format!("block size {size} does not advance"),
+            ));
         }
         if at + size as usize > data.len() {
             return Err(Error::new(at, format!("block size {size} runs past end")));

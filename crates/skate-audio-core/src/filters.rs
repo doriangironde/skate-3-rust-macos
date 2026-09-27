@@ -150,8 +150,14 @@ pub const CACHED_CUTOFF: u32 = 204;
 /// `(184 - 56) / 16` — the state array's capacity, not a bound either original enforces.
 pub const MAX_CHANNELS: u32 = 8;
 
-const _: () = assert!((COEFFICIENTS - FILTER_STATE) / 16 == MAX_CHANNELS, "eight state slots");
-const _: () = assert!(CACHED_CUTOFF == COEFFICIENTS + 20, "the cache sits past the five singles");
+const _: () = assert!(
+    (COEFFICIENTS - FILTER_STATE) / 16 == MAX_CHANNELS,
+    "eight state slots"
+);
+const _: () = assert!(
+    CACHED_CUTOFF == COEFFICIENTS + 20,
+    "the cache sits past the five singles"
+);
 
 // --------------------------------------------------------------------------------- the stream
 
@@ -164,7 +170,10 @@ pub const STREAM_FORMAT: u32 = 40;
 /// `f32` at `+12` of the format block — the sample rate the cutoff is normalised by.
 pub const FORMAT_SAMPLE_RATE: u32 = 12;
 
-const _: () = assert!(STREAM_BUFFER_B == STREAM_BUFFER_A + 4, "the pair is swapped as two words");
+const _: () = assert!(
+    STREAM_BUFFER_B == STREAM_BUFFER_A + 4,
+    "the pair is swapped as two words"
+);
 
 // ------------------------------------------------------------------------------- the descriptor
 
@@ -176,7 +185,10 @@ pub const DESC_STRIDE: u32 = 14;
 // The same descriptor `gains.rs` walks, so its `mullw`/`rlwinm`/`add` chain is reused rather than
 // written a fourth time. These two assertions are what makes the reuse legitimate: if either offset
 // ever disagreed, the shared helper would be reading a different structure.
-const _: () = assert!(DESC_BASE == gains::BUFFER_BASE, "the descriptor gains.rs walks");
+const _: () = assert!(
+    DESC_BASE == gains::BUFFER_BASE,
+    "the descriptor gains.rs walks"
+);
 const _: () = assert!(DESC_STRIDE == gains::CHANNEL_STRIDE);
 
 /// `li r7,256` — both stages filter a fixed 256-frame block.
@@ -215,7 +227,10 @@ const _: () = assert!(lis(-32250) == 0x8206_0000, "lis r8,-32250");
 /// `lis -32208 ; addi -31232` — the audio pool [`crate::dsp::biquad`] also names.
 const POOL: u32 = lis(-32208).wrapping_add(-31232i32 as u32);
 const _: () = assert!(POOL == 0x822F_8600, "lis -32208 ; addi -31232");
-const _: () = assert!(POOL == dsp::biquad::POOL, "the same pool the kernel loads its bias from");
+const _: () = assert!(
+    POOL == dsp::biquad::POOL,
+    "the same pool the kernel loads its bias from"
+);
 
 /// `lis -32245 ; lfs 16668` — multiplies the normalised `numerator / rate` back up.
 pub const CUTOFF_SCALE: u32 = lis(-32245).wrapping_add(16668);
@@ -240,12 +255,18 @@ pub const MINUS_TWO_SINGLE: u32 = lis(-32247).wrapping_add(16760);
 pub const TWO_SINGLE: u32 = lis(-32250).wrapping_add(3152);
 
 const _: () = assert!(CUTOFF_SCALE == 0x820B_411C);
-const _: () = assert!(CUTOFF_FLOOR == 0x822F_8E7C, "lis -32208 ; addi -31232 ; lfs 2172");
+const _: () = assert!(
+    CUTOFF_FLOOR == 0x822F_8E7C,
+    "lis -32208 ; addi -31232 ; lfs 2172"
+);
 const _: () = assert!(CUTOFF_CEILING == 0x822F_8E80, "lfs 2176");
 const _: () = assert!(CUTOFF_CEILING == CUTOFF_FLOOR + 4, "two adjacent words");
 const _: () = assert!(ZERO_SINGLE == 0x8216_5A10, "lis -32234 ; lfs 23056");
 const _: () = assert!(KERNEL_BIAS == 0x822F_87B0);
-const _: () = assert!(KERNEL_BIAS == dsp::biquad::DENORM_BIAS, "the kernel's own bias cell");
+const _: () = assert!(
+    KERNEL_BIAS == dsp::biquad::DENORM_BIAS,
+    "the kernel's own bias cell"
+);
 const _: () = assert!(HALF_SINGLE == 0x8209_975C, "lis -32246 ; lfs -26788");
 const _: () = assert!(ONE_SINGLE == 0x8231_A844, "lis -32206 ; lfs -22460");
 const _: () = assert!(MINUS_TWO_SINGLE == 0x8209_4178, "lis -32247 ; lfs 16760");
@@ -305,12 +326,32 @@ pub fn build_lowpass_coefficients<T: Trig>(
     let two_a0 = fp::mul_single(a0, two); // fmuls f4,f7,f12
 
     let at = |k: u32| coefficients.wrapping_add(k);
-    fp::store_single(g, at(dsp::biquad::COEFF_A1), fp::mul_single(neg_two_cos, inv_a0))?;
-    fp::store_single(g, at(dsp::biquad::COEFF_A2), fp::mul_single(one_minus_alpha, inv_a0))?;
-    fp::store_single(g, at(dsp::biquad::COEFF_B0), fp::div_single(numerator, two_a0))?;
-    fp::store_single(g, at(dsp::biquad::COEFF_B1), fp::mul_single(numerator, inv_a0))?;
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_A1),
+        fp::mul_single(neg_two_cos, inv_a0),
+    )?;
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_A2),
+        fp::mul_single(one_minus_alpha, inv_a0),
+    )?;
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_B0),
+        fp::div_single(numerator, two_a0),
+    )?;
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_B1),
+        fp::mul_single(numerator, inv_a0),
+    )?;
     // fdivs f13,f9,f4 — the same quotient a second time, not a copy of b0. See the module note.
-    fp::store_single(g, at(dsp::biquad::COEFF_B2), fp::div_single(numerator, two_a0))
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_B2),
+        fp::div_single(numerator, two_a0),
+    )
 }
 
 // ------------------------------------------------------------------------------ shared by the stages
@@ -486,7 +527,12 @@ pub fn lowpass_stage<T: Trig>(
     // reaches the trigonometry. That is the majority path and it needs no `Trig`.
     if cutoff != cached {
         // addi r3,r30,184 ; fmr f1,f31 ; bl 0x82b43cc0
-        build_lowpass_coefficients(g, trig, object.wrapping_add(COEFFICIENTS as u64) as u32, cutoff)?;
+        build_lowpass_coefficients(
+            g,
+            trig,
+            object.wrapping_add(COEFFICIENTS as u64) as u32,
+            cutoff,
+        )?;
         fpscr.disable_flush_mode_unconditional();
         fp::store_single(g, object_low.wrapping_add(CACHED_CUTOFF), cutoff)?; // stfs f31,204(r30)
     }
@@ -577,10 +623,26 @@ pub fn highpass_stage<T: Trig>(
 
         // Store order 184, 188, 192, 200, 196, 204 — kept as the original has it.
         let at = |k: u32| object_low.wrapping_add(COEFFICIENTS).wrapping_add(k);
-        fp::store_single(g, at(dsp::biquad::COEFF_A1), fp::mul_single(neg_two_cos, inv_a0))?;
-        fp::store_single(g, at(dsp::biquad::COEFF_A2), fp::mul_single(one_minus_alpha, inv_a0))?;
-        fp::store_single(g, at(dsp::biquad::COEFF_B0), fp::div_single(numerator, two_a0))?;
-        fp::store_single(g, at(dsp::biquad::COEFF_B2), fp::div_single(numerator, two_a0))?;
+        fp::store_single(
+            g,
+            at(dsp::biquad::COEFF_A1),
+            fp::mul_single(neg_two_cos, inv_a0),
+        )?;
+        fp::store_single(
+            g,
+            at(dsp::biquad::COEFF_A2),
+            fp::mul_single(one_minus_alpha, inv_a0),
+        )?;
+        fp::store_single(
+            g,
+            at(dsp::biquad::COEFF_B0),
+            fp::div_single(numerator, two_a0),
+        )?;
+        fp::store_single(
+            g,
+            at(dsp::biquad::COEFF_B2),
+            fp::div_single(numerator, two_a0),
+        )?;
         // fneg f12,f3 — a sign-bit flip on the doubleword, not an arithmetic negate. This single
         // instruction is what makes the stage a high-pass rather than a low-pass.
         fp::store_single(g, at(dsp::biquad::COEFF_B1), fp::neg_double(half_num))?;
@@ -604,7 +666,8 @@ pub const SHELF_MINUS_TWO: u32 = (((-32247i32 as u32) & 0xFFFF) << 16) + 16760;
 /// `lis -32206 ; lfs -22460` — 1.0, which is also the "no shelf" gain the stage bypasses on.
 pub const SHELF_ONE: u32 = (((-32206i32 as u32) & 0xFFFF) << 16).wrapping_sub(22460);
 const _: () = assert!(SHELF_ALPHA_SCALE == 0x822F_0000 + 0x8E50);
-const _: () = assert!(SHELF_TWO == 0x8206_0C50 && SHELF_MINUS_TWO == 0x8209_4178 && SHELF_ONE == 0x8231_A844);
+const _: () =
+    assert!(SHELF_TWO == 0x8206_0C50 && SHELF_MINUS_TWO == 0x8209_4178 && SHELF_ONE == 0x8231_A844);
 
 /// `f32` at `+60` — the shelf gain, handed to the builder as its linear amplitude squared.
 pub const SHELF_GAIN: u32 = 60;
@@ -681,7 +744,11 @@ pub fn build_shelf_coefficients<T: Trig>(
     fp::store_single(g, at(dsp::biquad::COEFF_A1), fp::mul_single(a1_norm, two))?;
     fp::store_single(g, at(dsp::biquad::COEFF_A2), fp::mul_single(a2_sum, inv_a0))?;
     fp::store_single(g, at(dsp::biquad::COEFF_B0), fp::mul_single(b0_norm, a))?;
-    fp::store_single(g, at(dsp::biquad::COEFF_B1), fp::mul_single(b1_scaled, minus_two))?;
+    fp::store_single(
+        g,
+        at(dsp::biquad::COEFF_B1),
+        fp::mul_single(b1_scaled, minus_two),
+    )?;
     fp::store_single(g, at(dsp::biquad::COEFF_B2), fp::mul_single(b2_norm, a))
 }
 
@@ -735,7 +802,13 @@ pub fn shelf_stage<T: Trig>(g: &mut Guest, trig: &mut T, object: u32, pair: u32)
         let unchanged = corner == cached_corner
             && gain == fp::load_single(g, object.wrapping_add(SHELF_CACHED_GAIN))?;
         if !unchanged {
-            build_shelf_coefficients(g, trig, object.wrapping_add(SHELF_COEFFICIENTS), corner, gain)?;
+            build_shelf_coefficients(
+                g,
+                trig,
+                object.wrapping_add(SHELF_COEFFICIENTS),
+                corner,
+                gain,
+            )?;
             fpscr.disable_flush_mode_unconditional();
             let published = fp::load_single(g, object.wrapping_add(SHELF_GAIN))?; // reloaded
             fp::store_single(g, object.wrapping_add(SHELF_CACHED_CORNER), corner)?;
@@ -839,7 +912,12 @@ const _: () = assert!(QUALITY_FLOOR == 0x8209_9280 && QUALITY_CEILING == 0x8209_
 ///   computed twice.
 /// - On the bypass the histories are cleared once — only when the flag reads exactly 1 — and the
 ///   descriptor pair is **not** swapped.
-pub fn peaking_stage<T: Trig>(g: &mut Guest, trig: &mut T, object: u64, stream: u32) -> Result<u64> {
+pub fn peaking_stage<T: Trig>(
+    g: &mut Guest,
+    trig: &mut T,
+    object: u64,
+    stream: u32,
+) -> Result<u64> {
     let obj = object as u32;
     let at = |k: u32| obj.wrapping_add(k);
     let format = g.u32(stream.wrapping_add(STREAM_FORMAT))?; // lwz r10,40(r4)
@@ -1024,7 +1102,8 @@ mod tests {
 
     /// `numerator / rate * scale` with rate and scale both 1.0, so the cutoff *is* the `+52` word.
     fn cutoff(g: &mut Guest, value: f32) {
-        g.set_u32(FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits()).unwrap();
+        g.set_u32(FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits())
+            .unwrap();
         g.set_u32(OBJECT + CUTOFF_INPUT, value.to_bits()).unwrap();
     }
 
@@ -1035,9 +1114,14 @@ mod tests {
     /// A unit-gain pass-through so the stage's output equals its input: `b0 = 1`, everything else 0.
     fn passthrough_coefficients(g: &mut Guest) {
         for k in 0..5u32 {
-            g.set_u32(OBJECT + COEFFICIENTS + 4 * k, 0f32.to_bits()).unwrap();
+            g.set_u32(OBJECT + COEFFICIENTS + 4 * k, 0f32.to_bits())
+                .unwrap();
         }
-        g.set_u32(OBJECT + COEFFICIENTS + dsp::biquad::COEFF_B0, 1.0f32.to_bits()).unwrap();
+        g.set_u32(
+            OBJECT + COEFFICIENTS + dsp::biquad::COEFF_B0,
+            1.0f32.to_bits(),
+        )
+        .unwrap();
     }
 
     fn channels(g: &mut Guest, n: u8) {
@@ -1056,13 +1140,16 @@ mod tests {
     }
 
     fn state_words(g: &Guest, channel: u32) -> Vec<u32> {
-        (0..4).map(|k| g.u32(OBJECT + FILTER_STATE + 16 * channel + 4 * k).unwrap()).collect()
+        (0..4)
+            .map(|k| g.u32(OBJECT + FILTER_STATE + 16 * channel + 4 * k).unwrap())
+            .collect()
     }
 
     fn poison_state(g: &mut Guest, n: u32) {
         for c in 0..n {
             for k in 0..4u32 {
-                g.set_u32(OBJECT + FILTER_STATE + 16 * c + 4 * k, 0xDEAD_0000 + k).unwrap();
+                g.set_u32(OBJECT + FILTER_STATE + 16 * c + 4 * k, 0xDEAD_0000 + k)
+                    .unwrap();
             }
         }
     }
@@ -1100,7 +1187,11 @@ mod tests {
     #[test]
     fn the_coefficients_are_the_rbj_low_pass_at_unit_q() {
         let mut g = guest();
-        let mut trig = Scripted { sine: 0.5, cosine: 0.75, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.5,
+            cosine: 0.75,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut g, &mut trig, COEFFS, 0.25).unwrap();
 
         assert_eq!(coefficients_at(&g, COEFFS), model_lowpass(0.5, 0.75));
@@ -1116,19 +1207,31 @@ mod tests {
     fn the_four_constants_are_read_live_from_the_map() {
         // Not folded in: patch `half` and alpha moves, which moves a0 and therefore four of the five.
         let mut g = guest();
-        let mut trig = Scripted { sine: 1.0, cosine: 0.0, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 1.0,
+            cosine: 0.0,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut g, &mut trig, COEFFS, 0.0).unwrap();
         let before = coefficients_at(&g, COEFFS);
 
         let mut patched = guest();
         patched.set_u32(HALF_SINGLE, 0.25f32.to_bits()).unwrap();
-        let mut t2 = Scripted { sine: 1.0, cosine: 0.0, ..Default::default() };
+        let mut t2 = Scripted {
+            sine: 1.0,
+            cosine: 0.0,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut patched, &mut t2, COEFFS, 0.0).unwrap();
         let after = coefficients_at(&patched, COEFFS);
 
         assert_ne!(before, after, "the 0.5 cell is loaded, not a literal");
         assert_eq!(before, model_lowpass_with_half(1.0, 0.0, 0.5));
-        assert_eq!(after, model_lowpass_with_half(1.0, 0.0, 0.25), "alpha followed the cell");
+        assert_eq!(
+            after,
+            model_lowpass_with_half(1.0, 0.0, 0.25),
+            "alpha followed the cell"
+        );
     }
 
     #[test]
@@ -1138,7 +1241,11 @@ mod tests {
         for missing in [HALF_SINGLE, ONE_SINGLE, MINUS_TWO_SINGLE, TWO_SINGLE] {
             let mut g = guest();
             g.put(missing, Vec::new());
-            let mut trig = Scripted { sine: 0.5, cosine: 0.5, ..Default::default() };
+            let mut trig = Scripted {
+                sine: 0.5,
+                cosine: 0.5,
+                ..Default::default()
+            };
             assert!(
                 build_lowpass_coefficients(&mut g, &mut trig, COEFFS, 0.0).is_err(),
                 "cell {missing:#x} is not read"
@@ -1155,7 +1262,11 @@ mod tests {
         let e = build_lowpass_coefficients(&mut g, &mut Unported, COEFFS, 0.5).unwrap_err();
         assert_eq!(e.address, 0x82F4_DED0, "the sine, by guest address");
         for k in 0..5u32 {
-            assert_eq!(g.u32(COEFFS + 4 * k).unwrap(), 0x7F7F_7F7F, "word {k} was written");
+            assert_eq!(
+                g.u32(COEFFS + 4 * k).unwrap(),
+                0x7F7F_7F7F,
+                "word {k} was written"
+            );
         }
     }
 
@@ -1176,20 +1287,38 @@ mod tests {
         // because the original has it, and it joins the module's "no test can catch this" list. The
         // same pair of facts holds for [`highpass_stage`]'s own two `frsp`s.
         let long = 1.0_f64 - f64::from_bits(0x3E60_0000_0000_0000); // 1 - 2^-25
-        assert_ne!(long, long as f32 as f64, "the input has to distinguish the two");
-        assert_eq!(long as f32, 1.0, "…and it has to round to something the next op treats apart");
+        assert_ne!(
+            long, long as f32 as f64,
+            "the input has to distinguish the two"
+        );
+        assert_eq!(
+            long as f32, 1.0,
+            "…and it has to round to something the next op treats apart"
+        );
 
         let mut g = guest();
-        let mut trig = Scripted { sine: long, cosine: long, ..Default::default() };
+        let mut trig = Scripted {
+            sine: long,
+            cosine: long,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut g, &mut trig, COEFFS, 0.0).unwrap();
 
         let mut h = guest();
         let rounded = long as f32 as f64;
-        let mut t2 = Scripted { sine: rounded, cosine: rounded, ..Default::default() };
+        let mut t2 = Scripted {
+            sine: rounded,
+            cosine: rounded,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut h, &mut t2, COEFFS, 0.0).unwrap();
 
         assert_eq!(coefficients_at(&g, COEFFS), coefficients_at(&h, COEFFS));
-        assert_eq!(coefficients_at(&g, COEFFS)[2], 0.0, "b0 came out of `1 - 1.0`, not `1 - long`");
+        assert_eq!(
+            coefficients_at(&g, COEFFS)[2],
+            0.0,
+            "b0 came out of `1 - 1.0`, not `1 - long`"
+        );
     }
 
     // ------------------------------------------------------------------ the two stages
@@ -1205,18 +1334,29 @@ mod tests {
 
         // `Unported` is deliberate: the majority path needs no sine, and a test that supplied one
         // would not establish that.
-        assert_eq!(lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap(), 1);
+        assert_eq!(
+            lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap(),
+            1
+        );
 
         // b0 = 1 and everything else 0, so each destination channel is its source channel.
         for c in 0..2u32 {
             for i in [0u32, 1, 255] {
                 let want = c as f32 * 1000.0 + i as f32;
-                assert_eq!(g.f32(BUF_B + 1024 * c + 4 * i).unwrap(), want, "channel {c} frame {i}");
+                assert_eq!(
+                    g.f32(BUF_B + 1024 * c + 4 * i).unwrap(),
+                    want,
+                    "channel {c} frame {i}"
+                );
             }
         }
         // Channel 2 is past the count: its poison has to survive, and its source is non-zero so a
         // stray pass would be visible rather than writing the same zero.
-        assert_eq!(g.u32(BUF_B + 2048).unwrap(), 0x7F7F_7F7F, "a third channel was filtered");
+        assert_eq!(
+            g.u32(BUF_B + 2048).unwrap(),
+            0x7F7F_7F7F,
+            "a third channel was filtered"
+        );
         // And the descriptor pair is swapped.
         assert_eq!(g.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_B);
         assert_eq!(g.u32(STREAM + STREAM_BUFFER_B).unwrap(), DESC_A);
@@ -1232,20 +1372,39 @@ mod tests {
         input(&mut g, 3);
         poison_state(&mut g, 4); // four poisoned slots, three in the count
 
-        assert_eq!(lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap(), 1);
+        assert_eq!(
+            lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap(),
+            1
+        );
 
-        assert_eq!(g.u32(BUF_B).unwrap(), 0x7F7F_7F7F, "the output block was written");
-        assert_eq!(g.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_A, "the pair was swapped");
+        assert_eq!(
+            g.u32(BUF_B).unwrap(),
+            0x7F7F_7F7F,
+            "the output block was written"
+        );
+        assert_eq!(
+            g.u32(STREAM + STREAM_BUFFER_A).unwrap(),
+            DESC_A,
+            "the pair was swapped"
+        );
         assert_eq!(g.u32(STREAM + STREAM_BUFFER_B).unwrap(), DESC_B);
         for c in 0..3u32 {
-            assert_eq!(state_words(&g, c), vec![0u32; 4], "channel {c}'s history survived");
+            assert_eq!(
+                state_words(&g, c),
+                vec![0u32; 4],
+                "channel {c}'s history survived"
+            );
         }
         assert_eq!(
             state_words(&g, 3),
             vec![0xDEAD_0000, 0xDEAD_0001, 0xDEAD_0002, 0xDEAD_0003],
             "a fourth slot, past the count, was cleared"
         );
-        assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 1.0, "the cache is published either way");
+        assert_eq!(
+            g.f32(OBJECT + CACHED_CUTOFF).unwrap(),
+            1.0,
+            "the cache is published either way"
+        );
     }
 
     #[test]
@@ -1260,7 +1419,10 @@ mod tests {
 
         lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
 
-        assert_eq!(state_words(&g, 0), vec![0xDEAD_0000, 0xDEAD_0001, 0xDEAD_0002, 0xDEAD_0003]);
+        assert_eq!(
+            state_words(&g, 0),
+            vec![0xDEAD_0000, 0xDEAD_0001, 0xDEAD_0002, 0xDEAD_0003]
+        );
         assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 2.0);
     }
 
@@ -1288,7 +1450,11 @@ mod tests {
         // word survives the clear. A port that started the cursor at `+56` would clear `+60`…`+72`
         // instead, leaving channel 0's first word above untouched and the third channel's first word
         // cleared.
-        assert_eq!(g.u32(OBJECT + CUTOFF_INPUT).unwrap(), 2.0f32.to_bits(), "the input word");
+        assert_eq!(
+            g.u32(OBJECT + CUTOFF_INPUT).unwrap(),
+            2.0f32.to_bits(),
+            "the input word"
+        );
         assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 2.0);
     }
 
@@ -1300,15 +1466,26 @@ mod tests {
         cutoff(&mut g, 0.001); // under a 0.01 floor
         cached(&mut g, 0.0);
         channels(&mut g, 0);
-        let mut trig = Scripted { sine: 0.25, cosine: 0.5, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            ..Default::default()
+        };
 
         lowpass_stage(&mut g, &mut trig, OBJECT as u64, STREAM as u64).unwrap();
 
         // The angle is the *widened* floor cell, not the decimal 0.01: `lfs` loads a single.
         let floor = 0.01f32 as f64;
-        assert_eq!(trig.asked, vec![('s', floor), ('c', floor)], "the floor, not 0.001");
+        assert_eq!(
+            trig.asked,
+            vec![('s', floor), ('c', floor)],
+            "the floor, not 0.001"
+        );
         assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 0.01);
-        assert_eq!(coefficients_at(&g, OBJECT + COEFFICIENTS), model_lowpass(0.25, 0.5));
+        assert_eq!(
+            coefficients_at(&g, OBJECT + COEFFICIENTS),
+            model_lowpass(0.25, 0.5)
+        );
 
         // Exactly on the floor is not clamped, which is the same value here — so the test that the
         // compare is strict has to come from *above* the floor instead.
@@ -1316,10 +1493,18 @@ mod tests {
         cutoff(&mut h, 0.02);
         cached(&mut h, 0.0);
         channels(&mut h, 0);
-        let mut t2 = Scripted { sine: 0.25, cosine: 0.5, ..Default::default() };
+        let mut t2 = Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            ..Default::default()
+        };
         lowpass_stage(&mut h, &mut t2, OBJECT as u64, STREAM as u64).unwrap();
         let kept = 0.02f32 as f64;
-        assert_eq!(t2.asked, vec![('s', kept), ('c', kept)], "a cutoff above the floor is kept");
+        assert_eq!(
+            t2.asked,
+            vec![('s', kept), ('c', kept)],
+            "a cutoff above the floor is kept"
+        );
     }
 
     #[test]
@@ -1344,13 +1529,12 @@ mod tests {
     fn a_nan_cutoff_bypasses_both_stages() {
         // Both compares are unordered, so `!(x < c)` and `!(x > f)` are both true for a NaN. The
         // whole point of writing them as negations rather than as `>=` and `<=`.
-        for (name, run) in [
-            ("low", 0u8),
-            ("high", 1u8),
-        ] {
+        for (name, run) in [("low", 0u8), ("high", 1u8)] {
             let mut g = guest();
-            g.set_u32(FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits()).unwrap();
-            g.set_u32(OBJECT + CUTOFF_INPUT, f32::NAN.to_bits()).unwrap();
+            g.set_u32(FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits())
+                .unwrap();
+            g.set_u32(OBJECT + CUTOFF_INPUT, f32::NAN.to_bits())
+                .unwrap();
             cached(&mut g, 0.5);
             channels(&mut g, 1);
             input(&mut g, 1);
@@ -1360,9 +1544,20 @@ mod tests {
             } else {
                 highpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
             }
-            assert_eq!(g.u32(BUF_B).unwrap(), 0x7F7F_7F7F, "{name}: filtered a NaN cutoff");
-            assert_eq!(g.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_A, "{name}: swapped");
-            assert!(g.f32(OBJECT + CACHED_CUTOFF).unwrap().is_nan(), "{name}: cache");
+            assert_eq!(
+                g.u32(BUF_B).unwrap(),
+                0x7F7F_7F7F,
+                "{name}: filtered a NaN cutoff"
+            );
+            assert_eq!(
+                g.u32(STREAM + STREAM_BUFFER_A).unwrap(),
+                DESC_A,
+                "{name}: swapped"
+            );
+            assert!(
+                g.f32(OBJECT + CACHED_CUTOFF).unwrap().is_nan(),
+                "{name}: cache"
+            );
         }
     }
 
@@ -1377,7 +1572,11 @@ mod tests {
         channels(&mut high, 1);
         input(&mut high, 1);
         highpass_stage(&mut high, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
-        assert_eq!(high.u32(BUF_B).unwrap(), 0x7F7F_7F7F, "the high-pass bypassed");
+        assert_eq!(
+            high.u32(BUF_B).unwrap(),
+            0x7F7F_7F7F,
+            "the high-pass bypassed"
+        );
         assert_eq!(high.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_A);
 
         // And a cutoff *between* the two cells is what pins which of them the high-pass tests: 0.5
@@ -1390,7 +1589,11 @@ mod tests {
         channels(&mut mid, 1);
         input(&mut mid, 1);
         highpass_stage(&mut mid, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
-        assert_eq!(mid.f32(BUF_B + 4).unwrap(), 1.0, "a mid-band cutoff filters");
+        assert_eq!(
+            mid.f32(BUF_B + 4).unwrap(),
+            1.0,
+            "a mid-band cutoff filters"
+        );
         assert_eq!(mid.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_B);
 
         let mut low = guest();
@@ -1410,9 +1613,17 @@ mod tests {
         cutoff(&mut g, 4.0); // above a 1.0 ceiling
         cached(&mut g, 0.0);
         channels(&mut g, 0);
-        let mut trig = Scripted { sine: 0.25, cosine: 0.5, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            ..Default::default()
+        };
         highpass_stage(&mut g, &mut trig, OBJECT as u64, STREAM as u64).unwrap();
-        assert_eq!(trig.asked, vec![('s', 1.0), ('c', 1.0)], "the ceiling, not 4.0");
+        assert_eq!(
+            trig.asked,
+            vec![('s', 1.0), ('c', 1.0)],
+            "the ceiling, not 4.0"
+        );
         assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 1.0);
     }
 
@@ -1427,12 +1638,20 @@ mod tests {
         cutoff(&mut g, 0.5);
         cached(&mut g, 0.0);
         channels(&mut g, 0);
-        let mut trig = Scripted { sine: s as f64, cosine: c as f64, ..Default::default() };
+        let mut trig = Scripted {
+            sine: s as f64,
+            cosine: c as f64,
+            ..Default::default()
+        };
         highpass_stage(&mut g, &mut trig, OBJECT as u64, STREAM as u64).unwrap();
         let high = coefficients_at(&g, OBJECT + COEFFICIENTS);
 
         let mut h = guest();
-        let mut t2 = Scripted { sine: s as f64, cosine: c as f64, ..Default::default() };
+        let mut t2 = Scripted {
+            sine: s as f64,
+            cosine: c as f64,
+            ..Default::default()
+        };
         build_lowpass_coefficients(&mut h, &mut t2, COEFFS, 0.5).unwrap();
         let low = coefficients_at(&h, COEFFS);
 
@@ -1444,10 +1663,21 @@ mod tests {
         let inv = fp::div_single(1.0, a0);
         let two_a0 = fp::mul_single(a0, 2.0);
         let numerator = fp::add_single(c as f64, 1.0); // 1 + cos
-        assert_eq!(high[2], fp::div_single(numerator, two_a0) as f32, "b0 = (1+cos)/(2 a0)");
+        assert_eq!(
+            high[2],
+            fp::div_single(numerator, two_a0) as f32,
+            "b0 = (1+cos)/(2 a0)"
+        );
         assert_eq!(high[4], high[2], "b2 is the same quotient, computed twice");
-        assert_eq!(high[3], fp::neg_double(fp::mul_single(numerator, inv)) as f32, "b1 is negated");
-        assert!(high[3] < 0.0 && low[3] > 0.0, "and the sign is the difference from the low-pass");
+        assert_eq!(
+            high[3],
+            fp::neg_double(fp::mul_single(numerator, inv)) as f32,
+            "b1 is negated"
+        );
+        assert!(
+            high[3] < 0.0 && low[3] > 0.0,
+            "and the sign is the difference from the low-pass"
+        );
     }
 
     #[test]
@@ -1472,9 +1702,17 @@ mod tests {
 
         lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
 
-        assert_eq!(g.u8(OBJECT + CHANNEL_COUNT).unwrap(), 0, "the pass cleared its own count");
+        assert_eq!(
+            g.u8(OBJECT + CHANNEL_COUNT).unwrap(),
+            0,
+            "the pass cleared its own count"
+        );
         // Channel 1's destination sits past the 1 KB channel 0 covered, and its source is 1000.0.
-        assert_eq!(g.u32(OBJECT + 1024).unwrap(), 0x7F7F_7F7F, "the loop ran a second channel");
+        assert_eq!(
+            g.u32(OBJECT + 1024).unwrap(),
+            0x7F7F_7F7F,
+            "the loop ran a second channel"
+        );
     }
 
     #[test]
@@ -1483,10 +1721,18 @@ mod tests {
         cutoff(&mut g, 0.5);
         cached(&mut g, 0.0);
         channels(&mut g, 0);
-        let mut trig = Scripted { sine: 0.25, cosine: 0.5, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            ..Default::default()
+        };
         lowpass_stage(&mut g, &mut trig, OBJECT as u64, STREAM as u64).unwrap();
         assert_eq!(trig.asked.len(), 2, "the rebuild happened");
-        assert_eq!(g.u32(STREAM + STREAM_BUFFER_A).unwrap(), DESC_B, "and the pair swapped");
+        assert_eq!(
+            g.u32(STREAM + STREAM_BUFFER_A).unwrap(),
+            DESC_B,
+            "and the pair swapped"
+        );
     }
 
     #[test]
@@ -1501,22 +1747,44 @@ mod tests {
         // b0 = 1, a1 = -1: y[k] = x[k] + y[k-1], a running sum that is extremely sensitive to the
         // carried y1.
         for k in 0..5u32 {
-            g.set_u32(OBJECT + COEFFICIENTS + 4 * k, 0f32.to_bits()).unwrap();
+            g.set_u32(OBJECT + COEFFICIENTS + 4 * k, 0f32.to_bits())
+                .unwrap();
         }
-        g.set_u32(OBJECT + COEFFICIENTS + dsp::biquad::COEFF_B0, 1.0f32.to_bits()).unwrap();
-        g.set_u32(OBJECT + COEFFICIENTS + dsp::biquad::COEFF_A1, (-1.0f32).to_bits()).unwrap();
+        g.set_u32(
+            OBJECT + COEFFICIENTS + dsp::biquad::COEFF_B0,
+            1.0f32.to_bits(),
+        )
+        .unwrap();
+        g.set_u32(
+            OBJECT + COEFFICIENTS + dsp::biquad::COEFF_A1,
+            (-1.0f32).to_bits(),
+        )
+        .unwrap();
         for c in 0..2u32 {
             for i in 0..BLOCK_FRAMES {
-                g.set_u32(BUF_A + 1024 * c + 4 * i, 1.0f32.to_bits()).unwrap();
+                g.set_u32(BUF_A + 1024 * c + 4 * i, 1.0f32.to_bits())
+                    .unwrap();
             }
         }
         // Channel 0's history is seeded; channel 1's is left at zero.
-        g.set_u32(OBJECT + FILTER_STATE + dsp::biquad::HISTORY_Y1, 100.0f32.to_bits()).unwrap();
+        g.set_u32(
+            OBJECT + FILTER_STATE + dsp::biquad::HISTORY_Y1,
+            100.0f32.to_bits(),
+        )
+        .unwrap();
 
         lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).unwrap();
 
-        assert_eq!(g.f32(BUF_B).unwrap(), 101.0, "channel 0 saw its own seeded y1");
-        assert_eq!(g.f32(BUF_B + 1024).unwrap(), 1.0, "channel 1 saw its own zero");
+        assert_eq!(
+            g.f32(BUF_B).unwrap(),
+            101.0,
+            "channel 0 saw its own seeded y1"
+        );
+        assert_eq!(
+            g.f32(BUF_B + 1024).unwrap(),
+            1.0,
+            "channel 1 saw its own zero"
+        );
         // And each slot carries its own y[255] back out.
         assert_ne!(state_words(&g, 0), state_words(&g, 1));
     }
@@ -1532,7 +1800,11 @@ mod tests {
         channels(&mut g, 1);
         assert!(lowpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).is_err());
         assert!(highpass_stage(&mut g, &mut Unported, OBJECT as u64, STREAM as u64).is_err());
-        assert_eq!(g.f32(OBJECT + CACHED_CUTOFF).unwrap(), 9.0, "a refused call wrote the cache");
+        assert_eq!(
+            g.f32(OBJECT + CACHED_CUTOFF).unwrap(),
+            9.0,
+            "a refused call wrote the cache"
+        );
     }
 
     #[test]
@@ -1551,7 +1823,11 @@ mod tests {
         g.set_u32(OBJECT + CUTOFF_INPUT, n.to_bits()).unwrap();
         cached(&mut g, 0.0);
         channels(&mut g, 0);
-        let mut trig = Scripted { sine: 0.0, cosine: 0.0, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.0,
+            cosine: 0.0,
+            ..Default::default()
+        };
         lowpass_stage(&mut g, &mut trig, OBJECT as u64, STREAM as u64).unwrap();
         assert_eq!(trig.asked, vec![('s', two), ('c', two)]);
     }
@@ -1589,7 +1865,11 @@ mod tests {
     const SH_POISON: u32 = 0xDEAD_BEEF;
 
     fn shelf_trig() -> crate::mathlib::tests::Scripted {
-        crate::mathlib::tests::Scripted { sine: 0.3, cosine: 0.95, ..Default::default() }
+        crate::mathlib::tests::Scripted {
+            sine: 0.3,
+            cosine: 0.95,
+            ..Default::default()
+        }
     }
 
     fn shelf_guest(channels: u8, nominal: f32, gain: f32) -> Guest {
@@ -1610,13 +1890,17 @@ mod tests {
         g.set_u8(SH_OBJ + CHANNEL_COUNT, channels).unwrap();
         g.set_u32(SH_OBJ + CUTOFF_INPUT, nominal.to_bits()).unwrap();
         g.set_u32(SH_OBJ + SHELF_GAIN, gain.to_bits()).unwrap();
-        g.set_u32(SH_OBJ + SHELF_CACHED_CORNER, (-1.0f32).to_bits()).unwrap();
-        g.set_u32(SH_OBJ + SHELF_CACHED_GAIN, (-1.0f32).to_bits()).unwrap();
+        g.set_u32(SH_OBJ + SHELF_CACHED_CORNER, (-1.0f32).to_bits())
+            .unwrap();
+        g.set_u32(SH_OBJ + SHELF_CACHED_GAIN, (-1.0f32).to_bits())
+            .unwrap();
         for w in 0..(16 * 8 / 4) {
-            g.set_u32(SH_OBJ + SHELF_HISTORY + 4 * w, SH_POISON).unwrap();
+            g.set_u32(SH_OBJ + SHELF_HISTORY + 4 * w, SH_POISON)
+                .unwrap();
         }
         g.set_u32(SH_PAIR + STREAM_FORMAT, SH_FORMAT).unwrap();
-        g.set_u32(SH_FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits()).unwrap();
+        g.set_u32(SH_FORMAT + FORMAT_SAMPLE_RATE, 1.0f32.to_bits())
+            .unwrap();
         g.set_u32(SH_PAIR + STREAM_BUFFER_A, SH_IN_DESC).unwrap();
         g.set_u32(SH_PAIR + STREAM_BUFFER_B, SH_OUT_DESC).unwrap();
         for (desc, buf) in [(SH_IN_DESC, SH_IN), (SH_OUT_DESC, SH_OUT)] {
@@ -1644,10 +1928,18 @@ mod tests {
         let mut trig = shelf_trig();
         build_shelf_coefficients(&mut g, &mut trig, SH_COEFFS_SCRATCH, 0.5, 1.0).unwrap();
         let c = |k| coeff(&g, SH_COEFFS_SCRATCH, k);
-        assert!((c(dsp::biquad::COEFF_B0) - 1.0).abs() < 1e-6, "b0 = {}", c(dsp::biquad::COEFF_B0));
+        assert!(
+            (c(dsp::biquad::COEFF_B0) - 1.0).abs() < 1e-6,
+            "b0 = {}",
+            c(dsp::biquad::COEFF_B0)
+        );
         assert!((c(dsp::biquad::COEFF_B1) - c(dsp::biquad::COEFF_A1)).abs() < 1e-6);
         assert!((c(dsp::biquad::COEFF_B2) - c(dsp::biquad::COEFF_A2)).abs() < 1e-6);
-        assert_eq!(trig.asked, vec![('s', 0.5), ('c', 0.5)], "sine then cosine, of one angle");
+        assert_eq!(
+            trig.asked,
+            vec![('s', 0.5), ('c', 0.5)],
+            "sine then cosine, of one angle"
+        );
     }
 
     #[test]
@@ -1677,7 +1969,10 @@ mod tests {
         ];
         for (k, w) in keys.iter().zip(want) {
             let got = f64::from(coeff(&g, SH_COEFFS_SCRATCH, *k));
-            assert!((got - w).abs() <= 1e-5 * w.abs().max(1.0), "coefficient +{k}: {got} vs {w}");
+            assert!(
+                (got - w).abs() <= 1e-5 * w.abs().max(1.0),
+                "coefficient +{k}: {got} vs {w}"
+            );
         }
     }
 
@@ -1690,13 +1985,29 @@ mod tests {
         let mut trig = shelf_trig();
         assert_eq!(shelf_stage(&mut g, &mut trig, SH_OBJ, SH_PAIR).unwrap(), 1);
         for w in 0..8u32 {
-            assert_eq!(g.u32(SH_OBJ + SHELF_HISTORY + 4 * w).unwrap(), 0, "history word {w}");
+            assert_eq!(
+                g.u32(SH_OBJ + SHELF_HISTORY + 4 * w).unwrap(),
+                0,
+                "history word {w}"
+            );
         }
-        assert_eq!(g.u32(SH_OBJ + SHELF_HISTORY + 32).unwrap(), SH_POISON, "two channels only");
+        assert_eq!(
+            g.u32(SH_OBJ + SHELF_HISTORY + 32).unwrap(),
+            SH_POISON,
+            "two channels only"
+        );
         assert_eq!(g.u32(SH_OBJ + SHELF_ENGAGED).unwrap(), 0);
-        assert_eq!(g.f32(SH_OBJ + SHELF_CACHED_CORNER).unwrap(), 0.5, "the cache is published");
+        assert_eq!(
+            g.f32(SH_OBJ + SHELF_CACHED_CORNER).unwrap(),
+            0.5,
+            "the cache is published"
+        );
         assert_eq!(g.f32(SH_OBJ + SHELF_CACHED_GAIN).unwrap(), 4.0);
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_IN_DESC, "no swap");
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_IN_DESC,
+            "no swap"
+        );
         assert!(trig.asked.is_empty());
 
         // An engaged flag of 2 is not exactly 1: nothing is cleared and the flag stays.
@@ -1713,8 +2024,16 @@ mod tests {
         let mut trig = shelf_trig();
         shelf_stage(&mut g, &mut trig, SH_OBJ, SH_PAIR).unwrap();
         assert!(trig.asked.is_empty(), "no coefficients built");
-        assert_eq!(g.u32(SH_OUT).unwrap(), 0, "nothing filtered into the (zeroed) output");
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_IN_DESC, "no swap");
+        assert_eq!(
+            g.u32(SH_OUT).unwrap(),
+            0,
+            "nothing filtered into the (zeroed) output"
+        );
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_IN_DESC,
+            "no swap"
+        );
     }
 
     #[test]
@@ -1728,10 +2047,18 @@ mod tests {
         let mut trig = shelf_trig();
         assert_eq!(shelf_stage(&mut g, &mut trig, SH_OBJ, SH_PAIR).unwrap(), 1);
 
-        assert_eq!(trig.asked.len(), 2, "the pair (corner, gain) moved, so the coefficients were rebuilt");
+        assert_eq!(
+            trig.asked.len(),
+            2,
+            "the pair (corner, gain) moved, so the coefficients were rebuilt"
+        );
         assert_eq!(g.u32(SH_OBJ + SHELF_ENGAGED).unwrap(), 1);
         assert_eq!(g.f32(SH_OBJ + SHELF_CACHED_GAIN).unwrap(), 4.0);
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_OUT_DESC, "swapped");
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_OUT_DESC,
+            "swapped"
+        );
         assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_B).unwrap(), SH_IN_DESC);
 
         // Every channel equals the biquad run directly, with the coefficients the stage built and
@@ -1739,7 +2066,8 @@ mod tests {
         let mut h = before;
         for k in 0..5u32 {
             let bits = g.u32(SH_OBJ + SHELF_COEFFICIENTS + 4 * k).unwrap();
-            h.set_u32(SH_OBJ + SHELF_COEFFICIENTS + 4 * k, bits).unwrap();
+            h.set_u32(SH_OBJ + SHELF_COEFFICIENTS + 4 * k, bits)
+                .unwrap();
         }
         for ch in 0..2u32 {
             dsp::biquad::biquad(
@@ -1755,7 +2083,11 @@ mod tests {
         for ch in 0..2u32 {
             for i in [0u32, 1, 100, 255] {
                 let at = SH_OUT + 1024 * ch + 4 * i;
-                assert_eq!(g.u32(at).unwrap(), h.u32(at).unwrap(), "channel {ch}, sample {i}");
+                assert_eq!(
+                    g.u32(at).unwrap(),
+                    h.u32(at).unwrap(),
+                    "channel {ch}, sample {i}"
+                );
             }
         }
     }
@@ -1763,15 +2095,22 @@ mod tests {
     #[test]
     fn an_unchanged_corner_and_gain_reuse_the_coefficients() {
         let mut g = shelf_guest(1, 0.1, 4.0);
-        g.set_u32(SH_OBJ + SHELF_CACHED_CORNER, 0.1f32.to_bits()).unwrap();
-        g.set_u32(SH_OBJ + SHELF_CACHED_GAIN, 4.0f32.to_bits()).unwrap();
+        g.set_u32(SH_OBJ + SHELF_CACHED_CORNER, 0.1f32.to_bits())
+            .unwrap();
+        g.set_u32(SH_OBJ + SHELF_CACHED_GAIN, 4.0f32.to_bits())
+            .unwrap();
         for k in 0..5u32 {
-            g.set_u32(SH_OBJ + SHELF_COEFFICIENTS + 4 * k, 0.0f32.to_bits()).unwrap();
+            g.set_u32(SH_OBJ + SHELF_COEFFICIENTS + 4 * k, 0.0f32.to_bits())
+                .unwrap();
         }
         let mut trig = shelf_trig();
         shelf_stage(&mut g, &mut trig, SH_OBJ, SH_PAIR).unwrap();
         assert!(trig.asked.is_empty(), "no rebuild");
-        assert_eq!(g.u32(SH_OBJ + SHELF_COEFFICIENTS + 8).unwrap(), 0, "coefficients untouched");
+        assert_eq!(
+            g.u32(SH_OBJ + SHELF_COEFFICIENTS + 8).unwrap(),
+            0,
+            "coefficients untouched"
+        );
     }
 
     #[test]
@@ -1779,7 +2118,10 @@ mod tests {
         assert_eq!(SHELF_ONE, ONE_SINGLE);
         assert_eq!(SHELF_TWO, TWO_SINGLE);
         assert_eq!(SHELF_MINUS_TWO, MINUS_TWO_SINGLE);
-        assert_eq!((CUTOFF_CEILING, CUTOFF_FLOOR, CUTOFF_SCALE), (0x822F_8E80, 0x822F_8E7C, 0x820B_411C));
+        assert_eq!(
+            (CUTOFF_CEILING, CUTOFF_FLOOR, CUTOFF_SCALE),
+            (0x822F_8E80, 0x822F_8E7C, 0x820B_411C)
+        );
     }
 
     // ------------------------------------------------------------------ the peaking equaliser
@@ -1803,7 +2145,13 @@ mod tests {
         let a = gain.sqrt();
         let alpha = sine / (2.0 * q);
         let a0 = 1.0 + alpha / a;
-        [-2.0 * cosine / a0, (1.0 - alpha / a) / a0, (1.0 + alpha * a) / a0, -2.0 * cosine / a0, (1.0 - alpha * a) / a0]
+        [
+            -2.0 * cosine / a0,
+            (1.0 - alpha / a) / a0,
+            (1.0 + alpha * a) / a0,
+            -2.0 * cosine / a0,
+            (1.0 - alpha * a) / a0,
+        ]
     }
 
     fn peak_coefficients(g: &Guest) -> [f64; 5] {
@@ -1818,15 +2166,33 @@ mod tests {
     fn the_peak_coefficients_match_the_rbj_formula_and_b1_equals_a1() {
         let mut g = peak_guest(1, 0.1, 2.0, 1.5);
         let mut trig = shelf_trig();
-        assert_eq!(peaking_stage(&mut g, &mut trig, u64::from(SH_OBJ), SH_PAIR).unwrap(), 1);
+        assert_eq!(
+            peaking_stage(&mut g, &mut trig, u64::from(SH_OBJ), SH_PAIR).unwrap(),
+            1
+        );
         let got = peak_coefficients(&g);
         for (k, (x, w)) in got.iter().zip(rbj_peak(0.3, 0.95, 2.0, 1.5)).enumerate() {
-            assert!((x - w).abs() <= 1e-5 * w.abs().max(1.0), "coefficient {k}: {x} vs {w}");
+            assert!(
+                (x - w).abs() <= 1e-5 * w.abs().max(1.0),
+                "coefficient {k}: {x} vs {w}"
+            );
         }
-        assert_eq!(got[0].to_bits(), got[3].to_bits(), "b1 and a1 are the same product");
+        assert_eq!(
+            got[0].to_bits(),
+            got[3].to_bits(),
+            "b1 and a1 are the same product"
+        );
         assert_eq!(trig.asked, vec![('s', 0.1f32 as f64), ('c', 0.1f32 as f64)]);
-        assert_eq!(g.u32(SH_OBJ + PEAK_FILTERING).unwrap(), 1, "the flag is raised");
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_OUT_DESC, "and the pair swapped");
+        assert_eq!(
+            g.u32(SH_OBJ + PEAK_FILTERING).unwrap(),
+            1,
+            "the flag is raised"
+        );
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_OUT_DESC,
+            "and the pair swapped"
+        );
     }
 
     #[test]
@@ -1837,7 +2203,11 @@ mod tests {
         let got = peak_coefficients(&g);
         let want = rbj_peak(0.3, 0.95, 2.0, 0.5);
         assert!((got[2] - want[2]).abs() <= 1e-5, "b0 used the clamped Q");
-        assert_eq!(g.f32(SH_OBJ + PEAK_CACHED_QUALITY).unwrap(), 0.1, "the cache keeps the raw Q");
+        assert_eq!(
+            g.f32(SH_OBJ + PEAK_CACHED_QUALITY).unwrap(),
+            0.1,
+            "the cache keeps the raw Q"
+        );
     }
 
     #[test]
@@ -1846,9 +2216,17 @@ mod tests {
         let mut g = peak_guest(1, 0.9, 2.0, 1.0);
         let mut trig = shelf_trig();
         peaking_stage(&mut g, &mut trig, u64::from(SH_OBJ), SH_PAIR).unwrap();
-        assert_eq!(trig.asked[0], ('s', 0.45f32 as f64), "the trig saw the ceiling");
+        assert_eq!(
+            trig.asked[0],
+            ('s', 0.45f32 as f64),
+            "the trig saw the ceiling"
+        );
         assert_eq!(g.f32(SH_OBJ + PEAK_CACHED_WARP).unwrap(), 0.45);
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_OUT_DESC, "it filtered");
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_OUT_DESC,
+            "it filtered"
+        );
     }
 
     #[test]
@@ -1859,14 +2237,29 @@ mod tests {
             g.set_u32(SH_OBJ + PEAK_HISTORY + 4 * w, SH_POISON).unwrap();
         }
         let mut trig = shelf_trig();
-        assert_eq!(peaking_stage(&mut g, &mut trig, u64::from(SH_OBJ), SH_PAIR).unwrap(), 1);
+        assert_eq!(
+            peaking_stage(&mut g, &mut trig, u64::from(SH_OBJ), SH_PAIR).unwrap(),
+            1
+        );
         for w in 0..8u32 {
-            assert_eq!(g.u32(SH_OBJ + PEAK_HISTORY + 4 * w).unwrap(), 0, "history word {w}");
+            assert_eq!(
+                g.u32(SH_OBJ + PEAK_HISTORY + 4 * w).unwrap(),
+                0,
+                "history word {w}"
+            );
         }
         assert_eq!(g.u32(SH_OBJ + PEAK_FILTERING).unwrap(), 0);
-        assert_eq!(g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(), SH_IN_DESC, "no swap");
+        assert_eq!(
+            g.u32(SH_PAIR + STREAM_BUFFER_A).unwrap(),
+            SH_IN_DESC,
+            "no swap"
+        );
         assert!(trig.asked.is_empty());
-        assert_eq!(g.f32(SH_OBJ + PEAK_CACHED_GAIN).unwrap(), 1.0, "the caches are published");
+        assert_eq!(
+            g.f32(SH_OBJ + PEAK_CACHED_GAIN).unwrap(),
+            1.0,
+            "the caches are published"
+        );
     }
 
     #[test]
@@ -1880,13 +2273,24 @@ mod tests {
             h.set_u32(SH_OBJ + PEAK_COEFFICIENTS + 4 * k, bits).unwrap();
         }
         for ch in 0..2u32 {
-            dsp::biquad::biquad(&mut h, SH_OBJ + PEAK_HISTORY + 16 * ch, SH_OUT + 1024 * ch,
-                SH_IN + 1024 * ch, SH_OBJ + PEAK_COEFFICIENTS, BLOCK_FRAMES).unwrap();
+            dsp::biquad::biquad(
+                &mut h,
+                SH_OBJ + PEAK_HISTORY + 16 * ch,
+                SH_OUT + 1024 * ch,
+                SH_IN + 1024 * ch,
+                SH_OBJ + PEAK_COEFFICIENTS,
+                BLOCK_FRAMES,
+            )
+            .unwrap();
         }
         for ch in 0..2u32 {
             for i in [0u32, 7, 128, 255] {
                 let at = SH_OUT + 1024 * ch + 4 * i;
-                assert_eq!(g.u32(at).unwrap(), h.u32(at).unwrap(), "channel {ch}, sample {i}");
+                assert_eq!(
+                    g.u32(at).unwrap(),
+                    h.u32(at).unwrap(),
+                    "channel {ch}, sample {i}"
+                );
             }
         }
     }
@@ -1895,6 +2299,9 @@ mod tests {
     fn the_biquad_coefficient_layout_is_a1_a2_b0_b1_b2() {
         // Both builders here store raw offsets 0..16 in this order; the kernel's names must agree.
         use dsp::biquad::{COEFF_A1, COEFF_A2, COEFF_B0, COEFF_B1, COEFF_B2};
-        assert_eq!([COEFF_A1, COEFF_A2, COEFF_B0, COEFF_B1, COEFF_B2], [0, 4, 8, 12, 16]);
+        assert_eq!(
+            [COEFF_A1, COEFF_A2, COEFF_B0, COEFF_B1, COEFF_B2],
+            [0, 4, 8, 12, 16]
+        );
     }
 }

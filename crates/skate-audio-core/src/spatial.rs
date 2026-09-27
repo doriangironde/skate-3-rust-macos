@@ -242,7 +242,10 @@ pub const INDEX_BYTES: u32 = 16;
 const _: () = assert!(SPEAKER_1 == SPEAKER_PAIR_BYTES * 1);
 const _: () = assert!(SPEAKER_5 == SPEAKER_PAIR_BYTES * 5);
 const _: () = assert!(SPEAKER_6 == SPEAKER_PAIR_BYTES * 6);
-const _: () = assert!(COUNT == SPEAKER_PAIR_BYTES * 7, "the table ends where the count begins");
+const _: () = assert!(
+    COUNT == SPEAKER_PAIR_BYTES * 7,
+    "the table ends where the count begins"
+);
 const _: () = assert!(SECTOR_2 == SECTOR_1 + 16 && SECTOR_7 == SECTOR_1 + 80);
 
 /// `rlwinm rD,rS,3,0,28` on a zero-extended word: `8 * index`, the speaker-pair offset.
@@ -410,13 +413,7 @@ pub fn place_panner<T: Trig>(
 /// store address would not be derivable from entry state. The reloads are reproduced here, so a
 /// caller with that layout gets the original's behaviour rather than a hoisted one, and nothing
 /// establishes what the guest does with it.
-pub fn pan_distance(
-    g: &mut Guest,
-    object: u32,
-    input: u32,
-    gains: u32,
-    focus: f64,
-) -> Result<()> {
+pub fn pan_distance(g: &mut Guest, object: u32, input: u32, gains: u32, focus: f64) -> Result<()> {
     let mut fpscr = Fpscr::capture();
     fpscr.disable_flush_mode_unconditional(); // emitted at lfs f13,8(r4)
 
@@ -1108,8 +1105,24 @@ pub fn lay_out_panners<T: Trig>(
             let reload = fp::load_single(g, LAYOUT_SPREAD_SCALE)?; // lfs f0,2124(r27)
             let sum = fp::add_single(angle_a, angle_b);
             let offset = fp::mul_single(spread5, reload); // fmuls f27,f24,f0
-            place_entry(g, trig, at(0), fp::add_single(sum, offset), args.radius, centre, frame)?;
-            place_entry(g, trig, at(1), fp::sub_single(sum, offset), args.radius, centre, frame)?;
+            place_entry(
+                g,
+                trig,
+                at(0),
+                fp::add_single(sum, offset),
+                args.radius,
+                centre,
+                frame,
+            )?;
+            place_entry(
+                g,
+                trig,
+                at(1),
+                fp::sub_single(sum, offset),
+                args.radius,
+                centre,
+                frame,
+            )?;
         }
     } else if selector % 2 == 0 {
         // 8 falls into 6 falls into 4.
@@ -1117,8 +1130,24 @@ pub fn lay_out_panners<T: Trig>(
         if selector == 6 {
             let offset7 = fp::mul_single(spread7, spread_scale); // fmuls f25,f25,f26
             let sum = fp::add_single(angle_a, angle_b); // fadds f22,f28,f27
-            place_entry(g, trig, at(5), fp::add_single(sum, offset7), args.radius, centre, frame)?;
-            place_entry(g, trig, at(6), fp::sub_single(sum, offset7), args.radius, centre, frame)?;
+            place_entry(
+                g,
+                trig,
+                at(5),
+                fp::add_single(sum, offset7),
+                args.radius,
+                centre,
+                frame,
+            )?;
+            place_entry(
+                g,
+                trig,
+                at(6),
+                fp::sub_single(sum, offset7),
+                args.radius,
+                centre,
+                frame,
+            )?;
         }
         if selector >= 4 {
             let sum = fp::add_single(angle_a, angle_b); // fadds f25,f28,f27
@@ -1128,10 +1157,42 @@ pub fn lay_out_panners<T: Trig>(
         let sum = fp::add_single(angle_a, angle_b); // fadds f28,f28,f27
         let offset5 = fp::mul_single(spread5, spread_scale); // fmuls f25,f24,f26
         let offset6 = fp::mul_single(spread6, spread_scale); // fmuls f27,f23,f26
-        place_entry(g, trig, at(0), fp::add_single(sum, offset5), args.radius, centre, frame)?;
-        place_entry(g, trig, at(b), fp::sub_single(sum, offset5), args.radius, centre, frame)?;
-        place_entry(g, trig, at(c), fp::add_single(sum, offset6), args.radius, centre, frame)?;
-        place_entry(g, trig, at(d), fp::sub_single(sum, offset6), args.radius, centre, frame)?;
+        place_entry(
+            g,
+            trig,
+            at(0),
+            fp::add_single(sum, offset5),
+            args.radius,
+            centre,
+            frame,
+        )?;
+        place_entry(
+            g,
+            trig,
+            at(b),
+            fp::sub_single(sum, offset5),
+            args.radius,
+            centre,
+            frame,
+        )?;
+        place_entry(
+            g,
+            trig,
+            at(c),
+            fp::add_single(sum, offset6),
+            args.radius,
+            centre,
+            frame,
+        )?;
+        place_entry(
+            g,
+            trig,
+            at(d),
+            fp::sub_single(sum, offset6),
+            args.radius,
+            centre,
+            frame,
+        )?;
     }
     Ok(())
 }
@@ -1385,7 +1446,11 @@ mod tests {
         let x = 0.9998f32; // x*x = 0.99960004, inside (0.999, 1)
         clamp_to_unit_disc(&mut g, RECORD, x as f64, 0.0).unwrap();
         assert_eq!(get_f32(&g, RECORD + RECORD_LENGTH_SQ), 1.0);
-        assert_eq!(get_f32(&g, RECORD + RECORD_X), x, "the position is NOT rescaled");
+        assert_eq!(
+            get_f32(&g, RECORD + RECORD_X),
+            x,
+            "the position is NOT rescaled"
+        );
         assert_eq!(get_f32(&g, RECORD + RECORD_Y), 0.0);
 
         // Exactly on the cell returns early instead: the test is `>`, not `>=`. Reaching that
@@ -1413,8 +1478,14 @@ mod tests {
         clamp_to_unit_disc(&mut g, RECORD, 3.0, 4.0).unwrap();
         // Derived from the documented shape: len = sqrt(lensq), scale = 1/len, position *= scale.
         let scale = fp::div_single(1.0, fp::sqrt_single(25.0));
-        assert_eq!(get_f32(&g, RECORD + RECORD_X), fp::mul_single(scale, 3.0) as f32);
-        assert_eq!(get_f32(&g, RECORD + RECORD_Y), fp::mul_single(scale, 4.0) as f32);
+        assert_eq!(
+            get_f32(&g, RECORD + RECORD_X),
+            fp::mul_single(scale, 3.0) as f32
+        );
+        assert_eq!(
+            get_f32(&g, RECORD + RECORD_Y),
+            fp::mul_single(scale, 4.0) as f32
+        );
         assert_eq!(get_f32(&g, RECORD + RECORD_LENGTH_SQ), 1.0);
         // And the hand-computed answer, as a second anchor: 3/5 and 4/5.
         assert!((get_f32(&g, RECORD + RECORD_X) - 0.6).abs() < 1e-6);
@@ -1431,7 +1502,10 @@ mod tests {
         clamp_to_unit_disc(&mut g, RECORD, f64::NAN, 0.25).unwrap();
         assert!(get_f32(&g, RECORD + RECORD_X).is_nan());
         assert_eq!(get_f32(&g, RECORD + RECORD_Y), 0.25);
-        assert!(get_f32(&g, RECORD + RECORD_LENGTH_SQ).is_nan(), "not 1.0, and not 7.0");
+        assert!(
+            get_f32(&g, RECORD + RECORD_LENGTH_SQ).is_nan(),
+            "not 1.0, and not 7.0"
+        );
     }
 
     // =========================================================== sub_82B269C0
@@ -1439,14 +1513,21 @@ mod tests {
     #[test]
     fn placing_a_panner_converts_degrees_and_asks_for_the_cosine_first() {
         let mut g = guest();
-        let mut trig = Scripted { sine: 0.5, cosine: 0.25, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.5,
+            cosine: 0.25,
+            ..Default::default()
+        };
         place_panner(&mut g, &mut trig, RECORD, 90.0, 1.0).unwrap();
 
         // The cell is -pi/180, so 90 degrees is -pi/2 radians. Both helpers see the same value, and
         // the cosine is asked first -- the order the lifted `bl`s are in.
         let expected = fp::mul_single(90.0, fp::load_single(&g, DEGREES_TO_RADIANS).unwrap());
         assert_eq!(trig.asked, vec![('c', expected), ('s', expected)]);
-        assert!((expected + std::f64::consts::FRAC_PI_2).abs() < 1e-6, "{expected} is -pi/2");
+        assert!(
+            (expected + std::f64::consts::FRAC_PI_2).abs() < 1e-6,
+            "{expected} is -pi/2"
+        );
 
         // x = cos*depth, y = sin*depth, then through the clamp: 0.25^2 + 0.5^2 = 0.3125.
         assert_eq!(get_f32(&g, RECORD + RECORD_X), 0.25);
@@ -1463,11 +1544,19 @@ mod tests {
         // `!(depth > zero)` on a reordered test would not.
         for (depth, biased) in [(1.0f64, false), (0.0, true), (-1.0, true), (f64::NAN, true)] {
             let mut g = guest();
-            let mut trig = Scripted { sine: 0.5, cosine: 0.25, ..Default::default() };
+            let mut trig = Scripted {
+                sine: 0.5,
+                cosine: 0.25,
+                ..Default::default()
+            };
             place_panner(&mut g, &mut trig, RECORD, 90.0, depth).unwrap();
             let angle = fp::mul_single(90.0, fp::load_single(&g, DEGREES_TO_RADIANS).unwrap());
             let pi = fp::load_single(&g, HALF_TURN).unwrap();
-            let want = if biased { fp::add_single(angle, pi) } else { angle };
+            let want = if biased {
+                fp::add_single(angle, pi)
+            } else {
+                angle
+            };
             assert_eq!(
                 get_f32(&g, RECORD + RECORD_ANGLE),
                 want as f32,
@@ -1484,8 +1573,12 @@ mod tests {
         // vacuously. The failure has to arrive before the record is touched.
         let mut g = guest();
         put_f32(&mut g, RECORD + RECORD_X, 9.0);
-        let err = place_panner(&mut g, &mut crate::mathlib::Unported, RECORD, 90.0, 1.0).unwrap_err();
-        assert_eq!(err.address, 0x82F4_DFB0, "the cosine is asked first, so it fails first");
+        let err =
+            place_panner(&mut g, &mut crate::mathlib::Unported, RECORD, 90.0, 1.0).unwrap_err();
+        assert_eq!(
+            err.address, 0x82F4_DFB0,
+            "the cosine is asked first, so it fails first"
+        );
         assert_eq!(get_f32(&g, RECORD + RECORD_X), 9.0, "nothing was written");
     }
 
@@ -1504,12 +1597,20 @@ mod tests {
             }
             pan_distance(&mut g, OBJECT, RECORD, GAINS, 1.0).unwrap();
             for slot in 0..5u32 {
-                assert_eq!(g.u32(GAINS + 4 * slot).unwrap(), 0, "count {count} slot {slot}");
+                assert_eq!(
+                    g.u32(GAINS + 4 * slot).unwrap(),
+                    0,
+                    "count {count} slot {slot}"
+                );
             }
             let want = if sides_cleared { 0.0 } else { 9.0 };
             assert_eq!(get_f32(&g, GAINS + 20), want, "count {count}");
             assert_eq!(get_f32(&g, GAINS + 24), want, "count {count}");
-            assert_eq!(get_f32(&g, GAINS + 28), 9.0, "nothing past +27 is ever written");
+            assert_eq!(
+                get_f32(&g, GAINS + 28),
+                9.0,
+                "nothing past +27 is ever written"
+            );
         }
     }
 
@@ -1530,8 +1631,16 @@ mod tests {
         put_f32(&mut g, gains + 20, 9.0);
         put_f32(&mut g, gains + 24, 9.0);
         pan_distance(&mut g, OBJECT, RECORD, gains, 1.0).unwrap();
-        assert_eq!(g.u32(OBJECT + COUNT).unwrap(), 0, "the store landed on the count");
-        assert_eq!(get_f32(&g, gains + 20), 9.0, "the reloaded count is 0, so no 7.1 words");
+        assert_eq!(
+            g.u32(OBJECT + COUNT).unwrap(),
+            0,
+            "the store landed on the count"
+        );
+        assert_eq!(
+            get_f32(&g, gains + 20),
+            9.0,
+            "the reloaded count is 0, so no 7.1 words"
+        );
         assert_eq!(get_f32(&g, gains + 24), 9.0);
     }
 
@@ -1549,12 +1658,21 @@ mod tests {
         pan_distance(&mut g, OBJECT, RECORD, GAINS, 1.0).unwrap();
 
         let w = model_weight(SPEAKERS[0], 0.0, 0.0);
-        assert!((w - (1.0 - 0.5 * 2f64.sqrt())).abs() < 1e-7, "weight is 1 - 0.5*sqrt(2)");
-        let four: Vec<f32> = [0u32, 8, 12, 16].iter().map(|o| get_f32(&g, GAINS + o)).collect();
+        assert!(
+            (w - (1.0 - 0.5 * 2f64.sqrt())).abs() < 1e-7,
+            "weight is 1 - 0.5*sqrt(2)"
+        );
+        let four: Vec<f32> = [0u32, 8, 12, 16]
+            .iter()
+            .map(|o| get_f32(&g, GAINS + o))
+            .collect();
         for v in &four {
             assert!((v - 0.5).abs() < 1e-6, "{v} should be 0.5");
         }
-        assert!(four.windows(2).all(|p| p[0] == p[1]), "the symmetry has to be exact: {four:?}");
+        assert!(
+            four.windows(2).all(|p| p[0] == p[1]),
+            "the symmetry has to be exact: {four:?}"
+        );
         // count == 4 stops before the centre and the sides.
         assert_eq!(get_f32(&g, GAINS + 4), 9.0, "no centre below a count of 6");
         assert_eq!(get_f32(&g, GAINS + 20), 9.0);
@@ -1577,10 +1695,20 @@ mod tests {
             put_f32(&mut g, GAINS + 4 * slot, 9.0);
         }
         pan_distance(&mut g, OBJECT, RECORD, GAINS, 1.0).unwrap();
-        assert!((get_f32(&g, GAINS) - 0.318977).abs() < 1e-5, "{}", get_f32(&g, GAINS));
+        assert!(
+            (get_f32(&g, GAINS) - 0.318977).abs() < 1e-5,
+            "{}",
+            get_f32(&g, GAINS)
+        );
         assert!((get_f32(&g, GAINS + 8) - 0.318977).abs() < 1e-5);
-        assert!((get_f32(&g, GAINS + 4) - 0.544526).abs() < 1e-5, "the centre");
-        assert!((get_f32(&g, GAINS + 12) - 0.5).abs() < 1e-5, "the rear pair keeps 2w^2");
+        assert!(
+            (get_f32(&g, GAINS + 4) - 0.544526).abs() < 1e-5,
+            "the centre"
+        );
+        assert!(
+            (get_f32(&g, GAINS + 12) - 0.5).abs() < 1e-5,
+            "the rear pair keeps 2w^2"
+        );
         assert!((get_f32(&g, GAINS + 16) - 0.5).abs() < 1e-5);
         assert_eq!(get_f32(&g, GAINS + 20), 9.0, "no 7.1 words at a count of 6");
         assert_eq!(get_f32(&g, GAINS + 24), 9.0);
@@ -1589,10 +1717,21 @@ mod tests {
         layout(&mut h, 8, INDICES, SPEAKERS);
         record(&mut h, 0.0, 0.0, 0.0, 0.0);
         pan_distance(&mut h, OBJECT, RECORD, GAINS, 1.0).unwrap();
-        assert!((get_f32(&h, GAINS) - 0.318977).abs() < 1e-5, "the front is unchanged by the sides");
-        assert!((get_f32(&h, GAINS + 12) - 0.252727).abs() < 1e-5, "{}", get_f32(&h, GAINS + 12));
+        assert!(
+            (get_f32(&h, GAINS) - 0.318977).abs() < 1e-5,
+            "the front is unchanged by the sides"
+        );
+        assert!(
+            (get_f32(&h, GAINS + 12) - 0.252727).abs() < 1e-5,
+            "{}",
+            get_f32(&h, GAINS + 12)
+        );
         assert!((get_f32(&h, GAINS + 16) - 0.252727).abs() < 1e-5);
-        assert!((get_f32(&h, GAINS + 20) - 0.431430).abs() < 1e-5, "{}", get_f32(&h, GAINS + 20));
+        assert!(
+            (get_f32(&h, GAINS + 20) - 0.431430).abs() < 1e-5,
+            "{}",
+            get_f32(&h, GAINS + 20)
+        );
         assert!((get_f32(&h, GAINS + 24) - 0.431430).abs() < 1e-5);
     }
 
@@ -1611,16 +1750,32 @@ mod tests {
         layout(&mut g, 4, INDICES, SPEAKERS);
         record(&mut g, -0.9999, 0.0, 0.5, 0.0);
         pan_distance(&mut g, OBJECT, RECORD, GAINS, 1.0).unwrap();
-        assert_eq!(get_f32(&g, GAINS).to_bits() & 0x7FFF_FFFF, 0, "the front pair is a zero");
+        assert_eq!(
+            get_f32(&g, GAINS).to_bits() & 0x7FFF_FFFF,
+            0,
+            "the front pair is a zero"
+        );
         assert_eq!(get_f32(&g, GAINS + 8).to_bits() & 0x7FFF_FFFF, 0);
-        assert_eq!(get_f32(&g, GAINS).to_bits(), 0x8000_0000, "and it is -0.0 here");
-        assert_ne!(get_f32(&g, GAINS + 12), 0.0, "and the back pair is not zero at all");
+        assert_eq!(
+            get_f32(&g, GAINS).to_bits(),
+            0x8000_0000,
+            "and it is -0.0 here"
+        );
+        assert_ne!(
+            get_f32(&g, GAINS + 12),
+            0.0,
+            "and the back pair is not zero at all"
+        );
 
         let mut h = guest();
         layout(&mut h, 4, INDICES, SPEAKERS);
         record(&mut h, 1.0, 0.0, 0.5, 0.0);
         pan_distance(&mut h, OBJECT, RECORD, GAINS, 1.0).unwrap();
-        assert_eq!(get_f32(&h, GAINS + 12).to_bits() & 0x7FFF_FFFF, 0, "the back pair is a zero");
+        assert_eq!(
+            get_f32(&h, GAINS + 12).to_bits() & 0x7FFF_FFFF,
+            0,
+            "the back pair is a zero"
+        );
         assert_eq!(get_f32(&h, GAINS + 16).to_bits() & 0x7FFF_FFFF, 0);
         assert_ne!(get_f32(&h, GAINS), 0.0);
     }
@@ -1651,7 +1806,10 @@ mod tests {
         pan_distance(&mut g, OBJECT, RECORD, OBJECT, 1.0).unwrap();
 
         let reloaded = g.u32(OBJECT + COUNT).unwrap() as i32;
-        assert!(reloaded >= 6 && reloaded != 8, "the third store left {reloaded} in the count");
+        assert!(
+            reloaded >= 6 && reloaded != 8,
+            "the third store left {reloaded} in the count"
+        );
         assert_ne!(get_f32(&g, OBJECT + 4), 9.0, "the centre word was written");
         assert_eq!(get_f32(&g, OBJECT + 20), 9.0, "the 7.1 words were not");
         assert_eq!(get_f32(&g, OBJECT + 24), 9.0);
@@ -1703,12 +1861,19 @@ mod tests {
             sectors(&mut g);
             layout(&mut g, 6, INDICES, SPEAKERS);
             record(&mut g, 0.0, 0.0, 1.0, 0.25 + turns * two_pi);
-            let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+            let mut trig = Scripted {
+                sine: 0.6,
+                cosine: 0.8,
+                ..Default::default()
+            };
             add_angular(&mut g, &mut trig, OBJECT, RECORD, GAINS, 0.0).unwrap();
             asked.push(trig.asked[0].1);
         }
         for a in &asked {
-            assert!((a - 0.25).abs() < 1e-4, "reduced to {a}, not the 0.25 it started at");
+            assert!(
+                (a - 0.25).abs() < 1e-4,
+                "reduced to {a}, not the 0.25 it started at"
+            );
         }
         // And the wrap is the *same* computation each time, not four accidents: a single turn of
         // input moves the reduced angle by less than a single rounding of 2pi.
@@ -1739,7 +1904,11 @@ mod tests {
             for slot in 0..8u32 {
                 put_f32(&mut g, GAINS + 4 * slot, 9.0);
             }
-            let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+            let mut trig = Scripted {
+                sine: 0.6,
+                cosine: 0.8,
+                ..Default::default()
+            };
             let got = add_angular(&mut g, &mut trig, OBJECT, RECORD, GAINS, 0.5).unwrap();
             assert_eq!(got, want, "angle {angle} count {count}");
             for slot in 0..8u32 {
@@ -1767,14 +1936,24 @@ mod tests {
         record(&mut g, 0.0, 0.0, 1.0, 1.0);
         put_f32(&mut g, GAINS, 0.25);
         put_f32(&mut g, GAINS + 12, -0.5);
-        let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.6,
+            cosine: 0.8,
+            ..Default::default()
+        };
         assert_eq!(
             add_angular(&mut g, &mut trig, OBJECT, RECORD, GAINS, 0.5).unwrap(),
             Sector::FrontSide
         );
         let (first, second, norm) = model_pair(2.0, 0.6, 0.8, 1.0);
-        assert_eq!(get_f32(&g, GAINS), fp::fmadd_single(first, norm, 0.25) as f32);
-        assert_eq!(get_f32(&g, GAINS + 12), fp::fmadd_single(second, norm, -0.5) as f32);
+        assert_eq!(
+            get_f32(&g, GAINS),
+            fp::fmadd_single(first, norm, 0.25) as f32
+        );
+        assert_eq!(
+            get_f32(&g, GAINS + 12),
+            fp::fmadd_single(second, norm, -0.5) as f32
+        );
         // Mix-added, not assigned: the same call on a different starting value moves by the same
         // amount. (`fmadd(pair, norm, old)` has already applied `norm`, so the delta is exact here.)
         assert!(get_f32(&g, GAINS) > 0.25, "the old value was kept");
@@ -1789,15 +1968,28 @@ mod tests {
         sectors(&mut g);
         layout(&mut g, 6, INDICES, SPEAKERS);
         record(&mut g, 0.0, 0.0, 1.0, 0.0);
-        let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.6,
+            cosine: 0.8,
+            ..Default::default()
+        };
         add_angular(&mut g, &mut trig, OBJECT, RECORD, GAINS, 0.5).unwrap();
 
         // Hand-derived: share = 0.6*0.5 = 0.3, left = 0.3, right = 0.5, centre = 2*0.3 = 0.6,
         // sum = 0.6^2 + 0.5^2 + 0.3^2 = 0.70, norm = 1/sqrt(0.70) = 1.1952286.
         let norm = 1.0 / 0.70f64.sqrt();
-        assert!((get_f32(&g, GAINS + 8) as f64 - 0.3 * norm).abs() < 1e-6, "idx176 takes left");
-        assert!((get_f32(&g, GAINS) as f64 - 0.5 * norm).abs() < 1e-6, "idx172 takes right");
-        assert!((get_f32(&g, GAINS + 4) as f64 - 0.6 * norm).abs() < 1e-6, "the centre");
+        assert!(
+            (get_f32(&g, GAINS + 8) as f64 - 0.3 * norm).abs() < 1e-6,
+            "idx176 takes left"
+        );
+        assert!(
+            (get_f32(&g, GAINS) as f64 - 0.5 * norm).abs() < 1e-6,
+            "idx172 takes right"
+        );
+        assert!(
+            (get_f32(&g, GAINS + 4) as f64 - 0.6 * norm).abs() < 1e-6,
+            "the centre"
+        );
 
         // Below a count of 6 there is no share at all: left and right keep their full projections
         // and the centre word is not written.
@@ -1806,10 +1998,21 @@ mod tests {
         layout(&mut h, 4, INDICES, SPEAKERS);
         record(&mut h, 0.0, 0.0, 1.0, 0.0);
         put_f32(&mut h, GAINS + 4, 9.0);
-        let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.6,
+            cosine: 0.8,
+            ..Default::default()
+        };
         add_angular(&mut h, &mut trig, OBJECT, RECORD, GAINS, 0.5).unwrap();
-        assert_eq!(get_f32(&h, GAINS + 4), 9.0, "no centre store below a count of 6");
-        assert!((get_f32(&h, GAINS + 8) - 0.6).abs() < 1e-6, "left keeps its whole projection");
+        assert_eq!(
+            get_f32(&h, GAINS + 4),
+            9.0,
+            "no centre store below a count of 6"
+        );
+        assert!(
+            (get_f32(&h, GAINS + 8) - 0.6).abs() < 1e-6,
+            "left keeps its whole projection"
+        );
         assert!((get_f32(&h, GAINS) - 0.8).abs() < 1e-6);
     }
 
@@ -1835,15 +2038,31 @@ mod tests {
         layout(&mut g, 6, [2, 0, 3, 4], SPEAKERS);
         record(&mut g, 0.0, 0.0, 1.0, 0.0);
         put_f32(&mut g, gains + 4, 9.0);
-        let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.6,
+            cosine: 0.8,
+            ..Default::default()
+        };
         assert_eq!(
             add_angular(&mut g, &mut trig, OBJECT, RECORD, gains, 1.0).unwrap(),
             Sector::Front
         );
-        assert_eq!(g.u32(OBJECT + COUNT).unwrap(), 0, "the first store cleared the count");
-        assert_eq!(get_f32(&g, gains + 4), 9.0, "so the centre store was skipped");
+        assert_eq!(
+            g.u32(OBJECT + COUNT).unwrap(),
+            0,
+            "the first store cleared the count"
+        );
+        assert_eq!(
+            get_f32(&g, gains + 4),
+            9.0,
+            "so the centre store was skipped"
+        );
         // And the centre really would have moved the word: the share was 0.6 and the spread 2.0.
-        assert_ne!(get_f32(&g, gains + 8), 0.0, "the second store ran, so the sector completed");
+        assert_ne!(
+            get_f32(&g, gains + 8),
+            0.0,
+            "the second store ran, so the sector completed"
+        );
     }
 
     #[test]
@@ -1853,8 +2072,15 @@ mod tests {
         layout(&mut g, 6, INDICES, SPEAKERS);
         record(&mut g, 0.0, 0.0, 1.0, 0.0);
         put_f32(&mut g, GAINS, 9.0);
-        let err = add_angular(&mut g, &mut crate::mathlib::Unported, OBJECT, RECORD, GAINS, 0.5)
-            .unwrap_err();
+        let err = add_angular(
+            &mut g,
+            &mut crate::mathlib::Unported,
+            OBJECT,
+            RECORD,
+            GAINS,
+            0.5,
+        )
+        .unwrap_err();
         assert_eq!(err.address, 0x82F4_DED0, "the sine is asked first here");
         assert_eq!(get_f32(&g, GAINS), 9.0);
     }
@@ -1872,7 +2098,11 @@ mod tests {
             // f3 >= 1.0 skips the normalisation, so the factor is exactly f1*f2 = 0.5.
             scale_gains(&mut g, OBJECT, GAINS, 0.25, 2.0, 1.0).unwrap();
             for slot in 0..5u32 {
-                assert_eq!(get_f32(&g, GAINS + 4 * slot), 1.0, "count {count} slot {slot}");
+                assert_eq!(
+                    get_f32(&g, GAINS + 4 * slot),
+                    1.0,
+                    "count {count} slot {slot}"
+                );
             }
             let want = if sides { 1.0 } else { 2.0 };
             assert_eq!(get_f32(&g, GAINS + 20), want, "count {count}");
@@ -1892,7 +2122,15 @@ mod tests {
         for (count, sum) in [(4i32, 30.0f64), (6, 34.0), (8, 95.0)] {
             let mut g = guest();
             layout(&mut g, count, INDICES, SPEAKERS);
-            for (slot, v) in [(0u32, 1.0f32), (4, 2.0), (8, 2.0), (12, 3.0), (16, 4.0), (20, 5.0), (24, 6.0)] {
+            for (slot, v) in [
+                (0u32, 1.0f32),
+                (4, 2.0),
+                (8, 2.0),
+                (12, 3.0),
+                (16, 4.0),
+                (20, 5.0),
+                (24, 6.0),
+            ] {
                 put_f32(&mut g, GAINS + slot, v);
             }
             scale_gains(&mut g, OBJECT, GAINS, 1.0, 1.0, 0.5).unwrap();
@@ -1917,7 +2155,11 @@ mod tests {
             put_f32(&mut g, GAINS + 4 * slot, 2.0);
         }
         scale_gains(&mut g, OBJECT, GAINS, 0.25, 2.0, f64::NAN).unwrap();
-        assert_eq!(get_f32(&g, GAINS), 1.0, "scaled by 0.5, not by 0.5/sqrt(sum)");
+        assert_eq!(
+            get_f32(&g, GAINS),
+            1.0,
+            "scaled by 0.5, not by 0.5/sqrt(sum)"
+        );
 
         // And the proof that the indices really are untouched on that path: point one of them at an
         // unmapped address. The normalising path would fail; this one cannot.
@@ -1950,8 +2192,16 @@ mod tests {
         // `8-as-a-single * 0.5`, a denormal that flush-to-zero turns into a clean zero.
         g.set_u32(OBJECT + COUNT, 8).unwrap();
         scale_gains(&mut g, OBJECT, gains, 0.25, 2.0, 1.0).unwrap();
-        assert_eq!(get_f32(&g, gains + 12).to_bits(), 0, "the count word took a flushed zero");
-        assert_eq!(get_f32(&g, gains + 20), 2.0, "the reloaded count is 0, so no 7.1 words");
+        assert_eq!(
+            get_f32(&g, gains + 12).to_bits(),
+            0,
+            "the count word took a flushed zero"
+        );
+        assert_eq!(
+            get_f32(&g, gains + 20),
+            2.0,
+            "the reloaded count is 0, so no 7.1 words"
+        );
         assert_eq!(get_f32(&g, gains + 24), 2.0);
     }
 
@@ -1964,7 +2214,11 @@ mod tests {
         layout(&mut g, 8, INDICES, SPEAKERS);
         record(&mut g, 0.25, 0.25, 0.125, 0.5);
         let before = crate::vmx::get_mxcsr();
-        let mut trig = Scripted { sine: 0.6, cosine: 0.8, ..Default::default() };
+        let mut trig = Scripted {
+            sine: 0.6,
+            cosine: 0.8,
+            ..Default::default()
+        };
         clamp_to_unit_disc(&mut g, RECORD, 0.5, 0.25).unwrap();
         assert_eq!(crate::vmx::get_mxcsr(), before, "clamp_to_unit_disc");
         place_panner(&mut g, &mut trig, RECORD, 90.0, 1.0).unwrap();
@@ -2008,15 +2262,27 @@ mod tests {
     }
 
     fn trig() -> Scripted {
-        Scripted { sine: 0.25, cosine: 0.5, asked: vec![] }
+        Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            asked: vec![],
+        }
     }
 
     fn args(spread5: f64) -> PannerLayout {
-        PannerLayout { angle: 0.1, distance: 0.5, radius: 0.25, turn: 0.2, spreads: [spread5, 0.3, 0.4] }
+        PannerLayout {
+            angle: 0.1,
+            distance: 0.5,
+            radius: 0.25,
+            turn: 0.2,
+            spreads: [spread5, 0.3, 0.4],
+        }
     }
 
     fn written(g: &Guest) -> Vec<bool> {
-        (0..8).map(|k| g.u32(ENTRIES + 16 * k + PANNER_ENTRY_ANGLE).unwrap() != POISON).collect()
+        (0..8)
+            .map(|k| g.u32(ENTRIES + 16 * k + PANNER_ENTRY_ANGLE).unwrap() != POISON)
+            .collect()
     }
 
     #[test]
@@ -2045,7 +2311,11 @@ mod tests {
         lay_out_panners(&mut g, &mut trig(), ENTRIES, 1, args(0.1), STACK_TOP).unwrap();
         place_panner(&mut h, &mut trig(), ENTRIES, 0.1, 0.5).unwrap();
         for k in 0..8 {
-            assert_eq!(g.u32(ENTRIES + 4 * k).unwrap(), h.u32(ENTRIES + 4 * k).unwrap(), "word {k}");
+            assert_eq!(
+                g.u32(ENTRIES + 4 * k).unwrap(),
+                h.u32(ENTRIES + 4 * k).unwrap(),
+                "word {k}"
+            );
         }
     }
 
@@ -2055,19 +2325,44 @@ mod tests {
         let mut g = layout_guest();
         let mut t = trig();
         lay_out_panners(&mut g, &mut t, ENTRIES, 2, args(7.0), STACK_TOP).unwrap();
-        assert_eq!((get_f32(&g, ENTRIES), get_f32(&g, ENTRIES + 4)), (0.375, 0.1875));
-        assert_eq!((get_f32(&g, ENTRIES + 16), get_f32(&g, ENTRIES + 20)), (0.125, 0.0625));
-        assert_eq!(t.asked.len(), 4, "the centre and one placement: no second pair of calls");
+        assert_eq!(
+            (get_f32(&g, ENTRIES), get_f32(&g, ENTRIES + 4)),
+            (0.375, 0.1875)
+        );
+        assert_eq!(
+            (get_f32(&g, ENTRIES + 16), get_f32(&g, ENTRIES + 20)),
+            (0.125, 0.0625)
+        );
+        assert_eq!(
+            t.asked.len(),
+            4,
+            "the centre and one placement: no second pair of calls"
+        );
         let mut spread = trig();
-        lay_out_panners(&mut layout_guest(), &mut spread, ENTRIES, 2, args(0.1), STACK_TOP).unwrap();
-        assert_eq!(spread.asked.len(), 6, "a spread pair asks for both placements");
+        lay_out_panners(
+            &mut layout_guest(),
+            &mut spread,
+            ENTRIES,
+            2,
+            args(0.1),
+            STACK_TOP,
+        )
+        .unwrap();
+        assert_eq!(
+            spread.asked.len(),
+            6,
+            "a spread pair asks for both placements"
+        );
     }
 
     #[test]
     fn the_stored_angle_is_that_of_the_clamped_position() {
         let mut g = layout_guest();
         lay_out_panners(&mut g, &mut trig(), ENTRIES, 2, args(7.0), STACK_TOP).unwrap();
-        let (x, y) = (f64::from(get_f32(&g, ENTRIES)), f64::from(get_f32(&g, ENTRIES + 4)));
+        let (x, y) = (
+            f64::from(get_f32(&g, ENTRIES)),
+            f64::from(get_f32(&g, ENTRIES + 4)),
+        );
         let mut h = layout_guest();
         let angle = crate::mathlib::atan2(&mut h, y, x, STACK_TOP - 0x100).unwrap();
         assert_eq!(get_f32(&g, ENTRIES + PANNER_ENTRY_ANGLE), angle as f32);
@@ -2076,7 +2371,12 @@ mod tests {
     // ------------------------------------------------------------------ sub_82B460A0
 
     fn gains() -> MatrixGains {
-        MatrixGains { weight: 2.0, focus: 0.5, fill: 0.75, gain: 0.5 }
+        MatrixGains {
+            weight: 2.0,
+            focus: 0.5,
+            fill: 0.75,
+            gain: 0.5,
+        }
     }
 
     fn matrix(g: &Guest) -> Vec<u32> {
@@ -2114,11 +2414,24 @@ mod tests {
 
     fn panning_guest(dest: i32) -> Guest {
         let mut g = layout_guest();
-        let speakers = [(0.0, 1.0), (0.7, 0.7), (1.0, 0.0), (0.7, -0.7), (0.0, -1.0), (-0.7, -0.7), (-1.0, 0.0)];
+        let speakers = [
+            (0.0, 1.0),
+            (0.7, 0.7),
+            (1.0, 0.0),
+            (0.7, -0.7),
+            (0.0, -1.0),
+            (-0.7, -0.7),
+            (-1.0, 0.0),
+        ];
         layout(&mut g, dest, [0, 2, 3, 4], speakers);
         for k in 0..8u32 {
             let angle = 0.3 * k as f32;
-            for (off, v) in [(0, angle.cos() * 0.5), (4, angle.sin() * 0.5), (8, 0.25), (12, angle)] {
+            for (off, v) in [
+                (0, angle.cos() * 0.5),
+                (4, angle.sin() * 0.5),
+                (8, 0.25),
+                (12, angle),
+            ] {
                 g.set_u32(ENTRIES + 16 * k + off, v.to_bits()).unwrap();
             }
         }
@@ -2135,7 +2448,8 @@ mod tests {
             h.set_u32(MATRIX + 32 * k + 4 * 5, 0).unwrap(); // column 5 of every row
             h.set_u32(MATRIX + 32 * 5 + 4 * k, 0).unwrap(); // the whole of row 5
         }
-        h.set_u32(MATRIX + 32 * 5 + 4 * 5, 0.75f32.to_bits()).unwrap(); // their crossing
+        h.set_u32(MATRIX + 32 * 5 + 4 * 5, 0.75f32.to_bits())
+            .unwrap(); // their crossing
         assert_eq!(matrix(&g), matrix(&h));
     }
 
@@ -2146,7 +2460,8 @@ mod tests {
         fill_mix_matrix(&mut g, &mut trig(), OBJECT, ENTRIES, 2, MATRIX, gains()).unwrap();
         panned(&mut h, 2);
         for k in 0..8 {
-            h.set_u32(MATRIX + 32 * k + 4 * 7, 0.75f32.to_bits()).unwrap();
+            h.set_u32(MATRIX + 32 * k + 4 * 7, 0.75f32.to_bits())
+                .unwrap();
         }
         assert_eq!(matrix(&g), matrix(&h));
     }

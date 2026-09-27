@@ -31,18 +31,30 @@ const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C13;
 
 /// Jenkins `lookup8` mix, three 64-bit words.
 fn mix(mut a: u64, mut b: u64, mut c: u64) -> (u64, u64, u64) {
-    a = a.wrapping_sub(b).wrapping_sub(c); a ^= c >> 43;
-    b = b.wrapping_sub(c).wrapping_sub(a); b ^= a << 9;
-    c = c.wrapping_sub(a).wrapping_sub(b); c ^= b >> 8;
-    a = a.wrapping_sub(b).wrapping_sub(c); a ^= c >> 38;
-    b = b.wrapping_sub(c).wrapping_sub(a); b ^= a << 23;
-    c = c.wrapping_sub(a).wrapping_sub(b); c ^= b >> 5;
-    a = a.wrapping_sub(b).wrapping_sub(c); a ^= c >> 35;
-    b = b.wrapping_sub(c).wrapping_sub(a); b ^= a << 49;
-    c = c.wrapping_sub(a).wrapping_sub(b); c ^= b >> 11;
-    a = a.wrapping_sub(b).wrapping_sub(c); a ^= c >> 12;
-    b = b.wrapping_sub(c).wrapping_sub(a); b ^= a << 18;
-    c = c.wrapping_sub(a).wrapping_sub(b); c ^= b >> 22;
+    a = a.wrapping_sub(b).wrapping_sub(c);
+    a ^= c >> 43;
+    b = b.wrapping_sub(c).wrapping_sub(a);
+    b ^= a << 9;
+    c = c.wrapping_sub(a).wrapping_sub(b);
+    c ^= b >> 8;
+    a = a.wrapping_sub(b).wrapping_sub(c);
+    a ^= c >> 38;
+    b = b.wrapping_sub(c).wrapping_sub(a);
+    b ^= a << 23;
+    c = c.wrapping_sub(a).wrapping_sub(b);
+    c ^= b >> 5;
+    a = a.wrapping_sub(b).wrapping_sub(c);
+    a ^= c >> 35;
+    b = b.wrapping_sub(c).wrapping_sub(a);
+    b ^= a << 49;
+    c = c.wrapping_sub(a).wrapping_sub(b);
+    c ^= b >> 11;
+    a = a.wrapping_sub(b).wrapping_sub(c);
+    a ^= c >> 12;
+    b = b.wrapping_sub(c).wrapping_sub(a);
+    b ^= a << 18;
+    c = c.wrapping_sub(a).wrapping_sub(b);
+    c ^= b >> 22;
     (a, b, c)
 }
 
@@ -119,7 +131,10 @@ mod tests {
         assert_eq!(name_id_str("default"), 0xD7ED_BD36_2D7D_2152);
         assert_eq!(name_id_str("challenges"), 0x8876_E0B5_5674_0E36);
         assert_eq!(name_id_str("livingworld_entities"), 0x60D7_03C7_7CAB_1631);
-        assert_eq!(name_id_str("SetManualAndWalkAsConnector"), 0x0661_A17A_A0E5_C774);
+        assert_eq!(
+            name_id_str("SetManualAndWalkAsConnector"),
+            0x0661_A17A_A0E5_C774
+        );
     }
 
     #[test]

@@ -77,10 +77,22 @@ const _: () = {
     const fn lis(hi: i32, lo: i32) -> u32 {
         (((hi & 0xFFFF) << 16) as u32).wrapping_add(lo as u32)
     }
-    assert!(REGISTERED == lis(-31992, 10471) && DEFAULT_BUS == lis(-31993, 30188) && BUS_ROOT == lis(-31987, -580));
+    assert!(
+        REGISTERED == lis(-31992, 10471)
+            && DEFAULT_BUS == lis(-31993, 30188)
+            && BUS_ROOT == lis(-31987, -580)
+    );
     assert!(SEND_ID == (21349 << 16) | 28208 && SECOND_LIST_ITEM == lis(-32003, -11104));
-    assert!(CLASSES[0].1 == lis(-32003, -7236) && CLASSES[1].1 == lis(-32003, -5872) && CLASSES[2].1 == lis(-32003, -3112));
-    assert!(CLASSES[3].1 == lis(-32003, 4564) && CLASSES[4].1 == lis(-32003, 11088) && CLASSES[5].1 == lis(-32003, 6212));
+    assert!(
+        CLASSES[0].1 == lis(-32003, -7236)
+            && CLASSES[1].1 == lis(-32003, -5872)
+            && CLASSES[2].1 == lis(-32003, -3112)
+    );
+    assert!(
+        CLASSES[3].1 == lis(-32003, 4564)
+            && CLASSES[4].1 == lis(-32003, 11088)
+            && CLASSES[5].1 == lis(-32003, 6212)
+    );
     assert!(CLASSES[6].1 == lis(-32003, 6320) && CLASSES[7].1 == lis(-32003, 6024));
     assert!(CLASSES[0].0 == 0x8308_28F8 && SEND_SLOT == 0x8308_2908 && CLASSES[7].0 == 0x8308_2918);
 };
@@ -128,7 +140,13 @@ pub fn cook_class(g: &mut Guest, class: u32) -> Result<()> {
             let table = g.u32(class.wrapping_add(20))?;
             cook_row(g, offset.wrapping_add(table).wrapping_add(40))?;
             let table = g.u32(class.wrapping_add(20))?;
-            cook_row(g, offset.wrapping_add(120).wrapping_add(table).wrapping_sub(40))?;
+            cook_row(
+                g,
+                offset
+                    .wrapping_add(120)
+                    .wrapping_add(table)
+                    .wrapping_sub(40),
+            )?;
             let table = g.u32(class.wrapping_add(20))?;
             cook_row(g, offset.wrapping_add(120).wrapping_add(table))?;
             offset = offset.wrapping_add(160);
@@ -250,6 +268,25 @@ pub fn register_class(g: &mut Guest, registry: u32, class: u32) -> Result<u32> {
     Ok(class)
 }
 
+/// Find the registered class whose four-character id is `id`.
+///
+/// This is the lookup loop in `sub_82490CA0`, factored out so the bus-manager constructor can
+/// retain its registry order without registering classes that the title only expects to find.
+pub fn find_class(g: &Guest, registry: u32, id: u32) -> Result<u32> {
+    let mut link = g.u32(registry)?;
+    while link != 0 {
+        let class = link.wrapping_sub(32);
+        if g.u32(class.wrapping_add(36))? == id {
+            return Ok(class);
+        }
+        link = g.u32(link)?;
+    }
+    Err(crate::Error::new(
+        id,
+        "required audio class is not registered",
+    ))
+}
+
 /// `sub_82481B08`: the system's class registry at `+56`, allocated (20 bytes) the first time.
 pub fn class_registry<H: Heap + ?Sized>(g: &mut Guest, heap: &mut H, system: u32) -> Result<u32> {
     if g.u32(system.wrapping_add(56))? == 0 {
@@ -363,7 +400,14 @@ mod tests {
 
     /// A class with `leading` + `instance` rows and per-parameter `counts`, each row's slot holding
     /// `base + row` as a double and the kinds given (cycled).
-    fn class(g: &mut Guest, leading: u8, instance: u8, counts: &[u32], kinds: &[u8], base: f64) -> u32 {
+    fn class(
+        g: &mut Guest,
+        leading: u8,
+        instance: u8,
+        counts: &[u32],
+        kinds: &[u8],
+        base: f64,
+    ) -> u32 {
         g.set_u8(CLASS + 41, leading).unwrap();
         g.set_u8(CLASS + 42, instance).unwrap();
         g.set_u8(CLASS + 43, counts.len() as u8).unwrap();
@@ -374,8 +418,10 @@ mod tests {
         }
         let rows = leading as u32 + instance as u32 + counts.iter().sum::<u32>();
         for r in 0..rows {
-            g.set_u8(TABLE + 40 * r + 1, kinds[r as usize % kinds.len()]).unwrap();
-            g.set_u64(TABLE + 40 * r + 8, (base + r as f64).to_bits()).unwrap();
+            g.set_u8(TABLE + 40 * r + 1, kinds[r as usize % kinds.len()])
+                .unwrap();
+            g.set_u64(TABLE + 40 * r + 8, (base + r as f64).to_bits())
+                .unwrap();
         }
         rows
     }
@@ -386,16 +432,29 @@ mod tests {
         let rows = class(&mut g, 1, 1, &[1, 2], &[0, 2, 5, 4, 3], 10.5);
         assert_eq!(rows, 5, "four in the grouped loop, one in the tail");
         cook_class(&mut g, CLASS).unwrap();
-        let slot = |g: &Guest, r: u32| (g.u32(TABLE + 40 * r + 8).unwrap(), g.u32(TABLE + 40 * r + 12).unwrap());
+        let slot = |g: &Guest, r: u32| {
+            (
+                g.u32(TABLE + 40 * r + 8).unwrap(),
+                g.u32(TABLE + 40 * r + 12).unwrap(),
+            )
+        };
         assert_eq!(slot(&g, 0), (TAG_SINGLE, 10.5f32.to_bits()));
-        assert_eq!(g.u64(TABLE + 48).unwrap(), 11.5f64.to_bits(), "kind 2 keeps the double");
+        assert_eq!(
+            g.u64(TABLE + 48).unwrap(),
+            11.5f64.to_bits(),
+            "kind 2 keeps the double"
+        );
         assert_eq!(slot(&g, 2), (TAG_INTEGER, 12));
         assert_eq!(slot(&g, 3), (TAG_POINTER, 0));
         assert_eq!(slot(&g, 4), (TAG_STRING, 0));
         assert_eq!(g.u8(CLASS + 46).unwrap(), 1);
         g.set_u64(TABLE + 8, 1.0f64.to_bits()).unwrap();
         cook_class(&mut g, CLASS).unwrap();
-        assert_eq!(g.u64(TABLE + 8).unwrap(), 1.0f64.to_bits(), "the flag stops a second pass");
+        assert_eq!(
+            g.u64(TABLE + 8).unwrap(),
+            1.0f64.to_bits(),
+            "the flag stops a second pass"
+        );
     }
 
     #[test]
@@ -418,9 +477,17 @@ mod tests {
             class_defaults(&mut g, CLASS, index, OUT).unwrap();
             let n = counts[index as usize];
             for k in 0..n {
-                assert_eq!(g.u64(OUT + 8 * k).unwrap(), (100.0 + (first_row + k) as f64).to_bits(), "parameter {index} word {k}");
+                assert_eq!(
+                    g.u64(OUT + 8 * k).unwrap(),
+                    (100.0 + (first_row + k) as f64).to_bits(),
+                    "parameter {index} word {k}"
+                );
             }
-            assert_eq!(g.u64(OUT + 8 * n).unwrap(), 0, "parameter {index} copies {n}");
+            assert_eq!(
+                g.u64(OUT + 8 * n).unwrap(),
+                0,
+                "parameter {index} copies {n}"
+            );
         }
     }
 
@@ -434,8 +501,19 @@ mod tests {
             g.set_u32(c + 36, 0x1234).unwrap();
         }
         assert_eq!(register_class(&mut g, registry, a).unwrap(), a);
-        assert_eq!(register_class(&mut g, registry, b).unwrap(), a, "same id: the first");
-        assert_eq!([g.u32(registry).unwrap(), g.u32(registry + 4).unwrap(), g.u32(registry + 8).unwrap()], [a + 32, a + 32, 1]);
+        assert_eq!(
+            register_class(&mut g, registry, b).unwrap(),
+            a,
+            "same id: the first"
+        );
+        assert_eq!(
+            [
+                g.u32(registry).unwrap(),
+                g.u32(registry + 4).unwrap(),
+                g.u32(registry + 8).unwrap()
+            ],
+            [a + 32, a + 32, 1]
+        );
     }
 
     #[test]
@@ -457,7 +535,10 @@ mod tests {
         // Send was registered earlier, by another path.
         let send = MEM + 0x1200;
         g.set_u32(send + 36, SEND_ID).unwrap();
-        let mut heap = BumpHeap { next: MEM + 0x1800, end: MEM + 0x2000 };
+        let mut heap = BumpHeap {
+            next: MEM + 0x1800,
+            end: MEM + 0x2000,
+        };
         let registry = class_registry(&mut g, &mut heap, SYS).unwrap();
         g.set_u8(send + 46, 1).unwrap();
         register_class(&mut g, registry, send).unwrap();
@@ -471,7 +552,14 @@ mod tests {
         assert_eq!(g.u32(DEFAULT_BUS).unwrap(), 0xB0B0_0001);
         assert_eq!(g.u32(registry + 8).unwrap(), 9);
         let list = g.u32(SYS + 60).unwrap();
-        assert_eq!([g.u32(list).unwrap(), g.u32(list + 8).unwrap(), g.u32(list + 12).unwrap()], [SECOND_LIST_ITEM + 16, 1, SYS]);
+        assert_eq!(
+            [
+                g.u32(list).unwrap(),
+                g.u32(list + 8).unwrap(),
+                g.u32(list + 12).unwrap()
+            ],
+            [SECOND_LIST_ITEM + 16, 1, SYS]
+        );
         assert_eq!(g.u8(REGISTERED).unwrap(), 1);
     }
 }

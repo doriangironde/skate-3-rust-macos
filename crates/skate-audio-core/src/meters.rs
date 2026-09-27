@@ -28,7 +28,7 @@
 use core::arch::x86_64::*;
 
 use crate::vmx::{self, Fpscr};
-use crate::{fp, layout, mem, Guest, Result};
+use crate::{Guest, Result, fp, layout, mem};
 
 /// `lbz r28,42(r3)` — channels metered; the red-zone arrays hold eight.
 pub const METER_CHANNELS: u32 = 42;
@@ -204,7 +204,9 @@ pub fn meter_block(g: &mut Guest, object: u32, desc: u32, sp: u32) -> Result<()>
                 let slot_peak = fp::load_single(g, slot.wrapping_add(peak_row))?; // lfsx f13,r7,r6
                 if !(slot_peak < floor) {
                     fp::store_single(g, slot.wrapping_add(peak_row), peak)?; // stfsx f0,r7,r6
-                    let limit = g.u32(object.wrapping_add(METER_FRAMES))?.wrapping_add(frame_first);
+                    let limit = g
+                        .u32(object.wrapping_add(METER_FRAMES))?
+                        .wrapping_add(frame_first);
                     if frame_first < limit {
                         let mut probe = history_row.wrapping_add(peak_row); // add r9,r30,r6
                         let mut at = frame_first; // mr r11,r5
@@ -214,8 +216,9 @@ pub fn meter_block(g: &mut Guest, object: u32, desc: u32, sp: u32) -> Result<()>
                             if held < candidate {
                                 fp::store_single(g, slots.wrapping_add(32), candidate)?;
                             }
-                            let bound =
-                                g.u32(object.wrapping_add(METER_FRAMES))?.wrapping_add(frame_first);
+                            let bound = g
+                                .u32(object.wrapping_add(METER_FRAMES))?
+                                .wrapping_add(frame_first);
                             at = at.wrapping_add(1);
                             probe = probe.wrapping_add(4);
                             if at >= bound {
@@ -278,7 +281,11 @@ fn ring_bytes(g: &Guest, object: u32, seconds: f64, half: f64) -> Result<u32> {
     let blocks = fp::fctidz(capacity) as u32; // fctidz ; stfd ; lwz r10,84(r1)
     let product = i64::from(blocks as i32) * i64::from(channels as i32); // mullw
     let bytes = ((product as u32) << 2) & 0xFFFF_FFFC; // rlwinm r30,r9,2,0,29
-    Ok(if bytes != 0 { bytes } else { (channels << 2) & 0xFFFF_FFFC })
+    Ok(if bytes != 0 {
+        bytes
+    } else {
+        (channels << 2) & 0xFFFF_FFFC
+    })
 }
 
 /// One metering tick (`sub_82B376B8`). Returns 1.
@@ -354,10 +361,22 @@ mod tests {
     /// 1/256 blocks per hertz and a 200-block ring rate.
     fn guest() -> Guest {
         let mut g = Guest::from_segments(vec![
-            Segment { base: BASE, bytes: vec![0u8; 0x10000] },
-            Segment { base: 0x8209_9000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8216_5000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x822F_8000, bytes: vec![0u8; 0x1000] },
+            Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x10000],
+            },
+            Segment {
+                base: 0x8209_9000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8216_5000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x822F_8000,
+                bytes: vec![0u8; 0x1000],
+            },
         ]);
         let f = |g: &mut Guest, at: u32, v: f32| g.set_u32(at, v.to_bits()).unwrap();
         f(&mut g, RMS_SCALE, 1.0 / 64.0);
@@ -369,8 +388,10 @@ mod tests {
         g.set_u16(DESC + CHANNEL_STRIDE, 256).unwrap();
         g.set_u8(OBJECT + METER_CHANNELS, 2).unwrap();
         g.set_u32(OBJECT + METER_FRAMES, 4).unwrap();
-        g.set_u16(OBJECT + METER_LEVEL_RING, LEVEL_RING as u16).unwrap();
-        g.set_u16(OBJECT + METER_PEAK_RING, PEAK_RING as u16).unwrap();
+        g.set_u16(OBJECT + METER_LEVEL_RING, LEVEL_RING as u16)
+            .unwrap();
+        g.set_u16(OBJECT + METER_PEAK_RING, PEAK_RING as u16)
+            .unwrap();
         g
     }
 
@@ -378,7 +399,8 @@ mod tests {
     fn channel(g: &mut Guest, c: u32, value: f32, noise: f32) {
         for i in 0..256u32 {
             let v = if (i * 4) % 64 < 16 { value } else { noise };
-            g.set_u32(CHANNELS_AT + 1024 * c + 4 * i, v.to_bits()).unwrap();
+            g.set_u32(CHANNELS_AT + 1024 * c + 4 * i, v.to_bits())
+                .unwrap();
         }
     }
 
@@ -403,7 +425,11 @@ mod tests {
         assert_eq!(at(&g, METER_PEAKS + 4), 0.25);
         // The ring histories, at frames * channel + cursor.
         assert_eq!(g.f32(OBJECT + LEVEL_RING).unwrap(), 0.25);
-        assert_eq!(g.f32(OBJECT + PEAK_RING + 16).unwrap(), 0.25, "channel 1's entry, four blocks on");
+        assert_eq!(
+            g.f32(OBJECT + PEAK_RING + 16).unwrap(),
+            0.25,
+            "channel 1's entry, four blocks on"
+        );
         assert_eq!(g.u16(OBJECT + METER_CURSOR).unwrap(), 1);
     }
 
@@ -426,9 +452,17 @@ mod tests {
         g.set_u16(OBJECT + METER_CURSOR, 3).unwrap();
         g.set_u32(OBJECT + METER_SUMS, 0.5f32.to_bits()).unwrap();
         meter_block(&mut g, OBJECT, DESC, SP).unwrap();
-        assert_eq!(at(&g, METER_LEVELS), 0.75, "0.5 already summed, plus this block's 0.25");
+        assert_eq!(
+            at(&g, METER_LEVELS),
+            0.75,
+            "0.5 already summed, plus this block's 0.25"
+        );
         assert_eq!(at(&g, METER_SUMS), 0.0);
-        assert_eq!(g.u16(OBJECT + METER_CURSOR).unwrap(), 0, "and the cursor wraps");
+        assert_eq!(
+            g.u16(OBJECT + METER_CURSOR).unwrap(),
+            0,
+            "and the cursor wraps"
+        );
     }
 
     #[test]
@@ -449,11 +483,13 @@ mod tests {
         channel(&mut g, 1, 0.25, 0.0);
         g.set_u32(OBJECT + METER_INTERVAL, interval).unwrap();
         g.set_u16(OBJECT + METER_TICKS, ticks).unwrap();
-        g.set_u32(OBJECT + METER_RATE_CACHE, cached.to_bits()).unwrap();
+        g.set_u32(OBJECT + METER_RATE_CACHE, cached.to_bits())
+            .unwrap();
         g.set_u32(OBJECT + METER_SECONDS, 1.0f32.to_bits()).unwrap();
         g.set_u32(TICK_DESC + TICK_CHANNELS, DESC).unwrap();
         g.set_u32(TICK_DESC + TICK_FORMAT, FORMAT).unwrap();
-        g.set_u32(FORMAT + FORMAT_RATE, 48_000.0f32.to_bits()).unwrap();
+        g.set_u32(FORMAT + FORMAT_RATE, 48_000.0f32.to_bits())
+            .unwrap();
         g.set_u8(OBJECT + layout::LAYOUT, 2).unwrap();
         for i in 0..if poison { 0x680u32 / 4 } else { 0 } {
             g.set_u32(OBJECT + LEVEL_RING + 4 * i, 0x7777_7777).unwrap();
@@ -466,9 +502,15 @@ mod tests {
     fn before_the_interval_the_tick_only_counts() {
         let mut g = tick_guest(5, 2, 48_000.0, false);
         let before = g.clone();
-        assert_eq!(meter_tick(&mut g, u64::from(OBJECT), TICK_DESC, SP).unwrap(), 1);
+        assert_eq!(
+            meter_tick(&mut g, u64::from(OBJECT), TICK_DESC, SP).unwrap(),
+            1
+        );
         assert_eq!(g.u16(OBJECT + METER_TICKS).unwrap(), 3);
-        assert_eq!(g.u32(OBJECT + METER_PEAKS).unwrap(), before.u32(OBJECT + METER_PEAKS).unwrap());
+        assert_eq!(
+            g.u32(OBJECT + METER_PEAKS).unwrap(),
+            before.u32(OBJECT + METER_PEAKS).unwrap()
+        );
     }
 
     #[test]
@@ -480,9 +522,17 @@ mod tests {
         meter_block(&mut h, OBJECT, DESC, SP - TICK_FRAME).unwrap();
         layout::expand_layout(&mut h, OBJECT).unwrap();
         for off in (0..0x400).step_by(4) {
-            assert_eq!(g.u32(OBJECT + off).unwrap(), h.u32(OBJECT + off).unwrap(), "+{off}");
+            assert_eq!(
+                g.u32(OBJECT + off).unwrap(),
+                h.u32(OBJECT + off).unwrap(),
+                "+{off}"
+            );
         }
-        assert_eq!(g.u32(OBJECT + layout::group_dest(0) + 4).unwrap(), 0.5f32.to_bits(), "sqrt of the 0.25 level");
+        assert_eq!(
+            g.u32(OBJECT + layout::group_dest(0) + 4).unwrap(),
+            0.5f32.to_bits(),
+            "sqrt of the 0.25 level"
+        );
     }
 
     #[test]
@@ -499,7 +549,11 @@ mod tests {
         // The meters then ran from cursor 0 over the fresh ring, dividing by the new length: channel
         // 0's summed squares scale to 1.0 and channel 1's to 0.25, each over 188 blocks.
         assert_eq!(g.f32(OBJECT + LEVEL_RING).unwrap(), 1.0f32 / 188.0);
-        assert_eq!(g.f32(OBJECT + LEVEL_RING + 4 * 188).unwrap(), 0.25f32 / 188.0, "channel 1, one ring on");
+        assert_eq!(
+            g.f32(OBJECT + LEVEL_RING + 4 * 188).unwrap(),
+            0.25f32 / 188.0,
+            "channel 1, one ring on"
+        );
         assert_eq!(g.u16(OBJECT + METER_CURSOR).unwrap(), 1);
     }
 }

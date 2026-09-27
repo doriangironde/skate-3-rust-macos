@@ -133,12 +133,18 @@ pub fn unsigned_code(g: &Guest, stream: u32) -> Result<(u32, u32)> {
     } else if (b0 as i32) < PREFIX_LIMITS[1] {
         let b1 = code_byte(g, stream, 1)?;
         // rlwinm r11,r9,0,18,15 clears bits 14 and 15 of the pair: the 0xC0 prefix.
-        ((((b0 << 8) | b1) & 0xFFFF_3FFF).wrapping_add(UNSIGNED_BIASES[0]), 2)
+        (
+            (((b0 << 8) | b1) & 0xFFFF_3FFF).wrapping_add(UNSIGNED_BIASES[0]),
+            2,
+        )
     } else if (b0 as i32) < PREFIX_LIMITS[2] {
         let b1 = code_byte(g, stream, 1)?;
         let b2 = code_byte(g, stream, 2)?;
         // rlwinm r11,r11,0,12,7 clears bits 20..23: the 0xF0 prefix.
-        (((((b0 << 8) | b1) << 8 | b2) & 0xFF0F_FFFF).wrapping_add(UNSIGNED_BIASES[1]), 3)
+        (
+            ((((b0 << 8) | b1) << 8 | b2) & 0xFF0F_FFFF).wrapping_add(UNSIGNED_BIASES[1]),
+            3,
+        )
     } else if (b0 as i32) < PREFIX_LIMITS[3] {
         let b1 = code_byte(g, stream, 1)?;
         let b2 = code_byte(g, stream, 2)?;
@@ -182,7 +188,11 @@ pub fn signed_code(g: &Guest, stream: u32) -> Result<(u32, u32)> {
         let pair = ((b0 << 8) & 0xFFFF_FF00) | b1;
         // rlwinm r11,r6,0,20,15 strips the 0xF0 prefix BEFORE the third byte is appended.
         let trio = rotate_in_byte(pair & 0xFFFF_0FFF) | b2;
-        (u64::from(((trio as i32) >> 1) as u32) + u64::from(SIGNED_BIASES[1]), b2 & 1, 3)
+        (
+            u64::from(((trio as i32) >> 1) as u32) + u64::from(SIGNED_BIASES[1]),
+            b2 & 1,
+            3,
+        )
     } else if (b0 as i32) < PREFIX_LIMITS[3] {
         let b1 = code_byte(g, stream, 1)?;
         let b2 = code_byte(g, stream, 2)?;
@@ -190,7 +200,11 @@ pub fn signed_code(g: &Guest, stream: u32) -> Result<(u32, u32)> {
         let high = b0.rotate_left(16) & 0x3_0000; // rlwinm r8,r10,16,14,15
         let mid = (b1.rotate_left(8) | b2) & 0x3_FFFF; // clrlwi r7,r11,14
         let quad = rotate_in_byte(mid | high) | (b3 & 0xFFFF_FFFE); // rlwinm r9,r5,0,0,30
-        (u64::from(((quad as i32) >> 1) as u32) + u64::from(SIGNED_BIASES[2]), b3 & 1, 4)
+        (
+            u64::from(((quad as i32) >> 1) as u32) + u64::from(SIGNED_BIASES[2]),
+            b3 & 1,
+            4,
+        )
     } else {
         // loc_82B46F7C: the raw 32-bit two's-complement word, never reaching the sign step.
         let b1 = code_byte(g, stream, 1)?;
@@ -202,7 +216,11 @@ pub fn signed_code(g: &Guest, stream: u32) -> Result<(u32, u32)> {
     };
     // loc_82B46F20: an odd encoding is a negative. `subfic r11,r11,-1` is a 64-bit subtract; only
     // its low word is stored.
-    let value = if low_bit != 0 { u64::MAX.wrapping_sub(magnitude) } else { magnitude };
+    let value = if low_bit != 0 {
+        u64::MAX.wrapping_sub(magnitude)
+    } else {
+        magnitude
+    };
     Ok((value as u32, length))
 }
 
@@ -304,7 +322,10 @@ pub const PAGE_BITS: u32 = 16_352;
 pub const PAGE_BYTES: u32 = 2_048;
 
 const _: () = assert!(PAGE_BITS == PAGE_BYTES * 8 - 32, "a 32-bit header per page");
-const _: () = assert!(SPLIT_POINT == PAGE_BITS as i32 - 15, "a 15-bit field fits below it");
+const _: () = assert!(
+    SPLIT_POINT == PAGE_BITS as i32 - 15,
+    "a 15-bit field fits below it"
+);
 
 /// `srawi r,x,3 ; addze`: divide by eight, truncating toward zero.
 fn divide_by_eight_toward_zero(value: i32) -> i32 {
@@ -330,7 +351,11 @@ fn three_bytes_aligned(g: &Guest, buffer: u32, byte_offset: i32) -> Result<u32> 
 /// field long enough to cross two pages leaves the cursor still past the end, as the original does.
 pub fn advance_bit_cursor(g: &mut Guest, base_field: u32, cursor_field: u32) -> Result<()> {
     let cursor = g.u32(cursor_field)? as i32; // lwz r5,0(r4)
-    let spill = if cursor > SPLIT_POINT { cursor.wrapping_sub(SPLIT_POINT) } else { 0 };
+    let spill = if cursor > SPLIT_POINT {
+        cursor.wrapping_sub(SPLIT_POINT)
+    } else {
+        0
+    };
     let first_width = 15i32.wrapping_sub(spill); // subfic r11,r7,15
     let buffer = g.u32(base_field)?; // lwz r10,0(r3)
 
@@ -381,7 +406,11 @@ pub const HEADER_READER: u32 = 80;
 /// The frame is reproduced, because the reader is guest memory that [`read_bits`] reads and writes.
 pub fn unpack_stream_header(g: &mut Guest, stream: u32, out: u32, sp: u32) -> Result<()> {
     // lbz r11,0(r3) ; cmplwi cr6,r11,72 ; bne ; addi r3,r3,4 -- before the frame moves
-    let body = if g.u8(stream)? == HEADER_TAG { stream.wrapping_add(4) } else { stream };
+    let body = if g.u8(stream)? == HEADER_TAG {
+        stream.wrapping_add(4)
+    } else {
+        stream
+    };
     let frame = sp.wrapping_sub(HEADER_FRAME_BYTES); // stwu r1,-112(r1)
     g.set_u32(frame, sp)?;
     let reader = frame + HEADER_READER;
@@ -445,9 +474,17 @@ const VOICE_HEADER_READER: u32 = 80;
 ///
 /// The original converts the eighteen-bit field through a doubleword at `r1 + 88`; the conversion is
 /// exact, so it is done in registers here and that frame word is not written.
-pub fn parse_voice_header(g: &mut Guest, object: u32, index: u32, stream: u64, sp: u32) -> Result<()> {
+pub fn parse_voice_header(
+    g: &mut Guest,
+    object: u32,
+    index: u32,
+    stream: u64,
+    sp: u32,
+) -> Result<()> {
     let slot_off = u32::from(g.u16(object.wrapping_add(HEADER_SLOT_TABLE))?);
-    let slot = slot_off.wrapping_add(index.wrapping_mul(3) << 4).wrapping_add(object); // r30
+    let slot = slot_off
+        .wrapping_add(index.wrapping_mul(3) << 4)
+        .wrapping_add(object); // r30
     let array = g.u32(object.wrapping_add(HEADER_VOICE_ARRAY))?;
     let voice = (index.wrapping_mul(5) << 4).wrapping_add(array); // r31
     let frame = sp.wrapping_sub(HEADER_FRAME);
@@ -511,11 +548,18 @@ pub fn parse_voice_header(g: &mut Guest, object: u32, index: u32, stream: u64, s
             }
             _ => false,
         };
-        let delta = if read_delta { read_bits(g, reader, 32)? as u32 } else { 0 };
+        let delta = if read_delta {
+            read_bits(g, reader, 32)? as u32
+        } else {
+            0
+        };
         g.set_u32(voice.wrapping_add(VOICE_DELTA), delta)?;
     }
     let header_bytes = u64::from(g.u32(reader + READER_CURSOR)? >> 3); // lwz r11,84(r1) ; rlwinm 29,3,31
-    g.set_u32(voice.wrapping_add(VOICE_DATA_BASE), header_bytes.wrapping_add(stream) as u32)?;
+    g.set_u32(
+        voice.wrapping_add(VOICE_DATA_BASE),
+        header_bytes.wrapping_add(stream) as u32,
+    )?;
     Ok(())
 }
 
@@ -585,19 +629,32 @@ pub fn seek_record(g: &mut Guest, object: u32, stream: u64, target: u64, sp: u32
             let in_range = (position as u32 as i32) <= (limit as u32 as i32)
                 && (limit as u32 as i32) < (step.wrapping_add(position) as u32 as i32);
             if in_range || mode as u32 as i32 == 1 {
-                let published = if value_b as u32 as i32 == 0 { 0 } else { sum_b.wrapping_add(base_entry) };
+                let published = if value_b as u32 as i32 == 0 {
+                    0
+                } else {
+                    sum_b.wrapping_add(base_entry)
+                };
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_BASE), published as u32)?;
                 let min_length = u64::from(g.u32(object.wrapping_add(SEEK_MIN_LENGTH))?); // reloaded
                 let remaining = target.wrapping_sub(position);
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_POSITION), position as u32)?;
-                let length =
-                    if (remaining as u32 as i32) < (min_length as u32 as i32) { remaining } else { min_length };
+                let length = if (remaining as u32 as i32) < (min_length as u32 as i32) {
+                    remaining
+                } else {
+                    min_length
+                };
                 let leading = (mode.wrapping_sub(1) as u32).leading_zeros(); // cntlzw
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_LENGTH), length as u32)?;
                 let tail = target.wrapping_sub(length);
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_OFFSET), sum_a as u32)?;
-                g.set_u32(object.wrapping_add(SEEK_PUBLISH_SKIP), tail.wrapping_sub(position) as u32)?;
-                g.set_u8(object.wrapping_add(SEEK_PUBLISH_EXACT), ((leading >> 5) & 1) as u8)?;
+                g.set_u32(
+                    object.wrapping_add(SEEK_PUBLISH_SKIP),
+                    tail.wrapping_sub(position) as u32,
+                )?;
+                g.set_u8(
+                    object.wrapping_add(SEEK_PUBLISH_EXACT),
+                    ((leading >> 5) & 1) as u8,
+                )?;
             }
             position = step.wrapping_add(position); // add r29,r28,r29
             if (target as u32 as i32) < (position as u32 as i32) {
@@ -654,7 +711,11 @@ fn divide_toward_zero(value: u32, shift: u32) -> i64 {
 fn bit_position_from_cell(g: &Guest, cell: u32) -> Result<i64> {
     let word = g.u32(cell)?;
     let value = (((word as i32) >> 11) as u32 & 0x7FFF) as i32;
-    Ok(if value < PACKET_PAGE_BITS { i64::from(value) } else { -1 })
+    Ok(if value < PACKET_PAGE_BITS {
+        i64::from(value)
+    } else {
+        -1
+    })
 }
 
 /// Store a packet's four header bytes into the cell, in the original's order, and turn them into a
@@ -683,7 +744,14 @@ fn load_packet_header(g: &mut Guest, cell: u32, packet: u32, order: [u32; 4]) ->
 /// not pass the target — signed compares on the low words — and the chosen packet's header gives a
 /// fresh bit position. Each frame still ahead is then skipped with [`advance_bit_cursor`], which may
 /// step the packet pointer across a page wrap.
-pub fn seek_packet(g: &mut Guest, cursor: u32, substream: u32, desc: u32, chunk: u64, sp: u32) -> Result<u64> {
+pub fn seek_packet(
+    g: &mut Guest,
+    cursor: u32,
+    substream: u32,
+    desc: u32,
+    chunk: u64,
+    sp: u32,
+) -> Result<u64> {
     let frame = sp.wrapping_sub(PACKET_FRAME);
     g.set_u32(frame, sp)?; // stwu r1,-160(r1)
     let bits_cell = frame.wrapping_add(PACKET_BITS_CELL);
@@ -743,7 +811,10 @@ pub fn seek_packet(g: &mut Guest, cursor: u32, substream: u32, desc: u32, chunk:
     g.set_u32(cursor.wrapping_add(PACKET_CURSOR_PACKET), packet as u32)?; // stw r29,4(r26)
     let remaining = behind.wrapping_add(chunk_bytes); // add r11,r11,r25
     g.set_u32(cursor.wrapping_add(PACKET_CURSOR_BITS), bits)?; // stw r10,20(r26)
-    g.set_u32(cursor.wrapping_add(PACKET_CURSOR_REMAINING), remaining.wrapping_sub(4) as u32)?; // addi -4 ; stw
+    g.set_u32(
+        cursor.wrapping_add(PACKET_CURSOR_REMAINING),
+        remaining.wrapping_sub(4) as u32,
+    )?; // addi -4 ; stw
     Ok(chunk_bytes) // mr r3,r25
 }
 
@@ -794,18 +865,34 @@ pub fn seek_fixed_records(g: &mut Guest, object: u32, records: u32, target: u64)
             let in_range = (position as u32 as i32) <= (limit as u32 as i32)
                 && (limit as u32 as i32) < (length.wrapping_add(position) as u32 as i32);
             if in_range || mode as u32 as i32 == 1 {
-                let published = if base_word as u32 as i32 == 0 { 0 } else { sum_b.wrapping_add(base_entry) };
+                let published = if base_word as u32 as i32 == 0 {
+                    0
+                } else {
+                    sum_b.wrapping_add(base_entry)
+                };
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_BASE), published as u32)?;
                 let remaining = target.wrapping_sub(position);
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_POSITION), position as u32)?;
-                let published_length =
-                    if (remaining as u32 as i32) < (min_length as u32 as i32) { remaining } else { min_length };
+                let published_length = if (remaining as u32 as i32) < (min_length as u32 as i32) {
+                    remaining
+                } else {
+                    min_length
+                };
                 let leading = (mode.wrapping_sub(1) as u32).leading_zeros();
-                g.set_u32(object.wrapping_add(SEEK_PUBLISH_LENGTH), published_length as u32)?;
+                g.set_u32(
+                    object.wrapping_add(SEEK_PUBLISH_LENGTH),
+                    published_length as u32,
+                )?;
                 let tail = target.wrapping_sub(published_length);
                 g.set_u32(object.wrapping_add(SEEK_PUBLISH_OFFSET), sum_a as u32)?;
-                g.set_u32(object.wrapping_add(SEEK_PUBLISH_SKIP), tail.wrapping_sub(position) as u32)?;
-                g.set_u8(object.wrapping_add(SEEK_PUBLISH_EXACT), ((leading >> 5) & 1) as u8)?;
+                g.set_u32(
+                    object.wrapping_add(SEEK_PUBLISH_SKIP),
+                    tail.wrapping_sub(position) as u32,
+                )?;
+                g.set_u8(
+                    object.wrapping_add(SEEK_PUBLISH_EXACT),
+                    ((leading >> 5) & 1) as u8,
+                )?;
             }
             position = length.wrapping_add(position); // add r10,r31,r10
             if (target as u32 as i32) < (position as u32 as i32) {
@@ -846,24 +933,38 @@ fn header_word(g: &Guest, at: u32) -> Result<u32> {
 /// minimum length at `+28`, bytes 4..7 the records' offset and bytes 8..11 the data's (zero stays
 /// zero) at `+4`, and `+0` gets the header's end. Byte 1's high nibble then picks
 /// [`seek_fixed_records`] (0) or [`seek_record`] (1); anything else returns 0.
-pub fn parse_seek_header(g: &mut Guest, object: u32, header: u64, target: u64, sp: u32) -> Result<u64> {
+pub fn parse_seek_header(
+    g: &mut Guest,
+    object: u32,
+    header: u64,
+    target: u64,
+    sp: u32,
+) -> Result<u64> {
     let at = header as u32;
     let frame = sp.wrapping_sub(SEEK_HEADER_FRAME);
     g.set_u32(frame, sp)?; // stwu r1,-128(r1)
     let byte1 = u32::from(g.u8(at.wrapping_add(1))?); // lbz r8,1(r4)
     g.set_u32(object.wrapping_add(SEEK_HEADER_KIND), byte1 & 0xF)?; // stw r7,24(r3)
-    let min_length = (u32::from(g.u8(at.wrapping_add(2))?) << 8) | u32::from(g.u8(at.wrapping_add(3))?);
+    let min_length =
+        (u32::from(g.u8(at.wrapping_add(2))?) << 8) | u32::from(g.u8(at.wrapping_add(3))?);
     let stream_offset = header_word(g, at.wrapping_add(4))?; // lwz r11,88(r1)
     let data_offset = header_word(g, at.wrapping_add(8))?; // lwz r9,96(r1)
     let stream = u64::from(stream_offset).wrapping_add(header); // add r4,r11,r10
     g.set_u32(object.wrapping_add(SEEK_MIN_LENGTH), min_length)?; // stw r6,28(r3)
-    let data = if data_offset == 0 { 0 } else { u64::from(data_offset).wrapping_add(header) };
+    let data = if data_offset == 0 {
+        0
+    } else {
+        u64::from(data_offset).wrapping_add(header)
+    };
     g.set_u32(object.wrapping_add(SEEK_PUBLISH_BASE), data as u32)?; // stw r11,4(r3)
-    g.set_u32(object.wrapping_add(SEEK_HEADER_END), header.wrapping_add(12) as u32)?; // stw r7,0(r3)
+    g.set_u32(
+        object.wrapping_add(SEEK_HEADER_END),
+        header.wrapping_add(12) as u32,
+    )?; // stw r7,0(r3)
     match byte1 >> 4 {
         0 => seek_fixed_records(g, object, stream as u32, target), // bl 0x82b472c0
         1 => seek_record(g, object, stream, target, frame),        // bl 0x82b474b8
-        _ => Ok(0),                                                 // li r3,0
+        _ => Ok(0),                                                // li r3,0
     }
 }
 
@@ -882,7 +983,13 @@ pub const STREAM_HEADER_STACK_DEPTH: u32 = STREAM_HEADER_FRAME + SEEK_HEADER_STA
 /// paths of their own: 1 is [`parse_seek_header`], and 0 is its inline twin — `+0` and `+24` written
 /// **before** bytes 2..7 are read, the payload at `stream + 8`, the high nibble picking the walker.
 /// The wipe clears `+0, +4, +8, +12, +20, +24` and leaves `+16`, `+28` and `+32`.
-pub fn parse_stream_header(g: &mut Guest, object: u32, stream: u32, target: u64, sp: u32) -> Result<u64> {
+pub fn parse_stream_header(
+    g: &mut Guest,
+    object: u32,
+    stream: u32,
+    target: u64,
+    sp: u32,
+) -> Result<u64> {
     let frame = sp.wrapping_sub(STREAM_HEADER_FRAME);
     g.set_u32(frame, sp)?; // stwu r1,-128(r1)
     let version = g.u8(stream)? as i8 as i32 as u32; // lbz ; extsb ; cmplwi
@@ -894,17 +1001,21 @@ pub fn parse_stream_header(g: &mut Guest, object: u32, stream: u32, target: u64,
         let nibbles = u32::from(g.u8(stream.wrapping_add(1))?); // lbz r9,1(r10)
         g.set_u32(object, 0)?; // stw r30,0(r31)
         g.set_u32(object.wrapping_add(SEEK_HEADER_KIND), nibbles & 0xF)?; // stw r8,24(r31)
-        let field28 =
-            (u32::from(g.u8(stream.wrapping_add(2))?) << 8) | u32::from(g.u8(stream.wrapping_add(3))?);
+        let field28 = (u32::from(g.u8(stream.wrapping_add(2))?) << 8)
+            | u32::from(g.u8(stream.wrapping_add(3))?);
         let offset = header_word(g, stream.wrapping_add(4))?;
         g.set_u32(object.wrapping_add(SEEK_MIN_LENGTH), field28)?; // stw r29,28(r31)
-        let data = if offset != 0 { u64::from(offset).wrapping_add(u64::from(stream)) } else { 0 };
+        let data = if offset != 0 {
+            u64::from(offset).wrapping_add(u64::from(stream))
+        } else {
+            0
+        };
         g.set_u32(object.wrapping_add(SEEK_PUBLISH_BASE), data as u32)?; // stw r11,4(r31)
         let payload = stream.wrapping_add(8);
         match nibbles >> 4 {
             0 => seek_fixed_records(g, object, payload, target)?, // bl 0x82b472c0
             1 => seek_record(g, object, u64::from(payload), target, frame)?, // bl 0x82b474b8
-            _ => 0, // mr r3,r30 -- not a failure
+            _ => 0,                                               // mr r3,r30 -- not a failure
         }
     };
     if status & 0xFF != 0 {
@@ -945,7 +1056,9 @@ pub fn decode_packet_header(
     let array = u64::from(g.u32(obj.wrapping_add(HEADER_VOICE_ARRAY))?); // lwz r10,96(r3)
     let triple = index.wrapping_add(u64::from((index as u32).wrapping_mul(2))); // rlwinm ; add
     let quint = index.wrapping_add(u64::from((index as u32).wrapping_mul(4)));
-    let slot = u64::from((triple as u32).wrapping_mul(16)).wrapping_add(slot_base).wrapping_add(object) as u32;
+    let slot = u64::from((triple as u32).wrapping_mul(16))
+        .wrapping_add(slot_base)
+        .wrapping_add(object) as u32;
     let entry = u64::from((quint as u32).wrapping_mul(16)).wrapping_add(array) as u32;
     let frame = sp.wrapping_sub(PACKET_HEADER_FRAME);
     g.set_u32(frame, sp)?; // stwu r1,-144(r1)
@@ -1002,7 +1115,12 @@ mod tests {
             vec![0xF0 | (x >> 16) as u8, (x >> 8) as u8, x as u8]
         } else if v - 798_912 < 0x300_0000 {
             let x = v - 798_912;
-            vec![0xFC | (x >> 24) as u8, (x >> 16) as u8, (x >> 8) as u8, x as u8]
+            vec![
+                0xFC | (x >> 24) as u8,
+                (x >> 16) as u8,
+                (x >> 8) as u8,
+                x as u8,
+            ]
         } else {
             let mut out = vec![0xFF];
             out.extend_from_slice(&v.to_be_bytes());
@@ -1012,7 +1130,11 @@ mod tests {
 
     /// The signed zigzag code, likewise independent: sign in the last byte's low bit.
     fn encode_signed(n: i32) -> Vec<u8> {
-        let (m, s) = if n >= 0 { (n as u32, 0u32) } else { (!n as u32, 1u32) };
+        let (m, s) = if n >= 0 {
+            (n as u32, 0u32)
+        } else {
+            (!n as u32, 1u32)
+        };
         if m < 96 {
             vec![(2 * m + s) as u8]
         } else if m < 6_240 {
@@ -1023,7 +1145,12 @@ mod tests {
             vec![0xF0 | (x >> 16) as u8, (x >> 8) as u8, x as u8]
         } else if m - 399_456 < 0x180_0000 {
             let x = 2 * (m - 399_456) + s;
-            vec![0xFC | (x >> 24) as u8, (x >> 16) as u8, (x >> 8) as u8, x as u8]
+            vec![
+                0xFC | (x >> 24) as u8,
+                (x >> 16) as u8,
+                (x >> 8) as u8,
+                x as u8,
+            ]
         } else {
             let mut out = vec![0xFF];
             out.extend_from_slice(&n.to_be_bytes());
@@ -1040,22 +1167,59 @@ mod tests {
     #[test]
     fn the_unsigned_code_round_trips_across_every_width_boundary() {
         let values = [
-            0u32, 1, 191, 192, 193, 12_479, 12_480, 12_481, 798_911, 798_912, 798_913,
-            798_912 + 0x2FF_FFFF, 798_912 + 0x300_0000, 0x7FFF_FFFF, 0xFFFF_FFFF, 1_000, 500_000,
+            0u32,
+            1,
+            191,
+            192,
+            193,
+            12_479,
+            12_480,
+            12_481,
+            798_911,
+            798_912,
+            798_913,
+            798_912 + 0x2FF_FFFF,
+            798_912 + 0x300_0000,
+            0x7FFF_FFFF,
+            0xFFFF_FFFF,
+            1_000,
+            500_000,
         ];
         for v in values {
             let code = encode_unsigned(v);
             let g = with_bytes(&code);
-            assert_eq!(unsigned_code(&g, BASE + 0x100).unwrap(), (v, code.len() as u32), "{v}");
+            assert_eq!(
+                unsigned_code(&g, BASE + 0x100).unwrap(),
+                (v, code.len() as u32),
+                "{v}"
+            );
         }
     }
 
     #[test]
     fn the_signed_code_round_trips_across_every_width_boundary() {
         let values = [
-            0i32, 1, -1, 95, -96, 96, -97, 6_239, -6_240, 6_240, -6_241, 399_455, -399_456,
-            399_456, -399_457, 399_456 + 0x17F_FFFF, -(399_456 + 0x17F_FFFF) - 1, i32::MAX,
-            i32::MIN, 12_345, -54_321,
+            0i32,
+            1,
+            -1,
+            95,
+            -96,
+            96,
+            -97,
+            6_239,
+            -6_240,
+            6_240,
+            -6_241,
+            399_455,
+            -399_456,
+            399_456,
+            -399_457,
+            399_456 + 0x17F_FFFF,
+            -(399_456 + 0x17F_FFFF) - 1,
+            i32::MAX,
+            i32::MIN,
+            12_345,
+            -54_321,
         ];
         for n in values {
             let code = encode_signed(n);
@@ -1081,8 +1245,16 @@ mod tests {
     #[test]
     fn the_five_byte_forms_are_the_raw_word_with_no_zigzag() {
         let g = with_bytes(&[0xFF, 0x80, 0x00, 0x00, 0x01]);
-        assert_eq!(signed_code(&g, BASE + 0x100).unwrap(), (0x8000_0001, 5), "not zigzagged");
-        assert_eq!(unsigned_code(&g, BASE + 0x100).unwrap(), (0x8000_0001, 5), "not biased");
+        assert_eq!(
+            signed_code(&g, BASE + 0x100).unwrap(),
+            (0x8000_0001, 5),
+            "not zigzagged"
+        );
+        assert_eq!(
+            unsigned_code(&g, BASE + 0x100).unwrap(),
+            (0x8000_0001, 5),
+            "not biased"
+        );
     }
 
     #[test]
@@ -1092,7 +1264,10 @@ mod tests {
         assert_eq!(g.u32(BASE + 0x10).unwrap() as i32, -7_000);
 
         let mut g = with_bytes(&encode_unsigned(70_000));
-        assert_eq!(decode_unsigned(&mut g, BASE + 0x100, BASE + 0x10).unwrap(), 3);
+        assert_eq!(
+            decode_unsigned(&mut g, BASE + 0x100, BASE + 0x10).unwrap(),
+            3
+        );
         assert_eq!(g.u32(BASE + 0x10).unwrap(), 70_000);
     }
 
@@ -1135,8 +1310,16 @@ mod tests {
 
                 let got = read_bits(&mut g, READER, u64::from(bits)).unwrap();
 
-                assert_eq!(got as u32, model_bits(&data, cursor, bits), "cursor {cursor}, {bits} bits");
-                assert_eq!(g.u32(READER + READER_CURSOR).unwrap(), cursor + bits, "cursor advanced");
+                assert_eq!(
+                    got as u32,
+                    model_bits(&data, cursor, bits),
+                    "cursor {cursor}, {bits} bits"
+                );
+                assert_eq!(
+                    g.u32(READER + READER_CURSOR).unwrap(),
+                    cursor + bits,
+                    "cursor advanced"
+                );
             }
         }
     }
@@ -1148,7 +1331,10 @@ mod tests {
         let mut g = Guest::single(BASE, 0x40);
         g.set_u32(READER + READER_DATA, BASE + 0x1000).unwrap(); // not mapped
         g.set_u32(READER + READER_CURSOR, 5).unwrap();
-        assert!(read_bits(&mut g, READER, 0).is_err(), "the byte load happens");
+        assert!(
+            read_bits(&mut g, READER, 0).is_err(),
+            "the byte load happens"
+        );
 
         let mut g = Guest::single(BASE, 0x400);
         g.set_u32(READER + READER_DATA, DATA).unwrap();
@@ -1204,9 +1390,15 @@ mod tests {
     fn a_repeat_run_then_a_literal_run_matches_the_model() {
         let codes = [2, 3, -1, 10, -4, 0, 100];
         let mut g = run_guest(&codes);
-        let got: Vec<i32> = (0..6).map(|_| run_length_step(&mut g, RUN).unwrap() as u32 as i32).collect();
+        let got: Vec<i32> = (0..6)
+            .map(|_| run_length_step(&mut g, RUN).unwrap() as u32 as i32)
+            .collect();
         assert_eq!(got, model_runs(&codes, 6));
-        assert_eq!(got, vec![3, 3, 3, 13, 9, 109], "spelled out, so the model is checked too");
+        assert_eq!(
+            got,
+            vec![3, 3, 3, 13, 9, 109],
+            "spelled out, so the model is checked too"
+        );
     }
 
     #[test]
@@ -1215,12 +1407,24 @@ mod tests {
         let mut g = run_guest(&codes);
         run_length_step(&mut g, RUN).unwrap();
         let after_first = g.u32(CURSOR_OBJ + CURSOR_STREAM).unwrap();
-        assert_eq!(after_first, STREAM + 2, "the count and the delta, one byte each");
+        assert_eq!(
+            after_first,
+            STREAM + 2,
+            "the count and the delta, one byte each"
+        );
         for _ in 0..3 {
             assert_eq!(run_length_step(&mut g, RUN).unwrap(), 5);
         }
-        assert_eq!(g.u32(CURSOR_OBJ + CURSOR_STREAM).unwrap(), after_first, "nothing read");
-        assert_eq!(g.u8(RUN + RUN_FLAG).unwrap(), 1, "a repeat run keeps its flag set");
+        assert_eq!(
+            g.u32(CURSOR_OBJ + CURSOR_STREAM).unwrap(),
+            after_first,
+            "nothing read"
+        );
+        assert_eq!(
+            g.u8(RUN + RUN_FLAG).unwrap(),
+            1,
+            "a repeat run keeps its flag set"
+        );
     }
 
     #[test]
@@ -1229,14 +1433,22 @@ mod tests {
         let mut g = run_guest(&[-3, 1, 1, 1, 1]);
         run_length_step(&mut g, RUN).unwrap();
         assert_eq!(g.u8(RUN + RUN_FLAG).unwrap(), 0);
-        assert_eq!(g.u32(RUN + RUN_REMAINING).unwrap(), 3, "four values, one already returned");
+        assert_eq!(
+            g.u32(RUN + RUN_REMAINING).unwrap(),
+            3,
+            "four values, one already returned"
+        );
     }
 
     #[test]
     fn decode_signed_into_advances_the_stream_and_the_sum() {
         let mut g = run_guest(&[-5_000]);
         g.set_u32(RUN + RUN_ACCUMULATED, 7_000).unwrap();
-        assert_eq!(decode_signed_into(&mut g, RUN).unwrap(), 2, "a two-byte code");
+        assert_eq!(
+            decode_signed_into(&mut g, RUN).unwrap(),
+            2,
+            "a two-byte code"
+        );
         assert_eq!(g.u32(RUN + RUN_ACCUMULATED).unwrap(), 2_000);
         assert_eq!(g.u32(CURSOR_OBJ + CURSOR_STREAM).unwrap(), STREAM + 2);
     }
@@ -1275,7 +1487,11 @@ mod tests {
         let mut v = 0u32;
         for i in 0..15u32 {
             let l = cursor + i;
-            let p = if l < PAGE_BITS { l + 32 } else { l - PAGE_BITS + 8 * PAGE_BYTES + 32 } as usize;
+            let p = if l < PAGE_BITS {
+                l + 32
+            } else {
+                l - PAGE_BITS + 8 * PAGE_BYTES + 32
+            } as usize;
             v = (v << 1) | u32::from((pages[p / 8] >> (7 - p % 8)) & 1);
         }
         v
@@ -1313,7 +1529,11 @@ mod tests {
                 (PAGES + PAGE_BYTES, advanced - PAGE_BITS)
             };
             assert_eq!(g.u32(CURSOR_FIELD).unwrap(), want_cursor, "cursor {cursor}");
-            assert_eq!(g.u32(BASE_FIELD).unwrap(), want_base, "base, cursor {cursor}");
+            assert_eq!(
+                g.u32(BASE_FIELD).unwrap(),
+                want_base,
+                "base, cursor {cursor}"
+            );
         }
     }
 
@@ -1330,7 +1550,10 @@ mod tests {
         advance_bit_cursor(&mut g, BASE_FIELD, CURSOR_FIELD).unwrap();
         assert_eq!(g.u32(BASE_FIELD).unwrap(), PAGES + PAGE_BYTES);
         assert_eq!(g.u32(CURSOR_FIELD).unwrap(), 16_000 + 0x7FFF - PAGE_BITS);
-        assert!(g.u32(CURSOR_FIELD).unwrap() >= PAGE_BITS, "still past the end: subtracted once");
+        assert!(
+            g.u32(CURSOR_FIELD).unwrap() >= PAGE_BITS,
+            "still past the end: subtracted once"
+        );
     }
 
     #[test]
@@ -1356,20 +1579,48 @@ mod tests {
         for tagged in [false, true] {
             let mut g = Guest::single(BASE, 0x1000);
             let stream = BASE + 0x100;
-            let mut bytes = if tagged { vec![b'H', 0xEE, 0xEE, 0xEE] } else { Vec::new() };
+            let mut bytes = if tagged {
+                vec![b'H', 0xEE, 0xEE, 0xEE]
+            } else {
+                Vec::new()
+            };
             bytes.extend_from_slice(&header);
             g.set_span(stream, &bytes).unwrap();
             let (out, sp) = (BASE + 0x40, BASE + 0x800);
 
             unpack_stream_header(&mut g, stream, out, sp).unwrap();
 
-            assert_eq!(g.u8(out).unwrap(), 0x2B, "tagged {tagged}: the 6-bit field plus one");
-            assert_eq!(g.u32(out + 4).unwrap(), 0x2_ABCD, "tagged {tagged}: 18 bits");
-            assert_eq!(g.u32(out + 8).unwrap(), 0x123_4567, "tagged {tagged}: 29 bits");
-            assert_eq!(g.u32(out + 12).unwrap(), 0x5, "tagged {tagged}: the SECOND nibble");
+            assert_eq!(
+                g.u8(out).unwrap(),
+                0x2B,
+                "tagged {tagged}: the 6-bit field plus one"
+            );
+            assert_eq!(
+                g.u32(out + 4).unwrap(),
+                0x2_ABCD,
+                "tagged {tagged}: 18 bits"
+            );
+            assert_eq!(
+                g.u32(out + 8).unwrap(),
+                0x123_4567,
+                "tagged {tagged}: 29 bits"
+            );
+            assert_eq!(
+                g.u32(out + 12).unwrap(),
+                0x5,
+                "tagged {tagged}: the SECOND nibble"
+            );
             let reader = sp - HEADER_FRAME_BYTES + HEADER_READER;
-            assert_eq!(g.u32(reader + READER_CURSOR).unwrap(), 64, "all 64 bits consumed");
-            assert_eq!(g.u32(sp - HEADER_FRAME_BYTES).unwrap(), sp, "the back chain");
+            assert_eq!(
+                g.u32(reader + READER_CURSOR).unwrap(),
+                64,
+                "all 64 bits consumed"
+            );
+            assert_eq!(
+                g.u32(sp - HEADER_FRAME_BYTES).unwrap(),
+                sp,
+                "the back chain"
+            );
         }
     }
 }
@@ -1418,16 +1669,34 @@ mod seek_tests {
 
     fn header_guest() -> Guest {
         let mut g = guest();
-        g.put(crate::routing::UNITY_GAIN, 1.0f32.to_bits().to_be_bytes().to_vec());
+        g.put(
+            crate::routing::UNITY_GAIN,
+            1.0f32.to_bits().to_be_bytes().to_vec(),
+        );
         g.set_u32(OBJECT + HEADER_VOICE_ARRAY, VOICES).unwrap();
         g.set_u16(OBJECT + HEADER_SLOT_TABLE, 0x300).unwrap();
         g
     }
 
-    fn header(tag: bool, mode: u64, has_cursor: bool, cursor: u64, field16: u64, delta: u64) -> Vec<u8> {
+    fn header(
+        tag: bool,
+        mode: u64,
+        has_cursor: bool,
+        cursor: u64,
+        field16: u64,
+        delta: u64,
+    ) -> Vec<u8> {
         let mut b = Bits(if tag { vec![72, 0, 0, 0] } else { vec![] }, 0);
         b.1 = 8 * b.0.len() as u32;
-        for (v, w) in [(3, 4), (5, 4), (9, 6), (1000, 18), (mode, 2), (u64::from(has_cursor), 1), (12_345, 29)] {
+        for (v, w) in [
+            (3, 4),
+            (5, 4),
+            (9, 6),
+            (1000, 18),
+            (mode, 2),
+            (u64::from(has_cursor), 1),
+            (12_345, 29),
+        ] {
             b.push(v, w);
         }
         if has_cursor {
@@ -1469,7 +1738,11 @@ mod seek_tests {
         assert_eq!(g.u32(SLOT + SLOT_FIELD_20).unwrap(), 12_345);
         assert_eq!(g.u32(SLOT + SLOT_CURSOR).unwrap(), 77);
         assert_eq!(g.u32(VOICE + VOICE_DELTA).unwrap(), 5);
-        assert_eq!(g.u32(VOICE + VOICE_DATA_BASE).unwrap(), STREAM + len, "past the tag and the 128 bits");
+        assert_eq!(
+            g.u32(VOICE + VOICE_DATA_BASE).unwrap(),
+            STREAM + len,
+            "past the tag and the 128 bits"
+        );
     }
 
     #[test]
@@ -1478,7 +1751,11 @@ mod seek_tests {
         fill(&mut g, STREAM, &header(false, 2, true, 10, 20, 0));
         parse_voice_header(&mut g, OBJECT, 1, u64::from(STREAM), SP).unwrap();
         assert_eq!(g.u32(VOICE + VOICE_FIELD_16).unwrap(), 20);
-        assert_eq!(g.u32(VOICE + VOICE_DELTA).unwrap(), 0, "cursor 10 is below 20: no delta read");
+        assert_eq!(
+            g.u32(VOICE + VOICE_DELTA).unwrap(),
+            0,
+            "cursor 10 is below 20: no delta read"
+        );
         let mut h = header_guest();
         fill(&mut h, STREAM, &header(false, 2, true, 30, 20, 9));
         parse_voice_header(&mut h, OBJECT, 1, u64::from(STREAM), SP).unwrap();
@@ -1500,7 +1777,9 @@ mod seek_tests {
 
     /// Each step of each stream is a repeat run of one: a count of 0, then the delta.
     fn seek_stream(sets: &[[i32; 4]]) -> Vec<u8> {
-        sets.iter().flat_map(|set| set.iter().flat_map(|d| [signed_byte(0), signed_byte(*d)])).collect()
+        sets.iter()
+            .flat_map(|set| set.iter().flat_map(|d| [signed_byte(0), signed_byte(*d)]))
+            .collect()
     }
 
     const RECORD: u32 = BASE + 0x100;
@@ -1509,15 +1788,39 @@ mod seek_tests {
     fn the_record_containing_the_target_less_its_minimum_is_published() {
         // Records of length 10 at 0, 10, 20, 30; target 25 less a minimum of 5 is 20, inside the third.
         let mut g = guest();
-        fill(&mut g, STREAM, &seek_stream(&[[3, 2, 10, 0], [3, 2, 0, 0], [3, 2, 0, 0], [3, 2, 0, 0]]));
+        fill(
+            &mut g,
+            STREAM,
+            &seek_stream(&[[3, 2, 10, 0], [3, 2, 0, 0], [3, 2, 0, 0], [3, 2, 0, 0]]),
+        );
         g.set_u32(RECORD + SEEK_MIN_LENGTH, 5).unwrap();
         g.set_u32(RECORD + SEEK_PUBLISH_BASE, 100).unwrap();
-        assert_eq!(seek_record(&mut g, RECORD, u64::from(STREAM), 25, SP).unwrap(), 0, "walked past the target");
+        assert_eq!(
+            seek_record(&mut g, RECORD, u64::from(STREAM), 25, SP).unwrap(),
+            0,
+            "walked past the target"
+        );
         assert_eq!(g.u32(RECORD + SEEK_PUBLISH_POSITION).unwrap(), 20);
-        assert_eq!(g.u32(RECORD + SEEK_PUBLISH_LENGTH).unwrap(), 5, "min(25 - 20, 5)");
-        assert_eq!(g.u32(RECORD + SEEK_PUBLISH_SKIP).unwrap(), 0, "(25 - 5) - 20");
-        assert_eq!(g.u32(RECORD + SEEK_PUBLISH_OFFSET).unwrap(), 9, "stream 0 summed over two records: 3 + 6");
-        assert_eq!(g.u32(RECORD + SEEK_PUBLISH_BASE).unwrap(), 106, "the entry word plus 2 + 4");
+        assert_eq!(
+            g.u32(RECORD + SEEK_PUBLISH_LENGTH).unwrap(),
+            5,
+            "min(25 - 20, 5)"
+        );
+        assert_eq!(
+            g.u32(RECORD + SEEK_PUBLISH_SKIP).unwrap(),
+            0,
+            "(25 - 5) - 20"
+        );
+        assert_eq!(
+            g.u32(RECORD + SEEK_PUBLISH_OFFSET).unwrap(),
+            9,
+            "stream 0 summed over two records: 3 + 6"
+        );
+        assert_eq!(
+            g.u32(RECORD + SEEK_PUBLISH_BASE).unwrap(),
+            106,
+            "the entry word plus 2 + 4"
+        );
         assert_eq!(g.u8(RECORD + SEEK_PUBLISH_EXACT).unwrap(), 0);
     }
 
@@ -1526,14 +1829,21 @@ mod seek_tests {
         let mut g = guest();
         fill(&mut g, STREAM, &seek_stream(&[[3, 2, -1, 0]]));
         g.set_u32(RECORD + SEEK_PUBLISH_POSITION, 0x7777).unwrap();
-        assert_eq!(seek_record(&mut g, RECORD, u64::from(STREAM), 25, SP).unwrap(), 1);
+        assert_eq!(
+            seek_record(&mut g, RECORD, u64::from(STREAM), 25, SP).unwrap(),
+            1
+        );
         assert_eq!(g.u32(RECORD + SEEK_PUBLISH_POSITION).unwrap(), 0x7777);
     }
 
     #[test]
     fn mode_one_publishes_every_record_and_marks_it_exact() {
         let mut g = guest();
-        fill(&mut g, STREAM, &seek_stream(&[[3, 2, 10, 1], [3, 2, 0, 0], [3, 2, 0, 0]]));
+        fill(
+            &mut g,
+            STREAM,
+            &seek_stream(&[[3, 2, 10, 1], [3, 2, 0, 0], [3, 2, 0, 0]]),
+        );
         g.set_u32(RECORD + SEEK_MIN_LENGTH, 5).unwrap();
         seek_record(&mut g, RECORD, u64::from(STREAM), 25, SP).unwrap();
         // Record 0 is published because its mode is 1; the later ones decode a mode of 1 too (a
@@ -1562,7 +1872,10 @@ mod seek_tests {
     fn a_target_in_the_first_packet_publishes_its_header_position() {
         // 100 samples is frame 0; the header word 0x00012800 carries bit position 37.
         let mut g = packet_guest(100, 0x0001_2800);
-        assert_eq!(seek_packet(&mut g, CURSOR, 0, DESC, u64::from(CHUNK), SP).unwrap(), 0x3000);
+        assert_eq!(
+            seek_packet(&mut g, CURSOR, 0, DESC, u64::from(CHUNK), SP).unwrap(),
+            0x3000
+        );
         assert_eq!(g.u32(CURSOR + PACKET_CURSOR_PACKET).unwrap(), CHUNK + 4);
         assert_eq!(g.u32(CURSOR + PACKET_CURSOR_BITS).unwrap(), 37);
         assert_eq!(g.u32(CURSOR + PACKET_CURSOR_REMAINING).unwrap(), 0x3000 - 4);
@@ -1585,9 +1898,15 @@ mod seek_tests {
         fill(&mut g, TABLE + 0x40, &[2, 3, 4]);
         g.set_u32(CHUNK + 4 + 4096, 0x0000_5000).unwrap(); // the third packet's header: position 10
         seek_packet(&mut g, CURSOR, 1, DESC, u64::from(CHUNK), SP).unwrap();
-        assert_eq!(g.u32(CURSOR + PACKET_CURSOR_PACKET).unwrap(), CHUNK + 4 + 4096);
+        assert_eq!(
+            g.u32(CURSOR + PACKET_CURSOR_PACKET).unwrap(),
+            CHUNK + 4 + 4096
+        );
         assert_eq!(g.u32(CURSOR + PACKET_CURSOR_BITS).unwrap(), 10);
-        assert_eq!(g.u32(CURSOR + PACKET_CURSOR_REMAINING).unwrap(), 0x3000 - 4096 - 4);
+        assert_eq!(
+            g.u32(CURSOR + PACKET_CURSOR_REMAINING).unwrap(),
+            0x3000 - 4096 - 4
+        );
     }
 }
 
@@ -1614,7 +1933,10 @@ mod header_seek_tests {
 
     /// Records of `{offset, base, length, mode}`.
     fn records(g: &mut Guest, at: u32, list: &[[i32; 4]]) {
-        let bytes: Vec<u8> = list.iter().flat_map(|r| r.iter().flat_map(|w| w.to_be_bytes())).collect();
+        let bytes: Vec<u8> = list
+            .iter()
+            .flat_map(|r| r.iter().flat_map(|w| w.to_be_bytes()))
+            .collect();
         fill(g, at, &bytes);
     }
 
@@ -1630,7 +1952,11 @@ mod header_seek_tests {
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_POSITION).unwrap(), 20);
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_LENGTH).unwrap(), 5);
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_SKIP).unwrap(), 0);
-        assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_OFFSET).unwrap(), 6, "two records' offsets");
+        assert_eq!(
+            g.u32(OBJECT + SEEK_PUBLISH_OFFSET).unwrap(),
+            6,
+            "two records' offsets"
+        );
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(), 104);
     }
 
@@ -1649,18 +1975,36 @@ mod header_seek_tests {
         // Mode 0, kind 3, minimum 5, records 0x100 on, data 0x40 on.
         fill(&mut g, HEADER, &[0, 0x03, 0, 5, 0, 0, 1, 0, 0, 0, 0, 0x40]);
         records(&mut g, HEADER + 0x100, &FOUR);
-        assert_eq!(parse_seek_header(&mut g, OBJECT, u64::from(HEADER), 25, SP).unwrap(), 0);
+        assert_eq!(
+            parse_seek_header(&mut g, OBJECT, u64::from(HEADER), 25, SP).unwrap(),
+            0
+        );
         assert_eq!(g.u32(OBJECT + SEEK_HEADER_KIND).unwrap(), 3);
         assert_eq!(g.u32(OBJECT + SEEK_MIN_LENGTH).unwrap(), 5);
         assert_eq!(g.u32(OBJECT + SEEK_HEADER_END).unwrap(), HEADER + 12);
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_POSITION).unwrap(), 20);
-        assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(), HEADER + 0x40 + 4, "the data pointer is the base");
+        assert_eq!(
+            g.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(),
+            HEADER + 0x40 + 4,
+            "the data pointer is the base"
+        );
         let mut h = guest();
         fill(&mut h, HEADER, &[0, 0x23, 0, 5, 0, 0, 1, 0, 0, 0, 0, 0]);
         h.set_u32(OBJECT + SEEK_PUBLISH_POSITION, 0x7777).unwrap();
-        assert_eq!(parse_seek_header(&mut h, OBJECT, u64::from(HEADER), 25, SP).unwrap(), 0);
-        assert_eq!(h.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(), 0, "a zero data offset stays zero");
-        assert_eq!(h.u32(OBJECT + SEEK_PUBLISH_POSITION).unwrap(), 0x7777, "mode 2 walks nothing");
+        assert_eq!(
+            parse_seek_header(&mut h, OBJECT, u64::from(HEADER), 25, SP).unwrap(),
+            0
+        );
+        assert_eq!(
+            h.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(),
+            0,
+            "a zero data offset stays zero"
+        );
+        assert_eq!(
+            h.u32(OBJECT + SEEK_PUBLISH_POSITION).unwrap(),
+            0x7777,
+            "mode 2 walks nothing"
+        );
     }
 
     #[test]
@@ -1668,10 +2012,17 @@ mod header_seek_tests {
         let mut g = guest();
         fill(&mut g, STREAM, &[0, 0x07, 0, 5, 0, 0, 0, 0]);
         records(&mut g, STREAM + 8, &FOUR);
-        assert_eq!(parse_stream_header(&mut g, OBJECT, STREAM, 25, SP).unwrap(), 0);
+        assert_eq!(
+            parse_stream_header(&mut g, OBJECT, STREAM, 25, SP).unwrap(),
+            0
+        );
         assert_eq!(g.u32(OBJECT + SEEK_HEADER_KIND).unwrap(), 7);
         assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_POSITION).unwrap(), 20);
-        assert_eq!(g.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(), 4, "a zero base entry plus two bases");
+        assert_eq!(
+            g.u32(OBJECT + SEEK_PUBLISH_BASE).unwrap(),
+            4,
+            "a zero base entry plus two bases"
+        );
     }
 
     #[test]
@@ -1682,7 +2033,11 @@ mod header_seek_tests {
             for offset in [0u32, 4, 8, 12, 16, 20, 24, 28] {
                 g.set_u32(OBJECT + offset, 0x1000 + offset).unwrap();
             }
-            assert_eq!(parse_stream_header(&mut g, OBJECT, STREAM, 25, SP).unwrap(), 1, "version {version:#x}");
+            assert_eq!(
+                parse_stream_header(&mut g, OBJECT, STREAM, 25, SP).unwrap(),
+                1,
+                "version {version:#x}"
+            );
             for offset in [0u32, 4, 8, 12, 20, 24] {
                 assert_eq!(g.u32(OBJECT + offset).unwrap(), 0, "+{offset}");
             }

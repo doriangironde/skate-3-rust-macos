@@ -32,9 +32,24 @@ pub const BLOCK_FRAMES: u64 = 256;
 /// What a graph pass calls indirectly.
 pub trait GraphHost {
     /// A class table's `+4`: how many of `request` frames `object` can take for `owner`.
-    fn prepare(&mut self, g: &mut Guest, function: u32, object: u32, owner: u32, flag: u32, request: u64) -> Result<u64>;
+    fn prepare(
+        &mut self,
+        g: &mut Guest,
+        function: u32,
+        object: u32,
+        owner: u32,
+        flag: u32,
+        request: u64,
+    ) -> Result<u64>;
     /// A class table's `+8`: run `object` for `owner`. Zero means "declined".
-    fn process(&mut self, g: &mut Guest, function: u32, object: u32, owner: u32, flag: u32) -> Result<u64>;
+    fn process(
+        &mut self,
+        g: &mut Guest,
+        function: u32,
+        object: u32,
+        owner: u32,
+        flag: u32,
+    ) -> Result<u64>;
     /// `sub_82B1F7E8`, the timebase. Profiling only; a host with no clock returns 0.
     fn ticks(&mut self) -> u64 {
         0
@@ -54,12 +69,21 @@ fn float_slot(array: u64, index: u64) -> u32 {
 fn accumulate(g: &mut Guest, host: &mut dyn GraphHost, sink: u32, started: u64) -> Result<()> {
     let now = host.ticks();
     let held = g.u32(sink + 36)? as u64;
-    g.set_u32(sink + 36, now.wrapping_add(held.wrapping_sub(started)) as u32)
+    g.set_u32(
+        sink + 36,
+        now.wrapping_add(held.wrapping_sub(started)) as u32,
+    )
 }
 
 /// `sub_82B444C0`: fill one 256-frame block for `mixer` from the sources in `sources` (8-byte entries
 /// whose first word is a class table) and the sink objects at `stream + 80`. Returns the last status.
-pub fn fill_mixer_block(g: &mut Guest, host: &mut dyn GraphHost, mixer: u32, sources: u32, stream: u32) -> Result<u64> {
+pub fn fill_mixer_block(
+    g: &mut Guest,
+    host: &mut dyn GraphHost,
+    mixer: u32,
+    sources: u32,
+    stream: u32,
+) -> Result<u64> {
     let zero = load_single(g, ZERO_SINGLE)?;
     let level_reset = load_single(g, ONE_SINGLE)?;
     let mut level = zero;
@@ -131,7 +155,8 @@ pub fn fill_mixer_block(g: &mut Guest, host: &mut dyn GraphHost, mixer: u32, sou
                     for channel in 0..channels {
                         let stride = g.u16(assembly + 14)? as u64;
                         let data = g.u32(assembly + 4)? as u64;
-                        let index = ((word(stride) as i64 * word(channel) as i64) as u64).wrapping_add(produced);
+                        let index = ((word(stride) as i64 * word(channel) as i64) as u64)
+                            .wrapping_add(produced);
                         memset(g, float_slot(data, index), 0, tail_bytes)?;
                     }
                 }
@@ -160,9 +185,15 @@ pub fn fill_mixer_block(g: &mut Guest, host: &mut dyn GraphHost, mixer: u32, sou
                     let from_stride = g.u16(from + 14)? as u64;
                     let from_data = g.u32(from + 4)? as u64;
                     let into_data = g.u32(into + 4)? as u64;
-                    let into_index = ((word(into_stride) as i64 * word(channel) as i64) as u64).wrapping_add(produced);
+                    let into_index = ((word(into_stride) as i64 * word(channel) as i64) as u64)
+                        .wrapping_add(produced);
                     let from_index = (word(from_stride) as i64 * word(channel) as i64) as u64;
-                    memcpy(g, float_slot(into_data, into_index), float_slot(from_data, from_index), round_bytes)?;
+                    memcpy(
+                        g,
+                        float_slot(into_data, into_index),
+                        float_slot(from_data, from_index),
+                        round_bytes,
+                    )?;
                 }
             }
             let format = g.u32(mixer + 40)?;
@@ -193,7 +224,12 @@ pub fn fill_mixer_block(g: &mut Guest, host: &mut dyn GraphHost, mixer: u32, sou
                 let into_data = g.u32(into + 4)? as u64;
                 let from_index = (word(from_stride) as i64 * word(channel) as i64) as u64;
                 let into_index = (word(into_stride) as i64 * word(channel) as i64) as u64;
-                memcpy(g, float_slot(into_data, into_index), float_slot(from_data, from_index), 1024)?;
+                memcpy(
+                    g,
+                    float_slot(into_data, into_index),
+                    float_slot(from_data, from_index),
+                    1024,
+                )?;
                 if channel + 1 >= g.u8(mixer + 60)? as u64 {
                     break;
                 }
@@ -293,7 +329,9 @@ pub fn run_pass(g: &mut Guest, host: &mut dyn GraphHost, pass: u32, params: u32)
                             let function = g.u32(descriptor + 8)?;
                             status = host.process(g, function, child, pass, past)?;
                             if word(status) == 0 {
-                                status = advance_and_clear(g, pass, node, child, BLOCK_FRAMES as u32)? as u64;
+                                status =
+                                    advance_and_clear(g, pass, node, child, BLOCK_FRAMES as u32)?
+                                        as u64;
                                 if word(status) == 0 {
                                     break; // untimed, unadvanced
                                 }
@@ -372,11 +410,26 @@ mod tests {
     }
 
     impl GraphHost for Chunks {
-        fn prepare(&mut self, _g: &mut Guest, _f: u32, _o: u32, _m: u32, _flag: u32, request: u64) -> Result<u64> {
+        fn prepare(
+            &mut self,
+            _g: &mut Guest,
+            _f: u32,
+            _o: u32,
+            _m: u32,
+            _flag: u32,
+            request: u64,
+        ) -> Result<u64> {
             self.offered = request;
             Ok(request)
         }
-        fn process(&mut self, g: &mut Guest, function: u32, object: u32, owner: u32, flag: u32) -> Result<u64> {
+        fn process(
+            &mut self,
+            g: &mut Guest,
+            function: u32,
+            object: u32,
+            owner: u32,
+            flag: u32,
+        ) -> Result<u64> {
             self.processed.push((function, object, flag));
             if owner != MIXER {
                 return Ok(1); // a child module in the pass test
@@ -400,7 +453,11 @@ mod tests {
         g.put(TIME_SCALE, (1.0f32 / 3.0).to_bits().to_be_bytes().to_vec());
         g.put(ONE_SINGLE, 1.0f32.to_bits().to_be_bytes().to_vec());
         g.put(RECORD_BASE, vec![0; 3 * RECORD_STRIDE as usize]);
-        for (desc, data) in [(READY, READY_DATA), (SPARE, SPARE_DATA), (ASSEMBLY, ASSEMBLY_DATA)] {
+        for (desc, data) in [
+            (READY, READY_DATA),
+            (SPARE, SPARE_DATA),
+            (ASSEMBLY, ASSEMBLY_DATA),
+        ] {
             g.set_u32(desc + 4, data).unwrap();
             g.set_u16(desc + 14, 256).unwrap();
         }
@@ -419,11 +476,25 @@ mod tests {
     #[test]
     fn short_rounds_are_assembled_into_one_block_and_the_pair_swaps() {
         let mut g = guest();
-        let mut host = Chunks { chunk: 100, offered: 0, next: 0.0, processed: vec![] };
-        assert_eq!(fill_mixer_block(&mut g, &mut host, MIXER, SOURCES, STREAM).unwrap(), 1);
+        let mut host = Chunks {
+            chunk: 100,
+            offered: 0,
+            next: 0.0,
+            processed: vec![],
+        };
+        assert_eq!(
+            fill_mixer_block(&mut g, &mut host, MIXER, SOURCES, STREAM).unwrap(),
+            1
+        );
         assert_eq!(host.processed.len(), 3, "100 + 100 + 56 frames");
-        assert_eq!(g.u32(MIXER + 28).unwrap(), SPARE, "the assembled block is now the ready one");
-        let block: Vec<f32> = (0..256).map(|i| g.f32(SPARE_DATA + 4 * i).unwrap()).collect();
+        assert_eq!(
+            g.u32(MIXER + 28).unwrap(),
+            SPARE,
+            "the assembled block is now the ready one"
+        );
+        let block: Vec<f32> = (0..256)
+            .map(|i| g.f32(SPARE_DATA + 4 * i).unwrap())
+            .collect();
         assert_eq!(block, (1..=256).map(|n| n as f32).collect::<Vec<_>>());
         assert_eq!(g.u32(MIXER + 48).unwrap(), 256);
         let position = f64::from_bits(g.u64(MIXER + 16).unwrap());
@@ -433,17 +504,33 @@ mod tests {
     #[test]
     fn a_full_first_round_is_used_directly_with_no_copy() {
         let mut g = guest();
-        let mut host = Chunks { chunk: 256, offered: 0, next: 0.0, processed: vec![] };
+        let mut host = Chunks {
+            chunk: 256,
+            offered: 0,
+            next: 0.0,
+            processed: vec![],
+        };
         fill_mixer_block(&mut g, &mut host, MIXER, SOURCES, STREAM).unwrap();
         assert_eq!(host.processed.len(), 1);
-        assert_eq!(g.u32(MIXER + 28).unwrap(), READY, "no swap on the direct path");
+        assert_eq!(
+            g.u32(MIXER + 28).unwrap(),
+            READY,
+            "no swap on the direct path"
+        );
         assert_eq!(g.f32(READY_DATA + 4 * 255).unwrap(), 256.0);
     }
 
     #[test]
     fn the_pass_runs_each_child_with_the_past_progress_flag_and_records_progress() {
         let mut g = guest();
-        let (pass, params, node, child_a, child_b, class_a) = (MEM + 0x600, MEM + 0x700, MEM + 0x800, MEM + 0x900, MEM + 0x940, MEM + 0x980);
+        let (pass, params, node, child_a, child_b, class_a) = (
+            MEM + 0x600,
+            MEM + 0x700,
+            MEM + 0x800,
+            MEM + 0x900,
+            MEM + 0x940,
+            MEM + 0x980,
+        );
         g.set_u32(pass + 24, MEM + 0xA00).unwrap(); // device
         g.set_u32(params + 8, MEM + 0xB00).unwrap();
         g.set_u16(params + 20, 1).unwrap();
@@ -458,9 +545,17 @@ mod tests {
         g.set_u32(class_a + 8, 0x82B2_7E20).unwrap();
         g.set_u32(node + 80, child_a).unwrap();
         g.set_u32(node + 84, child_b).unwrap();
-        let mut host = Chunks { chunk: 0, offered: 0, next: 0.0, processed: vec![] };
+        let mut host = Chunks {
+            chunk: 0,
+            offered: 0,
+            next: 0.0,
+            processed: vec![],
+        };
         assert_eq!(run_pass(&mut g, &mut host, pass, params).unwrap(), 1);
-        assert_eq!(host.processed, vec![(0x82B2_DBA8, child_a, 0), (0x82B2_7E20, child_b, 1)]);
+        assert_eq!(
+            host.processed,
+            vec![(0x82B2_DBA8, child_a, 0), (0x82B2_7E20, child_b, 1)]
+        );
         assert_eq!(g.u8(node + 69).unwrap(), 2, "progress recorded");
         assert_eq!(g.u32(pass + 28).unwrap(), RECORD_BASE);
         assert_eq!(g.u16(RECORD_BASE + 14).unwrap(), 256);

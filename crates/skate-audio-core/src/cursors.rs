@@ -137,7 +137,9 @@ pub fn claim_ring_slot(g: &mut Guest, object: u32, out: u32) -> Result<u64> {
 /// the `rlwinm` applies is therefore inert and is not written out.
 fn entry_address(g: &Guest, object: u32, cursor: u32) -> Result<u32> {
     let scaled = (cursor.wrapping_add(cursor.rotate_left(1))).wrapping_mul(16);
-    Ok(object.wrapping_add(g.u16(object + ENTRY_TABLE)? as u32).wrapping_add(scaled))
+    Ok(object
+        .wrapping_add(g.u16(object + ENTRY_TABLE)? as u32)
+        .wrapping_add(scaled))
 }
 
 /// `sub_82B349A8`: advance the entry cursor, wrapping at its limit, then clear the two published
@@ -198,7 +200,10 @@ pub fn advance_ring_cursor(g: &mut Guest, object: u32) -> Result<()> {
 /// bits is identical — unlike [`crate::scheduler::detach_instance`], nothing here returns the
 /// register.
 fn segment_address(object: u32, table: u32, index: u32) -> u32 {
-    index.wrapping_mul(SEGMENT_STRIDE).wrapping_add(table).wrapping_add(object)
+    index
+        .wrapping_mul(SEGMENT_STRIDE)
+        .wrapping_add(table)
+        .wrapping_add(object)
 }
 
 /// `sub_82B3C9D8`: advance the object's position by `amount`, and when that lands exactly on the
@@ -271,7 +276,11 @@ mod tests {
         g.set_u32(OUT, 0xDEAD_BEEF).unwrap();
 
         assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 1);
-        assert_eq!(g.u32(OUT).unwrap(), 3, "the claimed index, before advancing");
+        assert_eq!(
+            g.u32(OUT).unwrap(),
+            3,
+            "the claimed index, before advancing"
+        );
         assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 4);
     }
 
@@ -284,7 +293,11 @@ mod tests {
         g.set_u32(OUT, 0xDEAD_BEEF).unwrap();
 
         assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 0);
-        assert_eq!(g.u32(OUT).unwrap(), 0xDEAD_BEEF, "the out word is untouched");
+        assert_eq!(
+            g.u32(OUT).unwrap(),
+            0xDEAD_BEEF,
+            "the out word is untouched"
+        );
         assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 3, "and so is the index");
     }
 
@@ -295,11 +308,19 @@ mod tests {
         let mut g = guest();
         g.set_u8(OBJECT + RING_INDEX, 3).unwrap();
         g.set_u8(OBJECT + 4 * SLOT_STRIDE + SLOT_BUSY, 1).unwrap();
-        assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 1, "slot 3 is still free");
+        assert_eq!(
+            claim_ring_slot(&mut g, OBJECT, OUT).unwrap(),
+            1,
+            "slot 3 is still free"
+        );
         assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 4);
         // Now the index names slot 4, which is the busy one.
         assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 0);
-        assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 4, "and the index did not move");
+        assert_eq!(
+            g.u8(OBJECT + RING_INDEX).unwrap(),
+            4,
+            "and the index did not move"
+        );
     }
 
     #[test]
@@ -309,7 +330,11 @@ mod tests {
         assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 1);
         assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 19);
         assert_eq!(claim_ring_slot(&mut g, OBJECT, OUT).unwrap(), 1);
-        assert_eq!(g.u32(OUT).unwrap(), 19, "the last entry is still handed out");
+        assert_eq!(
+            g.u32(OUT).unwrap(),
+            19,
+            "the last entry is still handed out"
+        );
         assert_eq!(g.u8(OBJECT + RING_INDEX).unwrap(), 0, "20 becomes 0");
     }
 
@@ -339,12 +364,20 @@ mod tests {
 
         advance_ring_cursor(&mut g, OBJECT).unwrap();
 
-        assert_eq!(g.u8(OBJECT + ENTRY_CURSOR).unwrap(), 1, "the cursor advanced");
+        assert_eq!(
+            g.u8(OBJECT + ENTRY_CURSOR).unwrap(),
+            1,
+            "the cursor advanced"
+        );
         // Entry 1's parameters, not entry 0's: the latch reads the entry the cursor now names.
         assert_eq!(g.f32(OBJECT + LATCHED_A).unwrap(), 0.25);
         assert_eq!(g.f32(OBJECT + LATCHED_B).unwrap(), -0.5);
         assert_eq!(g.u32(OBJECT + LATCHED_WORD).unwrap(), 0x1234_5678);
-        assert_eq!(g.u32(OBJECT + ENTRY_FLAG_WORD).unwrap(), 0, "the flag word is cleared");
+        assert_eq!(
+            g.u32(OBJECT + ENTRY_FLAG_WORD).unwrap(),
+            0,
+            "the flag word is cleared"
+        );
         assert_eq!(g.u8(OBJECT + ENTRY_BUSY).unwrap(), 0);
     }
 
@@ -362,11 +395,31 @@ mod tests {
 
             advance_ring_cursor(&mut g, OBJECT).unwrap();
 
-            assert_eq!(g.u8(OBJECT + ENTRY_CURSOR).unwrap(), 1, "state {state}: still advances");
-            assert_eq!(g.f32(OBJECT + LATCHED_A).unwrap(), 1.5, "state {state}: no latch");
-            assert_eq!(g.f32(OBJECT + LATCHED_B).unwrap(), 2.5, "state {state}: no latch");
-            assert_eq!(g.u32(OBJECT + LATCHED_WORD).unwrap(), 0, "state {state}: cleared");
-            assert_eq!(g.u32(OBJECT + ENTRY_FLAG_WORD).unwrap(), 0, "state {state}: cleared");
+            assert_eq!(
+                g.u8(OBJECT + ENTRY_CURSOR).unwrap(),
+                1,
+                "state {state}: still advances"
+            );
+            assert_eq!(
+                g.f32(OBJECT + LATCHED_A).unwrap(),
+                1.5,
+                "state {state}: no latch"
+            );
+            assert_eq!(
+                g.f32(OBJECT + LATCHED_B).unwrap(),
+                2.5,
+                "state {state}: no latch"
+            );
+            assert_eq!(
+                g.u32(OBJECT + LATCHED_WORD).unwrap(),
+                0,
+                "state {state}: cleared"
+            );
+            assert_eq!(
+                g.u32(OBJECT + ENTRY_FLAG_WORD).unwrap(),
+                0,
+                "state {state}: cleared"
+            );
             assert_eq!(g.u8(OBJECT + ENTRY_BUSY).unwrap(), 0);
         }
         // The three skipping states are not a range: 2, 3 and 5 all latch.
@@ -375,7 +428,11 @@ mod tests {
             ring(&mut g, 0, 9);
             entry(&mut g, 1, state, 7.5, 8.5, 0xBEEF);
             advance_ring_cursor(&mut g, OBJECT).unwrap();
-            assert_eq!(g.u32(OBJECT + LATCHED_WORD).unwrap(), 0xBEEF, "state {state} latches");
+            assert_eq!(
+                g.u32(OBJECT + LATCHED_WORD).unwrap(),
+                0xBEEF,
+                "state {state} latches"
+            );
         }
     }
 
@@ -388,7 +445,11 @@ mod tests {
 
         advance_ring_cursor(&mut g, OBJECT).unwrap();
 
-        assert_eq!(g.u8(OBJECT + ENTRY_CURSOR).unwrap(), 0, "wrapped to the start");
+        assert_eq!(
+            g.u8(OBJECT + ENTRY_CURSOR).unwrap(),
+            0,
+            "wrapped to the start"
+        );
         // And the entry that was latched is entry 0, so the wrap happened before the read.
         assert_eq!(g.u32(OBJECT + LATCHED_WORD).unwrap(), 0x1111);
         assert_eq!(g.f32(OBJECT + LATCHED_A).unwrap(), 1.0);
@@ -406,7 +467,11 @@ mod tests {
 
         advance_ring_cursor(&mut g, OBJECT).unwrap();
 
-        assert_eq!(g.u32(OBJECT + LATCHED_WORD).unwrap(), 3, "entry 2, at table + 96");
+        assert_eq!(
+            g.u32(OBJECT + LATCHED_WORD).unwrap(),
+            3,
+            "entry 2, at table + 96"
+        );
         assert_eq!(g.f32(OBJECT + LATCHED_A).unwrap(), 4.0);
         assert_eq!(g.f32(OBJECT + LATCHED_B).unwrap(), 8.0);
     }
@@ -435,8 +500,16 @@ mod tests {
         advance_segment_position(&mut g, OBJECT, 40).unwrap();
 
         assert_eq!(g.u32(OBJECT + SEG_POSITION).unwrap(), 140);
-        assert_eq!(g.u8(OBJECT + SEG_INDEX).unwrap(), 0, "the segment did not change");
-        assert_eq!(g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(), 200, "nor did its end word");
+        assert_eq!(
+            g.u8(OBJECT + SEG_INDEX).unwrap(),
+            0,
+            "the segment did not change"
+        );
+        assert_eq!(
+            g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(),
+            200,
+            "nor did its end word"
+        );
     }
 
     #[test]
@@ -448,9 +521,17 @@ mod tests {
 
         advance_segment_position(&mut g, OBJECT, 20).unwrap();
 
-        assert_eq!(g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(), 0, "segment 0's end is zeroed");
+        assert_eq!(
+            g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(),
+            0,
+            "segment 0's end is zeroed"
+        );
         assert_eq!(g.u8(OBJECT + SEG_INDEX).unwrap(), 1);
-        assert_eq!(g.u32(OBJECT + SEG_POSITION).unwrap(), 500, "segment 1's start, not 200");
+        assert_eq!(
+            g.u32(OBJECT + SEG_POSITION).unwrap(),
+            500,
+            "segment 1's start, not 200"
+        );
     }
 
     #[test]
@@ -464,8 +545,16 @@ mod tests {
 
         advance_segment_position(&mut g, OBJECT, 21).unwrap();
 
-        assert_eq!(g.u32(OBJECT + SEG_POSITION).unwrap(), 201, "the position ran on");
-        assert_eq!(g.u8(OBJECT + SEG_INDEX).unwrap(), 0, "and the segment did not change");
+        assert_eq!(
+            g.u32(OBJECT + SEG_POSITION).unwrap(),
+            201,
+            "the position ran on"
+        );
+        assert_eq!(
+            g.u8(OBJECT + SEG_INDEX).unwrap(),
+            0,
+            "and the segment did not change"
+        );
         assert_eq!(g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(), 200);
     }
 
@@ -478,11 +567,27 @@ mod tests {
 
         advance_segment_position(&mut g, OBJECT, 50).unwrap();
 
-        assert_eq!(g.u8(OBJECT + SEG_INDEX).unwrap(), 0, "1 + 1 is not below the count of 2");
-        assert_eq!(g.u32(OBJECT + SEG_POSITION).unwrap(), 100, "segment 0's start");
+        assert_eq!(
+            g.u8(OBJECT + SEG_INDEX).unwrap(),
+            0,
+            "1 + 1 is not below the count of 2"
+        );
+        assert_eq!(
+            g.u32(OBJECT + SEG_POSITION).unwrap(),
+            100,
+            "segment 0's start"
+        );
         // Segment 1 is the one that was retired, at table + 24.
-        assert_eq!(g.u32(OBJECT + TABLE + SEGMENT_STRIDE + SEGMENT_END).unwrap(), 0);
-        assert_eq!(g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(), 200, "segment 0 still has its");
+        assert_eq!(
+            g.u32(OBJECT + TABLE + SEGMENT_STRIDE + SEGMENT_END)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            g.u32(OBJECT + TABLE + SEGMENT_END).unwrap(),
+            200,
+            "segment 0 still has its"
+        );
     }
 
     #[test]
@@ -497,7 +602,11 @@ mod tests {
         advance_segment_position(&mut g, OBJECT, 0x30).unwrap();
 
         // 0xFFFFFFF0 + 0x30 == 0x20 on 32 bits, which is exactly segment 0's end.
-        assert_eq!(g.u8(OBJECT + SEG_INDEX).unwrap(), 1, "the wrapped sum matched the end");
+        assert_eq!(
+            g.u8(OBJECT + SEG_INDEX).unwrap(),
+            1,
+            "the wrapped sum matched the end"
+        );
         assert_eq!(g.u32(OBJECT + SEG_POSITION).unwrap(), 777);
     }
 }

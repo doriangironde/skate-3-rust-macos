@@ -138,14 +138,21 @@ pub enum Container {
     /// A `.sth` table naming sub-sounds inside a sibling `.dat` payload: speech.
     SubSounds(Vec<(String, Vec<StreamInfo>)>),
     /// An interactive-music segment chain.
-    Music { segments: usize, num_samples: u64, streams: Vec<StreamInfo> },
+    Music {
+        segments: usize,
+        num_samples: u64,
+        streams: Vec<StreamInfo>,
+    },
     /// `.sns` payloads whose headers live in a **separate** archive.
     ///
     /// Ambience is split across two files: `ambienceresident.big` carries the `.snr` headers and
     /// `ambience.big` the matching block chains. A payload archive alone cannot say what its
     /// streams are, and saying so is the useful answer -- reading it as a bare stream instead
     /// produces "implausible sample rate", which looks like a parser bug and is not.
-    Payloads { names: Vec<String>, pair_with: Option<String> },
+    Payloads {
+        names: Vec<String>,
+        pair_with: Option<String>,
+    },
     /// Sound banks and cue tables: `.abk`, `.bnk`, `.csi`, `.grain`, `.ems`.
     ///
     /// Deliberately undecoded. `docs/PLAN.md` lists these as non-goals: ambience, speech and
@@ -195,7 +202,9 @@ pub fn describe_any(data: &[u8]) -> Result<Container, Error> {
         let mut payloads = Vec::new();
         let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
         for entry in &archive.entries {
-            let Some(name) = entry.name.as_deref() else { continue };
+            let Some(name) = entry.name.as_deref() else {
+                continue;
+            };
             match name.rsplit('.').next() {
                 Some("sns") | Some("dat") => payloads.push(name.to_string()),
                 Some(ext @ ("abk" | "bnk" | "csi" | "grain" | "ems")) => {
@@ -205,14 +214,22 @@ pub fn describe_any(data: &[u8]) -> Result<Container, Error> {
             }
         }
         if !payloads.is_empty() {
-            return Ok(Container::Payloads { names: payloads, pair_with: None });
+            return Ok(Container::Payloads {
+                names: payloads,
+                pair_with: None,
+            });
         }
         if !kinds.is_empty() {
-            return Ok(Container::Banks { kinds: kinds.into_iter().collect() });
+            return Ok(Container::Banks {
+                kinds: kinds.into_iter().collect(),
+            });
         }
     }
     // A bare stream, last: it is the weakest test, since almost any bytes parse as a header.
-    Ok(Container::Streams(vec![(String::new(), describe(data, 0)?)]))
+    Ok(Container::Streams(vec![(
+        String::new(),
+        describe(data, 0)?,
+    )]))
 }
 
 /// The sub-sound tables of a speech archive, each expanded into its sub-sounds.
@@ -238,13 +255,23 @@ fn sub_sound_entries(data: &[u8], archive: &eb::Archive) -> Vec<(String, Vec<Str
         return out;
     };
     let base = sth.offset as usize;
-    let Some(tail) = data.get(base..) else { return out };
-    let Ok(nested) = eb::Archive::parse(tail) else { return out };
+    let Some(tail) = data.get(base..) else {
+        return out;
+    };
+    let Ok(nested) = eb::Archive::parse(tail) else {
+        return out;
+    };
     for member in &nested.entries {
-        let Some(stem) = member.name.as_deref().and_then(eaac::stem) else { continue };
+        let Some(stem) = member.name.as_deref().and_then(eaac::stem) else {
+            continue;
+        };
         let range = base + member.range().start..base + member.range().end;
-        let Some(bytes) = data.get(range) else { continue };
-        let Ok(subs) = eaac::sub_sounds(bytes) else { continue };
+        let Some(bytes) = data.get(range) else {
+            continue;
+        };
+        let Ok(subs) = eaac::sub_sounds(bytes) else {
+            continue;
+        };
         if subs.is_empty() {
             continue;
         }
@@ -323,11 +350,7 @@ pub fn context_widths(channels: u8) -> Vec<u8> {
 ///
 /// Contexts are truncated to the shortest, because a stream whose contexts disagree on length
 /// has no sample-aligned interpretation and padding one would invent audio.
-pub fn decode_stream(
-    data: &[u8],
-    at: usize,
-    decoder: &mut dyn Decoder,
-) -> Result<Vec<i16>, Error> {
+pub fn decode_stream(data: &[u8], at: usize, decoder: &mut dyn Decoder) -> Result<Vec<i16>, Error> {
     let info = describe(data, at)?;
     let widths = context_widths(info.channels);
     let mut per_context: Vec<Vec<i16>> = vec![Vec::new(); info.contexts];
@@ -363,7 +386,13 @@ pub fn interleave_contexts(per_context: &[Vec<i16>], widths: &[u8]) -> Vec<i16> 
     let frames = per_context
         .iter()
         .zip(widths)
-        .map(|(pcm, &w)| if w == 0 { 0 } else { pcm.len() / usize::from(w) })
+        .map(|(pcm, &w)| {
+            if w == 0 {
+                0
+            } else {
+                pcm.len() / usize::from(w)
+            }
+        })
         .min()
         .unwrap_or(0);
     let total: usize = widths.iter().map(|&w| usize::from(w)).sum();
@@ -378,7 +407,10 @@ pub fn interleave_contexts(per_context: &[Vec<i16>], widths: &[u8]) -> Vec<i16> 
 }
 
 pub mod ambience;
+pub mod catalog;
 pub mod ffmpeg;
+pub mod grains;
+pub mod splice;
 
 #[cfg(test)]
 mod tests;

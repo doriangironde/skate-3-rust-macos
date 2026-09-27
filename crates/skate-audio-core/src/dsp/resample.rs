@@ -66,7 +66,10 @@ const _: () = assert!(POOL == 0x822F_8600, "lis -32208 ; addi -31232");
 /// "simplified" this to `fraction / 65536.0` would be off by about one part in 2^21 on every
 /// interpolated sample.
 pub const FRACTION_SCALE_CELL: u32 = POOL + 428;
-const _: () = assert!(FRACTION_SCALE_CELL == 0x822F_87AC, "lis -32208 ; addi -31232 ; lfs 428");
+const _: () = assert!(
+    FRACTION_SCALE_CELL == 0x822F_87AC,
+    "lis -32208 ; addi -31232 ; lfs 428"
+);
 
 /// The 16.16 phase, split.
 #[derive(Clone, Copy, Debug, Default)]
@@ -122,14 +125,14 @@ fn interpolate(a: f64, b: f64, fraction: u64, scale: f64) -> f64 {
 fn step_offsets(step: u64) -> ([u64; 8], u64) {
     let twice = (((step as u32) << 1) & 0xFFFF_FFFE) as u64; // rlwinm r21,r8,1,0,30
     let offsets = [
-        0,                                           // sample 0 uses the running phase unchanged
-        step,                                        // r8
-        twice,                                       // r21
-        twice.wrapping_add(step),                    // r20
-        twice.wrapping_add(step.wrapping_mul(2)),    // r19
-        twice.wrapping_add(step.wrapping_mul(3)),    // r18
-        twice.wrapping_add(step.wrapping_mul(4)),    // r17
-        twice.wrapping_add(step.wrapping_mul(5)),    // r16
+        0,                                        // sample 0 uses the running phase unchanged
+        step,                                     // r8
+        twice,                                    // r21
+        twice.wrapping_add(step),                 // r20
+        twice.wrapping_add(step.wrapping_mul(2)), // r19
+        twice.wrapping_add(step.wrapping_mul(3)), // r18
+        twice.wrapping_add(step.wrapping_mul(4)), // r17
+        twice.wrapping_add(step.wrapping_mul(5)), // r16
     ];
     (offsets, twice.wrapping_add(step.wrapping_mul(6))) // r15: the whole group of eight
 }
@@ -422,8 +425,16 @@ mod tests {
                 resample(&mut g, count, TABLE, OUT, INDEX, PHASE, step).unwrap();
 
                 let (expected, index, fraction) = model(count, 3, 0x1234, step);
-                assert_eq!(out(&g, count as usize), expected, "count {count}, step {step:#x}");
-                assert_eq!(g.u32(INDEX).unwrap(), index, "count {count}, step {step:#x}: cursor");
+                assert_eq!(
+                    out(&g, count as usize),
+                    expected,
+                    "count {count}, step {step:#x}"
+                );
+                assert_eq!(
+                    g.u32(INDEX).unwrap(),
+                    index,
+                    "count {count}, step {step:#x}: cursor"
+                );
                 assert_eq!(
                     g.u32(PHASE).unwrap(),
                     (fraction as u32) << 16,
@@ -459,14 +470,23 @@ mod tests {
         g.set_u32(FRACTION_SCALE_CELL, 0.0f32.to_bits()).unwrap();
         start(&mut g, 2, 0xFFFF);
         resample(&mut g, 1, TABLE, OUT, INDEX, PHASE, 0).unwrap();
-        assert_eq!(g.f32(OUT).unwrap(), 2.0, "a zero scale collapses onto the lower neighbour");
+        assert_eq!(
+            g.f32(OUT).unwrap(),
+            2.0,
+            "a zero scale collapses onto the lower neighbour"
+        );
 
         let mut h = guest();
         table(&mut h);
-        h.set_u32(FRACTION_SCALE_CELL, (1.0f32 / 65536.0).to_bits()).unwrap();
+        h.set_u32(FRACTION_SCALE_CELL, (1.0f32 / 65536.0).to_bits())
+            .unwrap();
         start(&mut h, 2, 0x8000);
         resample(&mut h, 1, TABLE, OUT, INDEX, PHASE, 0).unwrap();
-        assert_eq!(h.f32(OUT).unwrap(), 2.5, "the exact 1/65536 *does* give a clean half");
+        assert_eq!(
+            h.f32(OUT).unwrap(),
+            2.5,
+            "the exact 1/65536 *does* give a clean half"
+        );
     }
 
     #[test]
@@ -501,8 +521,16 @@ mod tests {
         resample(&mut g, 0, TABLE, OUT, INDEX, PHASE, 0x0001_0000).unwrap();
 
         assert_eq!(g.u32(INDEX).unwrap(), 77, "unchanged, but written");
-        assert_eq!(g.u32(PHASE).unwrap(), 0xABCD_0000, "the low half is zeroed by the store");
-        assert_eq!(g.u32(OUT).unwrap(), 0x7F7F_7F7F, "and nothing was written to the output");
+        assert_eq!(
+            g.u32(PHASE).unwrap(),
+            0xABCD_0000,
+            "the low half is zeroed by the store"
+        );
+        assert_eq!(
+            g.u32(OUT).unwrap(),
+            0x7F7F_7F7F,
+            "and nothing was written to the output"
+        );
     }
 
     #[test]
@@ -514,7 +542,10 @@ mod tests {
         g.set_u32(INDEX, 5).unwrap();
         g.set_u32(PHASE, 0x8000_FFFF).unwrap(); // fraction 0x8000, junk in the low half
         resample(&mut g, 1, TABLE, OUT, INDEX, PHASE, 0).unwrap();
-        assert_eq!(g.f32(OUT).unwrap(), interpolate(5.0, 6.0, 0x8000, scale()) as f32);
+        assert_eq!(
+            g.f32(OUT).unwrap(),
+            interpolate(5.0, 6.0, 0x8000, scale()) as f32
+        );
     }
 
     #[test]
@@ -525,7 +556,10 @@ mod tests {
         let step = 0x9000_0000u64;
         let (offsets, group) = step_offsets(step);
         assert_eq!(offsets[1], step);
-        assert_eq!(offsets[2], 0x2000_0000, "2*step truncated to 32 bits, not 0x120000000");
+        assert_eq!(
+            offsets[2], 0x2000_0000,
+            "2*step truncated to 32 bits, not 0x120000000"
+        );
         assert_eq!(offsets[3], 0x2000_0000 + step);
         assert_eq!(offsets[7], 0x2000_0000 + 5 * step);
         assert_eq!(group, 0x2000_0000 + 6 * step);

@@ -35,7 +35,11 @@ fn check(tally: &mut Tally, label: &str, stream: &[u8], last: bool) {
     let payload = &stream[chain..];
     let blocks = match eaac::blocks(payload) {
         Ok(b) => b,
-        Err(e) => return tally.failures.push(format!("{label}: chain at +{chain}: {e}")),
+        Err(e) => {
+            return tally
+                .failures
+                .push(format!("{label}: chain at +{chain}: {e}"));
+        }
     };
     let covered: usize = blocks.iter().map(|b| b.size as usize).sum();
     let samples: u64 = blocks.iter().map(|b| u64::from(b.num_samples)).sum();
@@ -43,36 +47,58 @@ fn check(tally: &mut Tally, label: &str, stream: &[u8], last: bool) {
     // up to three trailing bytes are allowed there -- and only there.
     let pad = payload.len() - covered;
     if pad > 0 && !(last && pad < 4) {
-        return tally.failures.push(format!("{label}: blocks cover {covered} of {} bytes", payload.len()));
+        return tally.failures.push(format!(
+            "{label}: blocks cover {covered} of {} bytes",
+            payload.len()
+        ));
     }
     tally.padded += usize::from(pad > 0);
     if samples != u64::from(header.num_samples) {
-        return tally.failures.push(format!("{label}: blocks carry {samples} samples, header says {}", header.num_samples));
+        return tally.failures.push(format!(
+            "{label}: blocks carry {samples} samples, header says {}",
+            header.num_samples
+        ));
     }
     for block in &blocks {
-        if let Err(e) = eaac::split_block(&payload[block.data_range()], eaac::context_count(header.channels())) {
-            return tally.failures.push(format!("{label}: block at +{}: {e}", block.offset));
+        if let Err(e) = eaac::split_block(
+            &payload[block.data_range()],
+            eaac::context_count(header.channels()),
+        ) {
+            return tally
+                .failures
+                .push(format!("{label}: block at +{}: {e}", block.offset));
         }
     }
     tally.ok += 1;
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_DIR.to_string());
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| DEFAULT_DIR.to_string());
     let mut tally = Tally::default();
     let data = std::fs::read(format!("{dir}/audiofiles.big"))?;
     let archive = eb::Archive::parse(&data)?;
     for entry in &archive.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.to_ascii_lowercase().ends_with(".abk") {
             continue;
         }
         let bytes = &data[entry.range()];
-        let Ok(abk) = banks::Abk::parse(bytes) else { continue };
+        let Ok(abk) = banks::Abk::parse(bytes) else {
+            continue;
+        };
         let present = abk.present();
         for i in 0..present {
             if let Some(range) = abk.sample_range(i) {
-                check(&mut tally, &format!("{name}#{i}"), &bytes[range], i + 1 == present);
+                check(
+                    &mut tally,
+                    &format!("{name}#{i}"),
+                    &bytes[range],
+                    i + 1 == present,
+                );
             }
         }
     }
@@ -87,9 +113,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for entry in &grain_archive.entries {
         let bytes = &grains[entry.range()];
         let head = u32::from_be_bytes(bytes[0..4].try_into()?) as usize;
-        check(&mut tally, entry.name.as_deref().unwrap_or("?"), &bytes[head..], true);
+        check(
+            &mut tally,
+            entry.name.as_deref().unwrap_or("?"),
+            &bytes[head..],
+            true,
+        );
     }
-    println!("grains: {} consistent, {} of them looping", tally.ok - before.0, tally.looping - before.1);
+    println!(
+        "grains: {} consistent, {} of them looping",
+        tally.ok - before.0,
+        tally.looping - before.1
+    );
     println!("failures: {}", tally.failures.len());
     for f in tally.failures.iter().take(12) {
         println!("  {f}");

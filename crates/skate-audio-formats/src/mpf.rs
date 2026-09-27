@@ -32,7 +32,7 @@
 //! * a **section pointer** -- the loader adds `offset[i]` to the image base once, into
 //!   fields 28+4*i of its runtime object, so section *i* is always reached the same way.
 
-use crate::{be16, be32, Error, Result};
+use crate::{Error, Result, be16, be32};
 
 /// `"PFDx"`, the file magic. Formed in the loader as `lis 20550` / `ori 17528`.
 pub const MAGIC: [u8; 4] = *b"PFDx";
@@ -113,7 +113,10 @@ impl Header {
         }
         for i in 0..SECTION_COUNT {
             if offsets[i] > offsets[i + 1] {
-                return Err(Error::new(0x14 + 4 * i, "section offsets are not ascending"));
+                return Err(Error::new(
+                    0x14 + 4 * i,
+                    "section offsets are not ascending",
+                ));
             }
         }
         if offsets[SECTION_COUNT] != data.len() {
@@ -126,7 +129,10 @@ impl Header {
                 ),
             ));
         }
-        let sections = std::array::from_fn(|i| Span { start: offsets[i], end: offsets[i + 1] });
+        let sections = std::array::from_fn(|i| Span {
+            start: offsets[i],
+            end: offsets[i + 1],
+        });
         Ok(Self {
             version,
             unknown_06: be16(data, 6)?,
@@ -264,10 +270,16 @@ pub fn node_index(data: &[u8], header: &Header) -> Result<Vec<usize>> {
     if span.len() < 2 * n || span.len() - 2 * n > 2 {
         return Err(Error::new(
             span.start,
-            format!("section 0 is {} bytes, want {} (+0..2 pad)", span.len(), 2 * n),
+            format!(
+                "section 0 is {} bytes, want {} (+0..2 pad)",
+                span.len(),
+                2 * n
+            ),
         ));
     }
-    (0..n).map(|i| word_offset16(data, span.start + 2 * i)).collect()
+    (0..n)
+        .map(|i| word_offset16(data, span.start + 2 * i))
+        .collect()
 }
 
 /// Parse every section 1 record, in node-id order.
@@ -277,7 +289,10 @@ pub fn nodes(data: &[u8], header: &Header) -> Result<Vec<Node>> {
     let mut out = Vec::with_capacity(index.len());
     for (id, &at) in index.iter().enumerate() {
         if !span.contains(at) {
-            return Err(Error::new(at, format!("node {id} points outside section 1")));
+            return Err(Error::new(
+                at,
+                format!("node {id} points outside section 1"),
+            ));
         }
         let node = Node::parse_at(data, at)?;
         // The index is dense: a record must end exactly where the next one starts.
@@ -355,7 +370,12 @@ impl Script {
                 payload: be32(data, at + 8)?,
             });
         }
-        Ok(Self { offset, len, id: w12 >> 8, events })
+        Ok(Self {
+            offset,
+            len,
+            id: w12 >> 8,
+            events,
+        })
     }
 }
 
@@ -366,10 +386,16 @@ pub fn script_index(data: &[u8], header: &Header) -> Result<Vec<usize>> {
     if span.len() < 2 * n || span.len() - 2 * n > 2 {
         return Err(Error::new(
             span.start,
-            format!("section 2 is {} bytes, want {} (+0..2 pad)", span.len(), 2 * n),
+            format!(
+                "section 2 is {} bytes, want {} (+0..2 pad)",
+                span.len(),
+                2 * n
+            ),
         ));
     }
-    (0..n).map(|i| word_offset16(data, span.start + 2 * i)).collect()
+    (0..n)
+        .map(|i| word_offset16(data, span.start + 2 * i))
+        .collect()
 }
 
 /// Parse every section 3 record, in section 2 order.
@@ -379,7 +405,10 @@ pub fn scripts(data: &[u8], header: &Header) -> Result<Vec<Script>> {
     let mut out = Vec::with_capacity(index.len());
     for (i, &at) in index.iter().enumerate() {
         if !span.contains(at) {
-            return Err(Error::new(at, format!("script {i} points outside section 3")));
+            return Err(Error::new(
+                at,
+                format!("script {i} points outside section 3"),
+            ));
         }
         let script = Script::parse_at(data, at)?;
         let want_end = index.get(i + 1).copied().unwrap_or(span.end);
@@ -427,7 +456,11 @@ pub fn variables(data: &[u8], header: &Header) -> Result<Vec<Variable>> {
     if span.len() != n * Variable::SIZE {
         return Err(Error::new(
             span.start,
-            format!("section 4 is {} bytes, want {}", span.len(), n * Variable::SIZE),
+            format!(
+                "section 4 is {} bytes, want {}",
+                span.len(),
+                n * Variable::SIZE
+            ),
         ));
     }
     (0..n)
@@ -487,7 +520,10 @@ pub fn mus_links(data: &[u8], header: &Header) -> Result<Vec<MusLink>> {
         .map(|i| {
             let at = be32(data, span.start + 4 * i)? as usize * 4;
             if !s7.contains(at) || at + MusLink::SIZE > s7.end {
-                return Err(Error::new(at, format!("section 6 entry {i} misses section 7")));
+                return Err(Error::new(
+                    at,
+                    format!("section 6 entry {i} misses section 7"),
+                ));
             }
             Ok(MusLink {
                 offset: at,
@@ -517,12 +553,18 @@ impl Tempo {
 pub fn tempo_table(data: &[u8], header: &Header) -> Result<Vec<Tempo>> {
     let span = header.section(8);
     if span.len() % Tempo::SIZE != 0 {
-        return Err(Error::new(span.start, "section 8 is not a multiple of 8 bytes"));
+        return Err(Error::new(
+            span.start,
+            "section 8 is not a multiple of 8 bytes",
+        ));
     }
     (0..span.len() / Tempo::SIZE)
         .map(|i| {
             let at = span.start + i * Tempo::SIZE;
-            Ok(Tempo { position: be32(data, at)?, rate: be32(data, at + 4)? })
+            Ok(Tempo {
+                position: be32(data, at)?,
+                rate: be32(data, at + 4)?,
+            })
         })
         .collect()
 }
@@ -569,15 +611,43 @@ mod tests {
     #[test]
     fn opcode_is_bits_17_to_23() {
         // 0x0008_F000 and 0x0010_B000 are real section 3 event words from game.mpf.
-        assert_eq!(Event { track_mask: 0, word: 0x0008_F000, payload: 0 }.opcode(), 4);
-        assert_eq!(Event { track_mask: 0, word: 0x0010_B000, payload: 0 }.opcode(), 8);
-        assert_eq!(Event { track_mask: 0, word: 0x001C_B000, payload: 0 }.opcode(), 14);
+        assert_eq!(
+            Event {
+                track_mask: 0,
+                word: 0x0008_F000,
+                payload: 0
+            }
+            .opcode(),
+            4
+        );
+        assert_eq!(
+            Event {
+                track_mask: 0,
+                word: 0x0010_B000,
+                payload: 0
+            }
+            .opcode(),
+            8
+        );
+        assert_eq!(
+            Event {
+                track_mask: 0,
+                word: 0x001C_B000,
+                payload: 0
+            }
+            .opcode(),
+            14
+        );
     }
 
     #[test]
     fn branch_endpoints_are_signed() {
         // world.mpf's dominant pair splits at -1: [-1, 75] then [75, 127].
-        let b = Branch { lo: -1, hi: 75, next: 3 };
+        let b = Branch {
+            lo: -1,
+            hi: 75,
+            next: 3,
+        };
         assert!(b.contains(-1));
         assert!(b.contains(0));
         assert!(!b.contains(76));
@@ -660,7 +730,14 @@ mod tests {
         assert_eq!(map.nodes.len(), 2);
         assert_eq!(map.nodes[0].segment, 1);
         assert_eq!(map.nodes[0].meter, 4);
-        assert_eq!(map.nodes[0].branches, vec![Branch { lo: 0, hi: 0x7F, next: 1 }]);
+        assert_eq!(
+            map.nodes[0].branches,
+            vec![Branch {
+                lo: 0,
+                hi: 0x7F,
+                next: 1
+            }]
+        );
         assert_eq!(map.nodes[1].segment, -1);
         assert!(map.nodes[1].branches.is_empty());
         assert_eq!(map.scripts.len(), 1);
@@ -670,8 +747,17 @@ mod tests {
         assert_eq!(map.variables[0].name, "chaser");
         assert_eq!(map.variables[0].value, 7);
         assert_eq!(map.mus_links[0].checksum, 0xDEAD_BEEF);
-        assert_eq!(map.tempo, vec![Tempo { position: 371, rate: 1600 }]);
-        assert_eq!(section6_pointer(&f, &map.header).unwrap(), map.header.section(6).start);
+        assert_eq!(
+            map.tempo,
+            vec![Tempo {
+                position: 371,
+                rate: 1600
+            }]
+        );
+        assert_eq!(
+            section6_pointer(&f, &map.header).unwrap(),
+            map.header.section(6).start
+        );
     }
 
     #[test]

@@ -31,6 +31,48 @@
 
 use crate::{Error, Guest, Result};
 
+/// An observer of every voice a device opens: the request, its `{id, s32, value}` records and the
+/// voice. The playtest trace installs one so its opens compare with the retail capture's
+/// `skate3-audio-open` lines.
+pub type OpenObserver = fn(&OpenRequest, &[(u8, i32, i32)], u32);
+
+static OPEN_OBSERVER: std::sync::OnceLock<OpenObserver> = std::sync::OnceLock::new();
+
+/// Install the open observer; only the first call takes effect.
+pub fn observe_opens(observer: OpenObserver) {
+    let _ = OPEN_OBSERVER.set(observer);
+}
+
+/// Report an open to the observer, reading the request's 12-byte records from guest memory.
+pub(crate) fn report_open(g: &Guest, request: &OpenRequest, voice: u32) -> Result<()> {
+    let Some(observer) = OPEN_OBSERVER.get() else {
+        return Ok(());
+    };
+    let mut records = Vec::with_capacity(request.record_count as usize);
+    for i in 0..request.record_count {
+        let at = request.records.wrapping_add(12 * i);
+        records.push((g.u8(at)?, g.u32(at + 4)? as i32, g.u32(at + 8)? as i32));
+    }
+    observer(request, &records, voice);
+    Ok(())
+}
+
+/// An observer of every voice a device releases, alongside [`observe_opens`].
+pub type ReleaseObserver = fn(u32);
+
+static RELEASE_OBSERVER: std::sync::OnceLock<ReleaseObserver> = std::sync::OnceLock::new();
+
+/// Install the release observer; only the first call takes effect.
+pub fn observe_releases(observer: ReleaseObserver) {
+    let _ = RELEASE_OBSERVER.set(observer);
+}
+
+pub(crate) fn report_release(voice: u32) {
+    if let Some(observer) = RELEASE_OBSERVER.get() {
+        observer(voice);
+    }
+}
+
 /// `lis -32003` + 13816: the device singleton's cell.
 pub const DEVICE_SLOT: u32 = 0x82FD_35F8;
 
@@ -107,7 +149,13 @@ impl VoiceDevice for NoDevice {
 /// `sub_82B1BE30`: clamp a property to its id's range and hand it to the voice. Ids 0, 6 and 7 clamp
 /// to 0..65535, ids 2, 5 and 8 to 0..32767 (both signed), 1 and 4 pass through, 3 goes to the
 /// alternate setter, 9 to 136 pass through, and anything else is dropped. A null voice is a no-op.
-pub fn set_property(g: &mut Guest, device: &mut dyn VoiceDevice, voice: u32, id: u32, value: u32) -> Result<()> {
+pub fn set_property(
+    g: &mut Guest,
+    device: &mut dyn VoiceDevice,
+    voice: u32,
+    id: u32,
+    value: u32,
+) -> Result<()> {
     if voice == 0 {
         return Ok(());
     }
@@ -154,7 +202,12 @@ pub fn deactivate(g: &mut Guest, device: &mut dyn VoiceDevice, object: u32) -> R
 
 /// `sub_82B1F4C8`: open a voice for `descriptor` and push every parameter record to it. Returns the
 /// voice, or 0 after deactivating the object when the open fails.
-pub fn open_voice(g: &mut Guest, device: &mut dyn VoiceDevice, object: u32, descriptor: u32) -> Result<u64> {
+pub fn open_voice(
+    g: &mut Guest,
+    device: &mut dyn VoiceDevice,
+    object: u32,
+    descriptor: u32,
+) -> Result<u64> {
     // Loads in the original's order.
     let index_half = g.u16(descriptor)?;
     let config = g.u32(object)?;
@@ -342,7 +395,10 @@ mod tests {
 
     impl VoiceDevice for Mock {
         fn open(&mut self, _g: &mut Guest, r: &OpenRequest) -> Result<u32> {
-            self.calls.push(format!("open {:x} {} {} {:x?} {:x} {:x} {} {:x}", r.sample, r.index, r.byte2, r.shifted, r.bank_72, r.arg8, r.record_count, r.records));
+            self.calls.push(format!(
+                "open {:x} {} {} {:x?} {:x} {:x} {} {:x}",
+                r.sample, r.index, r.byte2, r.shifted, r.bank_72, r.arg8, r.record_count, r.records
+            ));
             Ok(VOICE)
         }
         fn release(&mut self, _g: &mut Guest, v: u32) -> Result<()> {
@@ -386,25 +442,37 @@ mod tests {
         w(&mut g, OBJ, &[CONFIG, TABLE]);
         g.set_u8(OBJ + 14, 2).unwrap();
         w(&mut g, OBJ + 20, &[1, 1]); // descriptor 1, request "on"
-        w(&mut g, OBJ + 28, &[0x0200_0000, 0, 40000, 0x0300_0000, 0, 7]);
+        w(
+            &mut g,
+            OBJ + 28,
+            &[0x0200_0000, 0, 40000, 0x0300_0000, 0, 7],
+        );
         g.set_u32(CONFIG + 64, SAMPLES).unwrap();
         w(&mut g, CONFIG + 72, &[0x11, 0x20]);
         w(&mut g, SAMPLES, &[0x5331_3041, 0, 2, 0x20, 0x40]);
         g.set_u32(TABLE, 2).unwrap();
         // Descriptor 1 at TABLE+16: sample 1, byte 5, bytes 1..6 at +3..+8.
-        g.set_span(TABLE + 16, &[0, 1, 5, 1, 2, 3, 4, 5, 6, 0, 0, 0]).unwrap();
+        g.set_span(TABLE + 16, &[0, 1, 5, 1, 2, 3, 4, 5, 6, 0, 0, 0])
+            .unwrap();
         g
     }
 
     #[test]
     fn switching_on_opens_the_described_sample_and_pushes_the_records() {
         let mut g = guest();
-        let mut dev = Mock { alive: true, ..Default::default() };
+        let mut dev = Mock {
+            alive: true,
+            ..Default::default()
+        };
         assert_eq!(voice_op(&mut g, &mut dev, OBJ).unwrap(), 1);
         assert_eq!(
             dev.calls,
             vec![
-                format!("open {:x} 1 5 [100, 200, 300, 400, 500, 600] 11 6000020 2 {:x}", SAMPLES + 0x40, OBJ + 28),
+                format!(
+                    "open {:x} 1 5 [100, 200, 300, 400, 500, 600] 11 6000020 2 {:x}",
+                    SAMPLES + 0x40,
+                    OBJ + 28
+                ),
                 format!("set {VOICE:x} 2 32767"),
                 format!("set3 {VOICE:x} 7"),
                 format!("query {VOICE:x}"),
@@ -413,34 +481,57 @@ mod tests {
         );
         assert_eq!(g.u32(OBJ + 8).unwrap(), VOICE);
         assert_eq!((g.u8(OBJ + 12).unwrap(), g.u8(OBJ + 13).unwrap()), (1, 0));
-        assert_eq!(g.u32(OBJ + 28 + 4).unwrap(), 40000, "applied copies wanted, unclamped");
+        assert_eq!(
+            g.u32(OBJ + 28 + 4).unwrap(),
+            40000,
+            "applied copies wanted, unclamped"
+        );
     }
 
     #[test]
     fn a_dirty_record_is_pushed_on_the_next_op_and_a_finished_voice_is_dropped() {
         let mut g = guest();
-        let mut dev = Mock { alive: true, ..Default::default() };
+        let mut dev = Mock {
+            alive: true,
+            ..Default::default()
+        };
         voice_op(&mut g, &mut dev, OBJ).unwrap();
         dev.calls.clear();
         g.set_u32(OBJ + 28 + 8, 100).unwrap();
         voice_op(&mut g, &mut dev, OBJ).unwrap();
-        assert_eq!(dev.calls, vec![format!("set {VOICE:x} 2 100"), format!("query {VOICE:x}"), format!("poke {VOICE:x}")]);
+        assert_eq!(
+            dev.calls,
+            vec![
+                format!("set {VOICE:x} 2 100"),
+                format!("query {VOICE:x}"),
+                format!("poke {VOICE:x}")
+            ]
+        );
         dev.calls.clear();
         dev.alive = false;
         assert_eq!(voice_op(&mut g, &mut dev, OBJ).unwrap(), 0);
-        assert_eq!(dev.calls, vec![format!("query {VOICE:x}"), format!("release {VOICE:x}")]);
+        assert_eq!(
+            dev.calls,
+            vec![format!("query {VOICE:x}"), format!("release {VOICE:x}")]
+        );
         assert_eq!(g.u32(OBJ + 8).unwrap(), 0);
     }
 
     #[test]
     fn off_releases_and_paused_suspends() {
         let mut g = guest();
-        let mut dev = Mock { alive: true, ..Default::default() };
+        let mut dev = Mock {
+            alive: true,
+            ..Default::default()
+        };
         voice_op(&mut g, &mut dev, OBJ).unwrap();
         g.set_u32(OBJ + 24, 2).unwrap();
         dev.calls.clear();
         assert_eq!(voice_op(&mut g, &mut dev, OBJ).unwrap(), 2);
-        assert_eq!(dev.calls, vec![format!("suspend {VOICE:x}"), format!("poke {VOICE:x}")]);
+        assert_eq!(
+            dev.calls,
+            vec![format!("suspend {VOICE:x}"), format!("poke {VOICE:x}")]
+        );
         g.set_u32(OBJ + 24, -5i32 as u32).unwrap();
         dev.calls.clear();
         assert_eq!(voice_op(&mut g, &mut dev, OBJ).unwrap(), 0);

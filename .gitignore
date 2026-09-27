@@ -87,3 +87,6 @@ __pycache__/
 
 audiofork/
 stutter*
+
+# pi harness state
+.pi/

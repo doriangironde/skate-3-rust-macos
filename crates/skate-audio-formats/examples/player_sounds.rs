@@ -13,16 +13,41 @@ const DEFAULT_DIR: &str = "/home/nakas/Documents/skate3/freeskate/runtime/game/d
 /// Object and port names the executable's string pool ties to the skater, and member-name fragments
 /// that suggest the same. A match is a lead to check by ear, not a classification.
 const PLAYER_EXPORTS: &[&str] = &[
-    "Class_rolling", "c_board_slide", "Class_grind", "c_body_slide", "cloth_", "playercharacter",
-    "Class_foot_drag", "Grab_", "Grit",
+    "Class_rolling",
+    "c_board_slide",
+    "Class_grind",
+    "c_body_slide",
+    "cloth_",
+    "playercharacter",
+    "Class_foot_drag",
+    "Grab_",
+    "Grit",
 ];
 const PLAYER_MEMBERS: &[&str] = &[
-    "patchbank", "grind", "board", "bodyslide", "cloth", "foot", "bail", "land", "pop", "ollie",
-    "slide", "wheel", "roll", "trick", "flip", "impact", "body", "skate",
+    "patchbank",
+    "grind",
+    "board",
+    "bodyslide",
+    "cloth",
+    "foot",
+    "bail",
+    "land",
+    "pop",
+    "ollie",
+    "slide",
+    "wheel",
+    "roll",
+    "trick",
+    "flip",
+    "impact",
+    "body",
+    "skate",
 ];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_DIR.to_string());
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| DEFAULT_DIR.to_string());
     let path = format!("{dir}/audiofiles.big");
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
@@ -30,12 +55,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut player_banks = 0;
     let mut player_samples = 0;
     for entry in &archive.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.to_ascii_lowercase().ends_with(".abk") {
             continue;
         }
-        let Some(bytes) = data.get(entry.range()) else { continue };
-        let Ok(abk) = banks::Abk::parse(bytes) else { continue };
+        let Some(bytes) = data.get(entry.range()) else {
+            continue;
+        };
+        let Ok(abk) = banks::Abk::parse(bytes) else {
+            continue;
+        };
         banks_seen += 1;
         let lower = name.to_ascii_lowercase();
         let export_hit: Vec<&str> = abk
@@ -57,7 +88,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(range) = abk.sample_range(i) {
                 if let Ok(h) = eaac::Header::parse(&bytes[range], 0) {
                     total_secs += h.duration_secs();
-                    *formats.entry(format!("{:?} {}ch {}Hz", h.codec, h.channels(), h.sample_rate)).or_insert(0) += 1;
+                    *formats
+                        .entry(format!(
+                            "{:?} {}ch {}Hz",
+                            h.codec,
+                            h.channels(),
+                            h.sample_rate
+                        ))
+                        .or_insert(0) += 1;
                 }
             }
         }
@@ -69,7 +107,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             exports.join(" ")
         );
     }
-    println!("\n{player_banks} of {banks_seen} banks look player-side, holding {player_samples} samples");
+    println!(
+        "\n{player_banks} of {banks_seen} banks look player-side, holding {player_samples} samples"
+    );
 
     let grains = std::fs::read(format!("{dir}/grains.big"))?;
     let grain_archive = eb::Archive::parse(&grains)?;
@@ -81,7 +121,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .take(9)
             .map(|w| w.iter().map(|b| format!("{b:02x}")).collect::<String>())
             .collect();
-        println!("  {:30.30} {:>7}  {}", entry.name.as_deref().unwrap_or("?"), bytes.len(), words.join(" "));
+        println!(
+            "  {:30.30} {:>7}  {}",
+            entry.name.as_deref().unwrap_or("?"),
+            bytes.len(),
+            words.join(" ")
+        );
     }
     Ok(())
 }

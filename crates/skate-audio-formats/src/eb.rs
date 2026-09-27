@@ -19,7 +19,7 @@
 //! Entries with a non-zero compressed size are EA `chunkref` blocks. No audio archive
 //! on the disc uses compression, so decompression is not implemented here.
 
-use crate::{be16, be32, Error, Result};
+use crate::{Error, Result, be16, be32};
 
 pub const MAGIC: &[u8; 2] = b"EB";
 pub const VERSION: u16 = 3;
@@ -78,14 +78,20 @@ impl Archive {
         let flags = be32(data, 8)?;
         let offset_shift = ((flags >> 8) & 0xFF) as u8;
         if offset_shift != 4 && offset_shift != 6 {
-            return Err(Error::new(0x0A, format!("unexpected offset shift {offset_shift}")));
+            return Err(Error::new(
+                0x0A,
+                format!("unexpected offset shift {offset_shift}"),
+            ));
         }
         let name_table_offset = be32(data, 0x0C)? as usize;
         let total_size = be32(data, 0x1C)?;
 
         let table_end = HEADER_SIZE + count * ENTRY_SIZE;
         if table_end > data.len() {
-            return Err(Error::new(HEADER_SIZE, "entry table runs past end of buffer"));
+            return Err(Error::new(
+                HEADER_SIZE,
+                "entry table runs past end of buffer",
+            ));
         }
 
         let mut entries = Vec::with_capacity(count);
@@ -100,7 +106,11 @@ impl Archive {
             });
         }
 
-        let mut archive = Self { entries, total_size, offset_shift };
+        let mut archive = Self {
+            entries,
+            total_size,
+            offset_shift,
+        };
         archive.read_names(data, name_table_offset);
         Ok(archive)
     }
@@ -118,7 +128,9 @@ impl Archive {
                 at += 1;
             }
             if at > start && at <= data.len() {
-                entry.name = std::str::from_utf8(&data[start..at]).ok().map(str::to_owned);
+                entry.name = std::str::from_utf8(&data[start..at])
+                    .ok()
+                    .map(str::to_owned);
             }
         }
     }
@@ -130,7 +142,10 @@ impl Archive {
             if end > self.total_size as usize {
                 return Err(Error::new(
                     entry.offset as usize,
-                    format!("member ends at {end} but archive is {} bytes", self.total_size),
+                    format!(
+                        "member ends at {end} but archive is {} bytes",
+                        self.total_size
+                    ),
                 ));
             }
         }
@@ -138,7 +153,9 @@ impl Archive {
     }
 
     pub fn find(&self, name: &str) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.name.as_deref() == Some(name))
+        self.entries
+            .iter()
+            .find(|e| e.name.as_deref() == Some(name))
     }
 }
 

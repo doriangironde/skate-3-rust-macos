@@ -45,7 +45,7 @@
 //!   no `sp` argument. With more than eight slots the original reads frame bytes it never wrote,
 //!   which is uninitialised stack; the C++ declines those calls and so does this ([`Error`]).
 
-use crate::{dsp, mem, Error, Guest, Result};
+use crate::{Error, Guest, Result, dsp, mem};
 
 /// `lis r11,-32241 ; addi r24,r11,-10560` — four floats at `0x820ED6C0`, indexed by the route's
 /// top two bits. Computed from the immediates, not read off.
@@ -191,7 +191,15 @@ pub fn gather_bank(
         // they are plain shifts: 8*source + dest - 9, doubled for the two-byte range entries.
         let index = ((source_count << 3) + dest_count) - 9;
         let range = RANGE_TABLE.wrapping_add(index << 1); // add r7,r11,r10
-        return scatter_mix(g, dest_array, source_array, dest_count, floats as u32, range, ROUTE_TABLE);
+        return scatter_mix(
+            g,
+            dest_array,
+            source_array,
+            dest_count,
+            floats as u32,
+            range,
+            ROUTE_TABLE,
+        );
     }
 
     // The gain is loaded ONCE, before either loop, and the original never reloads it — so the loop
@@ -244,7 +252,10 @@ pub fn gather_bank(
 
 /// `lis -32208 ; addi -31232 ; lfs 1024` — measured 1/65, the per-sample increment of the ramp.
 pub const DOWNMIX_RAMP_RATE: u32 = (((-32208i32 as u32) & 0xFFFF) << 16).wrapping_sub(31232) + 1024;
-const _: () = assert!(DOWNMIX_RAMP_RATE == 0x822F_8A00, "lis -32208 ; addi -31232 ; lfs 1024");
+const _: () = assert!(
+    DOWNMIX_RAMP_RATE == 0x822F_8A00,
+    "lis -32208 ; addi -31232 ; lfs 1024"
+);
 
 /// Run the (in-channels -> out-channels) downmix program (`sub_82B46810`): for each routing byte,
 /// ramp-mix one source channel into one destination channel with [`dsp::gain_ramp::gain_ramp_accumulate`].
@@ -336,7 +347,8 @@ mod tests {
             for i in 0..COUNT {
                 g.set_u32(dst + i * 4, POISON).unwrap();
                 // Source slot s holds s+1, s+2, ... so a swapped source is visible immediately.
-                g.set_u32(src + i * 4, ((slot + 1) as f32 + i as f32).to_bits()).unwrap();
+                g.set_u32(src + i * 4, ((slot + 1) as f32 + i as f32).to_bits())
+                    .unwrap();
             }
         }
         g
@@ -344,7 +356,8 @@ mod tests {
 
     fn route(g: &mut Guest, bytes: &[u8]) {
         g.set_u8(RANGE + RANGE_FIRST, 0).unwrap();
-        g.set_u8(RANGE + RANGE_LAST, (bytes.len() - 1) as u8).unwrap();
+        g.set_u8(RANGE + RANGE_LAST, (bytes.len() - 1) as u8)
+            .unwrap();
         for (i, b) in bytes.iter().enumerate() {
             g.set_u8(TABLE + i as u32, *b).unwrap();
         }
@@ -355,7 +368,9 @@ mod tests {
     }
 
     fn out(g: &Guest, slot: u32) -> Vec<f32> {
-        (0..COUNT).map(|i| g.f32(BUFFERS + slot * STRIDE + i * 4).unwrap()).collect()
+        (0..COUNT)
+            .map(|i| g.f32(BUFFERS + slot * STRIDE + i * 4).unwrap())
+            .collect()
     }
 
     fn source(slot: u32) -> Vec<f32> {
@@ -393,27 +408,42 @@ mod tests {
             g.set_u32(G_SOURCE + slot * 4, src).unwrap();
             for i in 0..COUNT {
                 g.set_u32(dst + i * 4, POISON).unwrap();
-                g.set_u32(src + i * 4, ((slot + 1) as f32 + i as f32).to_bits()).unwrap();
+                g.set_u32(src + i * 4, ((slot + 1) as f32 + i as f32).to_bits())
+                    .unwrap();
             }
         }
         g
     }
 
     fn g_out(g: &Guest, slot: u32) -> Vec<f32> {
-        (0..COUNT).map(|i| g.f32(G_BUFFERS + slot * STRIDE + i * 4).unwrap()).collect()
+        (0..COUNT)
+            .map(|i| g.f32(G_BUFFERS + slot * STRIDE + i * 4).unwrap())
+            .collect()
     }
     fn g_source(slot: u32) -> Vec<f32> {
         (0..COUNT).map(|i| (slot + 1) as f32 + i as f32).collect()
     }
 
     fn gather(g: &mut Guest, dest_count: u32, source_count: u32) {
-        gather_bank(g, G_DEST, G_SOURCE, dest_count, source_count, u64::from(COUNT)).unwrap();
+        gather_bank(
+            g,
+            G_DEST,
+            G_SOURCE,
+            dest_count,
+            source_count,
+            u64::from(COUNT),
+        )
+        .unwrap();
     }
 
     #[test]
     fn the_layouts_are_the_five_the_ladder_tests() {
         for count in 0..12u32 {
-            assert_eq!(is_standard_layout(count), [1, 2, 4, 6, 8].contains(&count), "{count}");
+            assert_eq!(
+                is_standard_layout(count),
+                [1, 2, 4, 6, 8].contains(&count),
+                "{count}"
+            );
         }
     }
 
@@ -448,7 +478,11 @@ mod tests {
             gather(&mut g, dest, source);
 
             let want: Vec<f32> = g_source(0).iter().map(|v| v * TABLE_GAIN).collect();
-            assert_eq!(g_out(&g, 0), want, "dest {dest}, source {source} -> index {index}");
+            assert_eq!(
+                g_out(&g, 0),
+                want,
+                "dest {dest}, source {source} -> index {index}"
+            );
         }
     }
 
@@ -459,7 +493,11 @@ mod tests {
         let mut g = gather_guest();
         gather(&mut g, 3, 5);
         for slot in 0..3u32 {
-            assert_eq!(g_out(&g, slot), g_source(slot), "slot {slot} copied at unity gain");
+            assert_eq!(
+                g_out(&g, slot),
+                g_source(slot),
+                "slot {slot} copied at unity gain"
+            );
         }
     }
 
@@ -471,7 +509,11 @@ mod tests {
             assert_eq!(g_out(&g, slot), g_source(slot), "slot {slot} fed");
         }
         for slot in 3..5u32 {
-            assert_eq!(g_out(&g, slot), vec![0.0f32; COUNT as usize], "slot {slot} zeroed");
+            assert_eq!(
+                g_out(&g, slot),
+                vec![0.0f32; COUNT as usize],
+                "slot {slot} zeroed"
+            );
         }
         // And the sixth destination, which the caller does not own, keeps its poison.
         assert_eq!(g.u32(G_BUFFERS + 5 * STRIDE).unwrap(), POISON);
@@ -509,12 +551,17 @@ mod tests {
         // which is visible because the copy uses unity gain and the table path would use 3.0.
         let mut g = gather_guest();
         g.set_u8(RANGE_TABLE + 2 * ((3 << 3) + 2 - 9), 0).unwrap();
-        g.set_u8(RANGE_TABLE + 2 * ((3 << 3) + 2 - 9) + 1, 0).unwrap();
+        g.set_u8(RANGE_TABLE + 2 * ((3 << 3) + 2 - 9) + 1, 0)
+            .unwrap();
         g.set_u8(ROUTE_TABLE, byte(0, 0, 0)).unwrap();
 
         gather(&mut g, 2, 3);
 
-        assert_eq!(g_out(&g, 0), g_source(0), "unity gain, so the copy path ran");
+        assert_eq!(
+            g_out(&g, 0),
+            g_source(0),
+            "unity gain, so the copy path ran"
+        );
         assert_eq!(g_out(&g, 1), g_source(1), "and both destinations were fed");
     }
 
@@ -523,7 +570,11 @@ mod tests {
         assert_eq!(UNITY_GAIN, 0x8232_0000 - 22460);
         assert_eq!(RANGE_TABLE, 0x820F_0000 - 10496);
         assert_eq!(ROUTE_TABLE, 0x820F_0000 - 10368);
-        assert_eq!(ROUTE_TABLE - RANGE_TABLE, 128, "64 two-byte ranges, then the route bytes");
+        assert_eq!(
+            ROUTE_TABLE - RANGE_TABLE,
+            128,
+            "64 two-byte ranges, then the route bytes"
+        );
         assert_eq!(RANGE_TABLE - GAIN_TABLE, 64);
     }
 
@@ -533,14 +584,20 @@ mod tests {
         // one shift wrong picks a neighbouring slot that still exists.
         for raw in 0..=255u8 {
             assert_eq!(dest_slot(raw), u32::from(raw) & 7, "dest of {raw:#04X}");
-            assert_eq!(source_slot(raw), (u32::from(raw) >> 3) & 7, "source of {raw:#04X}");
+            assert_eq!(
+                source_slot(raw),
+                (u32::from(raw) >> 3) & 7,
+                "source of {raw:#04X}"
+            );
             assert_eq!(gain_slot(raw), u32::from(raw) >> 6, "gain of {raw:#04X}");
         }
         // And the packing this test file uses agrees with them.
         for (gain, src, dst) in [(0u8, 0u8, 0u8), (3, 7, 7), (1, 2, 3), (2, 5, 6)] {
             let raw = byte(gain, src, dst);
-            assert_eq!((gain_slot(raw), source_slot(raw), dest_slot(raw)),
-                       (u32::from(gain), u32::from(src), u32::from(dst)));
+            assert_eq!(
+                (gain_slot(raw), source_slot(raw), dest_slot(raw)),
+                (u32::from(gain), u32::from(src), u32::from(dst))
+            );
         }
     }
 
@@ -572,7 +629,10 @@ mod tests {
         // If the first call accumulated instead of overwriting, the poison would still be in there.
         let poisoned = f32::from_bits(POISON);
         assert!(want.iter().all(|v| v.is_finite()));
-        assert!(!out(&g, 1).iter().any(|v| *v == poisoned), "the first route must overwrite");
+        assert!(
+            !out(&g, 1).iter().any(|v| *v == poisoned),
+            "the first route must overwrite"
+        );
     }
 
     #[test]
@@ -583,7 +643,11 @@ mod tests {
 
         assert_eq!(out(&g, 2), source(0), "gain 1.0, so the copy is exact");
         for slot in [0u32, 1, 3] {
-            assert_eq!(out(&g, slot), vec![0.0f32; COUNT as usize], "slot {slot} cleared");
+            assert_eq!(
+                out(&g, slot),
+                vec![0.0f32; COUNT as usize],
+                "slot {slot} cleared"
+            );
         }
     }
 
@@ -602,7 +666,10 @@ mod tests {
             let mut g = guest();
             route(&mut g, &[byte(gain_index, 0, 0)]);
             run(&mut g, 0);
-            let want: Vec<f32> = source(0).iter().map(|v| v * GAINS[gain_index as usize]).collect();
+            let want: Vec<f32> = source(0)
+                .iter()
+                .map(|v| v * GAINS[gain_index as usize])
+                .collect();
             assert_eq!(out(&g, 0), want, "gain index {gain_index}");
         }
         // Patching the table moves the result, so the four floats are loaded rather than assumed.
@@ -610,7 +677,10 @@ mod tests {
         g.set_u32(GAIN_TABLE + 8, 100.0f32.to_bits()).unwrap();
         route(&mut g, &[byte(2, 0, 0)]);
         run(&mut g, 0);
-        assert_eq!(out(&g, 0), source(0).iter().map(|v| v * 100.0).collect::<Vec<_>>());
+        assert_eq!(
+            out(&g, 0),
+            source(0).iter().map(|v| v * 100.0).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -622,7 +692,11 @@ mod tests {
         g.set_u8(RANGE + RANGE_FIRST, 1).unwrap();
         g.set_u8(RANGE + RANGE_LAST, 0).unwrap();
         run(&mut g, 2);
-        assert_eq!(out(&g, 0), vec![0.0f32; COUNT as usize], "no route ran, so it was cleared");
+        assert_eq!(
+            out(&g, 0),
+            vec![0.0f32; COUNT as usize],
+            "no route ran, so it was cleared"
+        );
         assert_eq!(out(&g, 1), vec![0.0f32; COUNT as usize]);
 
         // And a range of [1, 1] runs exactly the second route.
@@ -632,7 +706,11 @@ mod tests {
         g.set_u8(RANGE + RANGE_LAST, 1).unwrap();
         run(&mut g, 0);
         assert_eq!(out(&g, 1), source(1));
-        assert_eq!(g.u32(BUFFERS).unwrap(), POISON, "the first route did not run");
+        assert_eq!(
+            g.u32(BUFFERS).unwrap(),
+            POISON,
+            "the first route did not run"
+        );
     }
 
     #[test]
@@ -654,7 +732,11 @@ mod tests {
 
         run(&mut g, 0);
 
-        assert_eq!(g.u8(RANGE + RANGE_LAST).unwrap(), 0, "the range was overwritten");
+        assert_eq!(
+            g.u8(RANGE + RANGE_LAST).unwrap(),
+            0,
+            "the range was overwritten"
+        );
         // Route 1 never ran: destination slot 1 still holds its poison.
         assert_eq!(g.u32(BUFFERS + STRIDE).unwrap(), POISON);
     }
@@ -664,7 +746,10 @@ mod tests {
         let mut g = guest();
         route(&mut g, &[byte(0, 0, 0)]);
         let e = scatter_mix(&mut g, DEST_ARRAY, SOURCE_ARRAY, 9, COUNT, RANGE, TABLE);
-        assert!(e.is_err(), "nine slots reads a flag byte the original never wrote");
+        assert!(
+            e.is_err(),
+            "nine slots reads a flag byte the original never wrote"
+        );
         assert_eq!(g.u32(BUFFERS).unwrap(), POISON, "and nothing ran");
     }
 
@@ -678,12 +763,30 @@ mod tests {
     fn downmix_guest() -> Guest {
         use dsp::gain_ramp::{LANE2_SCALE, LANE3_SCALE, RAMP_SPAN, SCALE, SCALE_STEP, STEP_SCALE};
         let mut g = Guest::from_segments(vec![
-            crate::Segment { base: BASE, bytes: vec![0u8; 0x10000] },
-            crate::Segment { base: 0x8206_0000, bytes: vec![0u8; 0x4000] },
-            crate::Segment { base: 0x8225_7000, bytes: vec![0u8; 0x1000] },
-            crate::Segment { base: 0x820E_D000, bytes: vec![0u8; 0x1000] },
-            crate::Segment { base: 0x8231_BA00, bytes: vec![0u8; 0x100] },
-            crate::Segment { base: DOWNMIX_RAMP_RATE, bytes: (1.0f32 / 65.0).to_bits().to_be_bytes().to_vec() },
+            crate::Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x10000],
+            },
+            crate::Segment {
+                base: 0x8206_0000,
+                bytes: vec![0u8; 0x4000],
+            },
+            crate::Segment {
+                base: 0x8225_7000,
+                bytes: vec![0u8; 0x1000],
+            },
+            crate::Segment {
+                base: 0x820E_D000,
+                bytes: vec![0u8; 0x1000],
+            },
+            crate::Segment {
+                base: 0x8231_BA00,
+                bytes: vec![0u8; 0x100],
+            },
+            crate::Segment {
+                base: DOWNMIX_RAMP_RATE,
+                bytes: (1.0f32 / 65.0).to_bits().to_be_bytes().to_vec(),
+            },
         ]);
         g.set_u32(STEP_SCALE, 4.0f32.to_bits()).unwrap();
         g.set_u32(RAMP_SPAN, 64.0f32.to_bits()).unwrap();
@@ -704,10 +807,15 @@ mod tests {
         for slot in 0..8u32 {
             let buffer = DM_BUFFERS + slot * 0x400;
             g.set_u32(DM_DST_ARRAY + 4 * slot, buffer).unwrap();
-            g.set_u32(DM_SRC_ARRAY + 4 * slot, buffer + 8 * 0x400).unwrap();
+            g.set_u32(DM_SRC_ARRAY + 4 * slot, buffer + 8 * 0x400)
+                .unwrap();
             for i in 0..256u32 {
                 g.set_u32(buffer + 4 * i, 0.5f32.to_bits()).unwrap();
-                g.set_u32(buffer + 8 * 0x400 + 4 * i, ((slot + 1) as f32 * 0.1).to_bits()).unwrap();
+                g.set_u32(
+                    buffer + 8 * 0x400 + 4 * i,
+                    ((slot + 1) as f32 * 0.1).to_bits(),
+                )
+                .unwrap();
             }
         }
         g
@@ -726,12 +834,19 @@ mod tests {
 
         // The reference: the two kernel calls, made directly with the gains the note derives.
         let mut h = g.clone();
-        let ramp = crate::fp::mul_single(crate::fp::sub_single(target, current), f64::from(1.0f32 / 65.0));
+        let ramp = crate::fp::mul_single(
+            crate::fp::sub_single(target, current),
+            f64::from(1.0f32 / 65.0),
+        );
         for (dst, src, scale) in [(1u32, 0u32, 0.5f64), (0, 1, 1.0)] {
             let d = h.u32(DM_DST_ARRAY + 4 * dst).unwrap();
             let s = h.u32(DM_SRC_ARRAY + 4 * src).unwrap();
             dsp::gain_ramp::gain_ramp_accumulate(
-                &mut h, d, s, crate::fp::mul_single(scale, current), crate::fp::mul_single(scale, ramp),
+                &mut h,
+                d,
+                s,
+                crate::fp::mul_single(scale, current),
+                crate::fp::mul_single(scale, ramp),
             )
             .unwrap();
         }
@@ -740,10 +855,18 @@ mod tests {
         for slot in 0..2u32 {
             for i in [0u32, 1, 63, 64, 255] {
                 let at = DM_BUFFERS + slot * 0x400 + 4 * i;
-                assert_eq!(g.u32(at).unwrap(), h.u32(at).unwrap(), "destination {slot}, sample {i}");
+                assert_eq!(
+                    g.u32(at).unwrap(),
+                    h.u32(at).unwrap(),
+                    "destination {slot}, sample {i}"
+                );
             }
         }
-        assert_ne!(g.u32(DM_BUFFERS).unwrap(), 0.5f32.to_bits(), "destination 0 was mixed into");
+        assert_ne!(
+            g.u32(DM_BUFFERS).unwrap(),
+            0.5f32.to_bits(),
+            "destination 0 was mixed into"
+        );
     }
 
     #[test]

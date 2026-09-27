@@ -68,7 +68,11 @@ pub fn op_div(g: &mut Guest, block: u32) -> Result<u64> {
     }
     let dividend = g.u32(block)? as i32;
     let divisor = divisor as i32;
-    let quotient = if dividend == i32::MIN && divisor == -1 { 0 } else { dividend / divisor };
+    let quotient = if dividend == i32::MIN && divisor == -1 {
+        0
+    } else {
+        dividend / divisor
+    };
     Ok(quotient as u32 as u64)
 }
 
@@ -87,7 +91,11 @@ pub fn op_rem(g: &mut Guest, block: u32) -> Result<u64> {
     }
     let dividend_bits = g.u32(block)?;
     let dividend = dividend_bits as i32;
-    let quotient = if dividend == i32::MIN && divisor == -1 { 0 } else { dividend / divisor };
+    let quotient = if dividend == i32::MIN && divisor == -1 {
+        0
+    } else {
+        dividend / divisor
+    };
     let product = ((quotient as i64) * (divisor as i64)) as u64;
     Ok((dividend_bits as u64).wrapping_sub(product))
 }
@@ -244,7 +252,11 @@ pub fn op_round_scaled(g: &mut Guest, block: u32) -> Result<u64> {
     value = fp::mul_single(product, value);
     let below_zero = value < zero; // fcmpu; unordered clears lt
     let offset = fp::load_single(g, HALF_SINGLE)?;
-    value = if below_zero { fp::sub_single(value, offset) } else { fp::add_single(value, offset) };
+    value = if below_zero {
+        fp::sub_single(value, offset)
+    } else {
+        fp::add_single(value, offset)
+    };
     Ok(fp::fctiwz_low_word(value) as u64)
 }
 
@@ -313,7 +325,11 @@ pub fn op_round_product(g: &mut Guest, block: u32) -> Result<u64> {
     let zero = fp::load_single(g, ZERO_SINGLE)?;
     let below_zero = acc < zero;
     let half = fp::load_single(g, HALF_SINGLE)?;
-    let rounded = if below_zero { fp::sub_single(acc, half) } else { fp::add_single(acc, half) };
+    let rounded = if below_zero {
+        fp::sub_single(acc, half)
+    } else {
+        fp::add_single(acc, half)
+    };
     Ok(fp::fctiwz_low_word(rounded) as u64)
 }
 
@@ -428,7 +444,11 @@ mod tests {
             let mut words = vec![count_word(count), 0x7FFF_FFFF];
             words.extend_from_slice(&elements);
             put_words(&mut g, &words);
-            assert_eq!(op_sum_capped(&mut g, BLOCK).unwrap(), expect(count), "capped at {count}");
+            assert_eq!(
+                op_sum_capped(&mut g, BLOCK).unwrap(),
+                expect(count),
+                "capped at {count}"
+            );
         }
         // The cap bites, and is returned zero-extended.
         put_words(&mut g, &[count_word(4), 5, 1, 2, 3, 4]);
@@ -439,10 +459,23 @@ mod tests {
             let mut words = vec![count_word(count)];
             words.extend_from_slice(&elements);
             put_words(&mut g, &words);
-            assert_eq!(op_sum(&mut g, BLOCK).unwrap(), expect(count), "sum at {count}");
+            assert_eq!(
+                op_sum(&mut g, BLOCK).unwrap(),
+                expect(count),
+                "sum at {count}"
+            );
         }
         // Both accumulate in 64 bits: four maximal words carry past bit 32.
-        put_words(&mut g, &[count_word(4), 0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF, 0xFFFF_FFFF]);
+        put_words(
+            &mut g,
+            &[
+                count_word(4),
+                0xFFFF_FFFF,
+                0xFFFF_FFFF,
+                0xFFFF_FFFF,
+                0xFFFF_FFFF,
+            ],
+        );
         assert_eq!(op_sum(&mut g, BLOCK).unwrap(), 4 * 0xFFFF_FFFFu64);
     }
 
@@ -470,7 +503,10 @@ mod tests {
         put_words(&mut g, &[0.6f32.to_bits(), 1, 1]);
         assert_eq!(op_round_scaled(&mut g, BLOCK).unwrap(), 1);
         put_words(&mut g, &[(-0.6f32).to_bits(), 1, 1]);
-        assert_eq!(op_round_scaled(&mut g, BLOCK).unwrap(), (-1i32) as u32 as u64);
+        assert_eq!(
+            op_round_scaled(&mut g, BLOCK).unwrap(),
+            (-1i32) as u32 as u64
+        );
 
         // A NaN sets neither lt nor gt, so the ADD branch runs and fctiwz yields the indefinite.
         put_words(&mut g, &[f32::NAN.to_bits(), 1, 1]);
@@ -486,7 +522,12 @@ mod tests {
     /// unrolled iteration, applied in the order the lifted registers give — so the loop structure
     /// is what is under test rather than the arithmetic. `order` lets a caller ask for the wrong
     /// order deliberately, which is how the order test proves it can see one.
-    fn round_product_reference(scale_bits: u32, words: &[u32], count: usize, order: [usize; 4]) -> u64 {
+    fn round_product_reference(
+        scale_bits: u32,
+        words: &[u32],
+        count: usize,
+        order: [usize; 4],
+    ) -> u64 {
         let mut acc = fp::word_to_single(words[0]);
         if count > 1 {
             let mut next = 1usize;
@@ -506,7 +547,11 @@ mod tests {
         }
         let scale = fp::single_from_bits(scale_bits);
         acc = fp::mul_single(scale, acc);
-        let rounded = if acc < 0.0 { fp::sub_single(acc, 0.5) } else { fp::add_single(acc, 0.5) };
+        let rounded = if acc < 0.0 {
+            fp::sub_single(acc, 0.5)
+        } else {
+            fp::add_single(acc, 0.5)
+        };
         fp::fctiwz_low_word(rounded) as u64
     }
 
@@ -529,7 +574,10 @@ mod tests {
 
         let forward = round_product_reference(scale_bits, &words, 5, QUAD_ORDER);
         let reverse = round_product_reference(scale_bits, &words, 5, [3, 2, 1, 0]);
-        assert_ne!(forward, reverse, "these inputs must be order-sensitive or the test is vacuous");
+        assert_ne!(
+            forward, reverse,
+            "these inputs must be order-sensitive or the test is vacuous"
+        );
         assert_eq!(forward, 1_340_737_536);
         assert_eq!(reverse, 1_340_737_664);
 
@@ -560,7 +608,10 @@ mod tests {
         assert_eq!(op_round_product(&mut g, BLOCK).unwrap(), 23);
         // Negative: 1.5 * 3 * -5 = -22.5 -> -23.
         put_words(&mut g, &[count_word(2), scale_bits, 3, (-5i32) as u32]);
-        assert_eq!(op_round_product(&mut g, BLOCK).unwrap(), (-23i32) as u32 as u64);
+        assert_eq!(
+            op_round_product(&mut g, BLOCK).unwrap(),
+            (-23i32) as u32 as u64
+        );
     }
 
     #[test]
@@ -568,7 +619,10 @@ mod tests {
         let mut g = block_guest();
         put_rodata(&mut g);
         // count 0: word 0 alone, times the scale. 2.0 * 7 = 14.
-        put_words(&mut g, &[count_word(0), 2.0f32.to_bits(), 7, 0xDEAD, 0xBEEF]);
+        put_words(
+            &mut g,
+            &[count_word(0), 2.0f32.to_bits(), 7, 0xDEAD, 0xBEEF],
+        );
         assert_eq!(op_round_product(&mut g, BLOCK).unwrap(), 14);
     }
 }

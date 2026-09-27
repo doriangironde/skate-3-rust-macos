@@ -42,9 +42,10 @@
 //!   slots 4, 27 and 39 (`sub_82B1C150`, `sub_82B1D240`, `sub_82B1C450`), each because it makes an
 //!   indirect call — a vtable release, a handler-list notify, a closure that leaves the audio
 //!   corpus entirely.
-//! - **One is a pending path split**: slot 5 `sub_82B1C210` has a C++ body as of 2026-09-12, but
-//!   `STATUS: pending` — the harness can compare it only on the inputs that skip its
-//!   `sub_828E29C0` broadcast. Nothing unverified is translated here, so it waits.
+//! - **One is host-bound**: slot 5 `sub_82B1C210` clamps values and calls the table-1 broadcast
+//!   dispatcher. [`crate::patch::PatchHost`] implements it together with the recovered
+//!   `sub_828E29C0` handle checks and the known player-bank callback. The pure table dispatcher
+//!   continues to refuse it because it has no callback host.
 //! - **Five are outside the 216 audio-thread functions** (1 and 2 now ported as above): slots 1, 2, 19, 20 and 38 have no `.inc`
 //!   at all, so nothing has been screened for them. Slots 1 and 2 are not even in the audio corpus.
 //!
@@ -131,20 +132,38 @@ pub const SINE_TABLE: u32 = 0x82FD_36B8;
 pub const SINE_TABLE_BYTES: usize = 514;
 
 const _: () = assert!(ZERO_SINGLE == 0x8216_0000 + 23056, "lis -32234 ; lfs 23056");
-const _: () = assert!(HALF_SINGLE == 0x820A_0000 - 26788, "lis -32246 ; lfs -26788");
-const _: () = assert!(MINUS_ONE_SINGLE == 0x8216_0000 + 0xDEE0, "lis -32233 ; lfs -8480");
-const _: () = assert!(TICK_SCALE_GLOBAL == 0x8307_0000 + 30168, "lis -31993 ; lfs 30168");
-const _: () = assert!(TICK_SCALE_GLOBAL + 24 == crate::counter::COUNTER, "the tick block precedes the counter");
+const _: () = assert!(
+    HALF_SINGLE == 0x820A_0000 - 26788,
+    "lis -32246 ; lfs -26788"
+);
+const _: () = assert!(
+    MINUS_ONE_SINGLE == 0x8216_0000 + 0xDEE0,
+    "lis -32233 ; lfs -8480"
+);
+const _: () = assert!(
+    TICK_SCALE_GLOBAL == 0x8307_0000 + 30168,
+    "lis -31993 ; lfs 30168"
+);
+const _: () = assert!(
+    TICK_SCALE_GLOBAL + 24 == crate::counter::COUNTER,
+    "the tick block precedes the counter"
+);
 // Each of these is the ((lis_imm & 0xFFFF) << 16) + offset the lifted body computes, written out so
 // a transposed digit fails the build. One misread constant in sub_82B2FE00 caused this project's
 // first shadow divergence, which is why the C++ notes insist on computing them rather than reading
 // them off a dump by eye.
 const _: () = assert!(ONE_SINGLE == 0x8232_0000 - 22460, "lis -32206 ; lfs -22460");
-const _: () = assert!(PHASE_TO_UNITS == 0x8230_0000 - 31232 + 2212, "lis -32208 ; addi -31232 ; lfs 2212");
+const _: () = assert!(
+    PHASE_TO_UNITS == 0x8230_0000 - 31232 + 2212,
+    "lis -32208 ; addi -31232 ; lfs 2212"
+);
 const _: () = assert!(SINE_NORM == 0x820A_0000 - 29428, "lis -32246 ; lfs -29428");
 const _: () = assert!(TRIANGLE_GAIN == 0x8206_0000 + 3152, "lis -32250 ; lfs 3152");
 const _: () = assert!(SINE_TABLE == 0x82FD_0000 + 14008, "lis -32003 ; addi 14008");
-const _: () = assert!(RATE_UNIT_SINGLE == 0x8230_0000 - 31232 + 780, "lis -32208 ; addi -31232 ; lfs 780");
+const _: () = assert!(
+    RATE_UNIT_SINGLE == 0x8230_0000 - 31232 + 780,
+    "lis -32208 ; addi -31232 ; lfs 780"
+);
 
 /// One table slot, called with the operand block in `r3` and returning the guest's full 64-bit
 /// `r3`.
@@ -167,11 +186,21 @@ pub struct Slot {
 }
 
 const fn ported(guest: u32, name: &'static str, port: Op) -> Slot {
-    Slot { guest, name, port: Some(port), absent: "" }
+    Slot {
+        guest,
+        name,
+        port: Some(port),
+        absent: "",
+    }
 }
 
 const fn missing(guest: u32, name: &'static str, absent: &'static str) -> Slot {
-    Slot { guest, name, port: None, absent }
+    Slot {
+        guest,
+        name,
+        port: None,
+        absent,
+    }
 }
 
 /// The table as the guest image holds it, slot for slot.
@@ -180,8 +209,16 @@ pub static TABLE: [Slot; TABLE_SLOTS] = [
     ported(0x8283_2BA8, "sub_82832BA8", accessors::op_word_20),
     ported(0x82C8_CDC8, "sub_82C8CDC8", accessors::op_word_24),
     ported(0x82B1_BF80, "sub_82B1BF80", accessors::op_take_word_0),
-    missing(0x82B1_C150, "sub_82B1C150", "gate 1: sub_82B1BF98's closure leaves the audio corpus"),
-    missing(0x82B1_C210, "sub_82B1C210", "pending path split: comparable only when the broadcast is skipped"),
+    missing(
+        0x82B1_C150,
+        "sub_82B1C150",
+        "gate 1: sub_82B1BF98's closure leaves the audio corpus",
+    ),
+    missing(
+        0x82B1_C210,
+        "sub_82B1C210",
+        "host-bound broadcast; use patch::PatchHost",
+    ),
     ported(0x82B1_C4B8, "sub_82B1C4B8", state::op_stepping_cursor),
     ported(0x82B1_C528, "sub_82B1C528", state::op_random_in_range),
     ported(0x82B1_C598, "sub_82B1C598", state::op_shuffle_bag),
@@ -195,15 +232,27 @@ pub static TABLE: [Slot; TABLE_SLOTS] = [
     ported(0x82B1_CD28, "sub_82B1CD28", state::op_delay_ring),
     ported(0x82B1_CE18, "sub_82B1CE18", accessors::op_stack_top),
     ported(0x82B1_CE48, "sub_82B1CE48", accessors::op_stack_push),
-    missing(0x82B1_CEA0, "sub_82B1CEA0", "no .inc: outside the 216 audio-thread functions"),
-    missing(0x82B1_CEF8, "sub_82B1CEF8", "no .inc: outside the 216 audio-thread functions"),
+    missing(
+        0x82B1_CEA0,
+        "sub_82B1CEA0",
+        "no .inc: outside the 216 audio-thread functions",
+    ),
+    missing(
+        0x82B1_CEF8,
+        "sub_82B1CEF8",
+        "no .inc: outside the 216 audio-thread functions",
+    ),
     ported(0x82B1_CF50, "sub_82B1CF50", arith::op_round_product),
     ported(0x82B1_D118, "sub_82B1D118", arith::op_sum),
     ported(0x82B1_D1A8, "sub_82B1D1A8", arith::op_sub),
     ported(0x82B1_D1B8, "sub_82B1D1B8", arith::op_mul),
     ported(0x82B1_D1C8, "sub_82B1D1C8", arith::op_div),
     ported(0x82B1_D200, "sub_82B1D200", arith::op_rem),
-    missing(0x82B1_D240, "sub_82B1D240", "gate 1: three vtable bctrls, one of them a release"),
+    missing(
+        0x82B1_D240,
+        "sub_82B1D240",
+        "gate 1: three vtable bctrls, one of them a release",
+    ),
     ported(0x82B1_D3D0, "sub_82B1D3D0", wave::op_oscillator),
     ported(0x82B1_D5D0, "sub_82B1D5D0", state::op_ramp),
     ported(0x82B1_D700, "sub_82B1D700", arith::op_sum_capped),
@@ -214,8 +263,16 @@ pub static TABLE: [Slot; TABLE_SLOTS] = [
     ported(0x82B1_D098, "sub_82B1D098", arith::op_round_scaled),
     ported(0x82B1_D198, "sub_82B1D198", arith::op_add),
     ported(0x82B1_D7D0, "sub_82B1D7D0", accessors::op_take_flag_25),
-    missing(0x82B1_C2B8, "sub_82B1C2B8", "no .inc: outside the 216 audio-thread functions"),
-    missing(0x82B1_C450, "sub_82B1C450", "gate 1: notifies through a handler list by ctr"),
+    missing(
+        0x82B1_C2B8,
+        "sub_82B1C2B8",
+        "no .inc: outside the 216 audio-thread functions",
+    ),
+    missing(
+        0x82B1_C450,
+        "sub_82B1C450",
+        "gate 1: notifies through a handler list by ctr",
+    ),
 ];
 
 /// Run the op in `opcode`'s slot over `block`, the way the interpreter's `bctrl` would.
@@ -229,7 +286,10 @@ pub fn dispatch(g: &mut Guest, opcode: u8, block: u32) -> Result<u64> {
             Some(op) => op(g, block),
             None => Err(Error::new(
                 slot.guest,
-                format!("opcode {opcode} ({}) is not ported: {}", slot.name, slot.absent),
+                format!(
+                    "opcode {opcode} ({}) is not ported: {}",
+                    slot.name, slot.absent
+                ),
             )),
         },
         None => Err(Error::new(
@@ -277,7 +337,10 @@ pub(crate) mod testutil {
         g.put(ZERO_SINGLE, 0.0f32.to_bits().to_be_bytes().to_vec());
         g.put(HALF_SINGLE, 0.5f32.to_bits().to_be_bytes().to_vec());
         g.put(MINUS_ONE_SINGLE, (-1.0f32).to_bits().to_be_bytes().to_vec());
-        g.put(RATE_UNIT_SINGLE, (1.0f32 / 4096.0).to_bits().to_be_bytes().to_vec());
+        g.put(
+            RATE_UNIT_SINGLE,
+            (1.0f32 / 4096.0).to_bits().to_be_bytes().to_vec(),
+        );
         // One span covering the tick block and the counter that follows it.
         g.put(TICK_SCALE_GLOBAL, vec![0u8; 48]);
     }
@@ -339,7 +402,11 @@ mod tests {
         // Past the table, including the interpreter's own end-of-stream marker.
         let err = dispatch(&mut g, 255, BLOCK).unwrap_err();
         assert_eq!(err.address, TABLE_BASE + 4 * 255);
-        assert!(err.message.contains("past the 40-entry table"), "{}", err.message);
+        assert!(
+            err.message.contains("past the 40-entry table"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]

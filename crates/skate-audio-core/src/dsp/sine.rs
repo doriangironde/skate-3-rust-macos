@@ -67,7 +67,8 @@ const _: () = assert!(VECTOR_C == 0x822F_97D0);
 const _: () = assert!(VECTOR_D == 0x822F_97E0);
 // All four are 16-byte aligned, which is what makes `lvx128`'s masking of the low address bits a
 // no-op on them. If that ever stopped holding the loads would silently read the containing block.
-const _: () = assert!(VECTOR_A % 16 == 0 && VECTOR_B % 16 == 0 && VECTOR_C % 16 == 0 && VECTOR_D % 16 == 0);
+const _: () =
+    assert!(VECTOR_A % 16 == 0 && VECTOR_B % 16 == 0 && VECTOR_C % 16 == 0 && VECTOR_D % 16 == 0);
 
 /// Everything `sub_824531C8` leaves in a vector register, as raw lane bits.
 ///
@@ -234,9 +235,12 @@ pub(crate) mod tests {
     pub(crate) fn image() -> Guest {
         // 0x822F97C0 .. 0x822F9860 covers all four vectors in one span.
         let mut g = Guest::single(VECTOR_B, 0xA0);
-        for (base, words) in
-            [(VECTOR_A, A_WORDS), (VECTOR_B, B_WORDS), (VECTOR_C, C_WORDS), (VECTOR_D, D_WORDS)]
-        {
+        for (base, words) in [
+            (VECTOR_A, A_WORDS),
+            (VECTOR_B, B_WORDS),
+            (VECTOR_C, C_WORDS),
+            (VECTOR_D, D_WORDS),
+        ] {
             for (i, w) in words.iter().enumerate() {
                 g.set_u32(base + 4 * i as u32, *w).unwrap();
             }
@@ -358,7 +362,11 @@ pub(crate) mod tests {
         }
 
         // And the reduction pair, which comes from a *different* vector with two more immediates.
-        assert_eq!(f32::from_bits(r.v61[0]), (1.0 / std::f64::consts::TAU) as f32, "1/(2pi) splat");
+        assert_eq!(
+            f32::from_bits(r.v61[0]),
+            (1.0 / std::f64::consts::TAU) as f32,
+            "1/(2pi) splat"
+        );
     }
 
     #[test]
@@ -368,12 +376,17 @@ pub(crate) mod tests {
         // a reduction that used pi instead of 2pi all survive a self-consistency check and none of
         // them survives this one.
         let g = image();
-        let probes: [f32; 12] =
-            [0.0, 0.25, 1.0, -1.0, 1.5707964, 3.1415927, -3.1415927, 6.2831855, 10.0, -10.0, 100.0, 0.1];
+        let probes: [f32; 12] = [
+            0.0, 0.25, 1.0, -1.0, 1.5707964, 3.1415927, -3.1415927, 6.2831855, 10.0, -10.0, 100.0,
+            0.1,
+        ];
         for x in probes {
             let got = f32::from_bits(sine4(&g, [bits(x); 4]).unwrap().v1[0]) as f64;
             let want = oracle_sine(x);
-            assert!((got - want).abs() <= 5e-7, "sin({x}): got {got}, f64 oracle says {want}");
+            assert!(
+                (got - want).abs() <= 5e-7,
+                "sin({x}): got {got}, f64 oracle says {want}"
+            );
         }
         // Tie the oracle itself to actual sine, so a shared mistake in the reduction cannot pass.
         let one = f32::from_bits(sine4(&g, [bits(1.0); 4]).unwrap().v1[0]);
@@ -430,7 +443,10 @@ pub(crate) mod tests {
                 "x = {x}: t^2 is {got}, round-to-nearest says {}",
                 t_near * t_near
             );
-            assert_ne!(nearest, truncated, "x = {x} was chosen so the two rounds disagree");
+            assert_ne!(
+                nearest, truncated,
+                "x = {x} was chosen so the two rounds disagree"
+            );
             assert!(
                 (got - t_trunc * t_trunc).abs() > 1.0,
                 "x = {x}: vrfiz would have given t^2 = {}",
@@ -440,8 +456,14 @@ pub(crate) mod tests {
 
         // And the divisor is a whole turn, not a half one: x = 2pi scales to exactly one.
         let r = sine4(&g, [bits(std::f32::consts::TAU); 4]).unwrap();
-        assert!((f32::from_bits(r.v60[0]) - 1.0).abs() < 1e-6, "x = 2pi should scale to 1 turn");
-        assert!(f32::from_bits(r.v59[0]).abs() < 1e-12, "and reduce to t ~ 0");
+        assert!(
+            (f32::from_bits(r.v60[0]) - 1.0).abs() < 1e-6,
+            "x = 2pi should scale to 1 turn"
+        );
+        assert!(
+            f32::from_bits(r.v59[0]).abs() < 1e-12,
+            "and reduce to t ~ 0"
+        );
 
         // Negative arguments still land on the right value of sine, which a reduction that only
         // worked in one direction would not manage.
@@ -458,11 +480,26 @@ pub(crate) mod tests {
         // port that dropped the clobber would be a divergence on eight million calls.
         let g = image();
         let r = sine4(&g, [bits(1.0); 4]).unwrap();
-        assert_eq!(f32::from_bits(r.coefficients[0][0]), -1.0 / 6.0, "c1 lands in v31");
-        assert_eq!(r.coefficients[0], [r.coefficients[0][0]; 4], "it is a splat, all four lanes");
+        assert_eq!(
+            f32::from_bits(r.coefficients[0][0]),
+            -1.0 / 6.0,
+            "c1 lands in v31"
+        );
+        assert_eq!(
+            r.coefficients[0], [r.coefficients[0][0]; 4],
+            "it is a splat, all four lanes"
+        );
         // v62 and v63 are whole vectors, not splats: D and C as loaded.
-        assert_eq!(r.v63, [C_WORDS[3], C_WORDS[2], C_WORDS[1], C_WORDS[0]], "v63 = C, lane-reversed");
-        assert_eq!(r.v62, [D_WORDS[3], D_WORDS[2], D_WORDS[1], D_WORDS[0]], "v62 = D, lane-reversed");
+        assert_eq!(
+            r.v63,
+            [C_WORDS[3], C_WORDS[2], C_WORDS[1], C_WORDS[0]],
+            "v63 = C, lane-reversed"
+        );
+        assert_eq!(
+            r.v62,
+            [D_WORDS[3], D_WORDS[2], D_WORDS[1], D_WORDS[0]],
+            "v62 = D, lane-reversed"
+        );
     }
 
     #[test]
@@ -479,7 +516,11 @@ pub(crate) mod tests {
         let g = image();
         let before = vmx::get_mxcsr();
         let r = sine4(&g, [0x0000_0001u32; 4]).unwrap(); // smallest denormal, as raw lane bits
-        assert_eq!(vmx::get_mxcsr(), before, "MXCSR is restored when the body returns");
+        assert_eq!(
+            vmx::get_mxcsr(),
+            before,
+            "MXCSR is restored when the body returns"
+        );
         // Under FZ/DAZ a denormal argument is zero on the way in, so the answer is exactly +0 —
         // not the denormal itself, which is what a non-flushing translation would return.
         assert_eq!(r.v1[0], 0x0000_0000);

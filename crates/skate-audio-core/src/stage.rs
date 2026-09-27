@@ -124,7 +124,10 @@ pub const ARG_COPY: u32 = 92;
 /// flag, and that is worth saying once in plain words because the two names describe one word.
 pub const ARG_CLEAR: u32 = 100;
 
-const _: () = assert!(ARG_COPY == ARG_MIXED + 8 && ARG_CLEAR == ARG_COPY + 8, "84, 92, 100");
+const _: () = assert!(
+    ARG_COPY == ARG_MIXED + 8 && ARG_CLEAR == ARG_COPY + 8,
+    "84, 92, 100"
+);
 
 /// `((imm & 0xFFFF) << 16)` — the `lis` half of an address, **computed**.
 const fn lis(imm: i32) -> u32 {
@@ -277,8 +280,18 @@ pub fn one_pole_stage(
         return Err(vmx::unsupported());
     }
     unsafe {
-        kernel(g, count as u32 as i32, addend as u32, source as u32, sp, pole, feed, bus_coeff,
-               bus_gain, state)
+        kernel(
+            g,
+            count as u32 as i32,
+            addend as u32,
+            source as u32,
+            sp,
+            pole,
+            feed,
+            bus_coeff,
+            bus_gain,
+            state,
+        )
     }
 }
 
@@ -384,7 +397,11 @@ unsafe fn kernel(
     // srawi/addze/addi r3,r11,-4, then addi/rlwinm/addi/mtctr: ceil(blocks/4) iterations of 64 bytes.
     // `ble cr6` skips the loop entirely.
     let blocks = quarter_to_zero(count) - 4;
-    let iters = if blocks > 0 { ((blocks as u32 - 1) >> 2) + 1 } else { 0 };
+    let iters = if blocks > 0 {
+        ((blocks as u32 - 1) >> 2) + 1
+    } else {
+        0
+    };
 
     // ---- loc_82B39C4C: one block per iteration, pipelined one behind the windows ----
     for i in 0..iters {
@@ -434,10 +451,16 @@ unsafe fn kernel(
 
         // The next block. Thirteen `lvx128`, every one of them before this block's first store, which
         // is what makes an overlapping mixed/copy/addend/source behave as the original does.
-        let src = source.wrapping_add(BLOCK_BYTES).wrapping_add(BLOCK_BYTES.wrapping_mul(i));
+        let src = source
+            .wrapping_add(BLOCK_BYTES)
+            .wrapping_add(BLOCK_BYTES.wrapping_mul(i));
         let bus = copy.wrapping_add(BLOCK_BYTES.wrapping_mul(i));
-        let add = addend.wrapping_add(BLOCK_BYTES).wrapping_add(BLOCK_BYTES.wrapping_mul(i));
-        let out = mixed.wrapping_add(BLOCK_BYTES).wrapping_add(BLOCK_BYTES.wrapping_mul(i));
+        let add = addend
+            .wrapping_add(BLOCK_BYTES)
+            .wrapping_add(BLOCK_BYTES.wrapping_mul(i));
+        let out = mixed
+            .wrapping_add(BLOCK_BYTES)
+            .wrapping_add(BLOCK_BYTES.wrapping_mul(i));
 
         line[1] = unsafe { vmx::lvx128(g, src.wrapping_add(16))? }; // lvx128 v62,r0,r6
         line[2] = unsafe { vmx::lvx128(g, src.wrapping_add(32))? }; // lvx128 v61,r6,r29
@@ -802,7 +825,11 @@ mod tests {
         // the model catches immediately.
         for slot in 0..4u32 {
             let at = SOURCE + 4 * slot;
-            assert_eq!(at & 0xC, 4 * slot, "the test has to reach all four selectors");
+            assert_eq!(
+                at & 0xC,
+                4 * slot,
+                "the test has to reach all four selectors"
+            );
             let bus_in = vec![0.0f32; 32];
             let (_, mixed, copy, _) = run(32, at, 1, &bus_in, 0.0);
             let (want_mixed, want_copy, _) =
@@ -824,12 +851,25 @@ mod tests {
         stack_args(&mut g, MIXED, COPY, 1);
         put(&mut g, COPY, &bus_in);
         let _ = one_pole_stage(
-            &mut g, 16, ADDEND as u64, SOURCE as u64, FRAME, POLE, FEED, BUS_COEFF, BUS_GAIN, 0.0,
+            &mut g,
+            16,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            POLE,
+            FEED,
+            BUS_COEFF,
+            BUS_GAIN,
+            0.0,
         )
         .unwrap();
         let mb = get(&g, MIXED, 16);
         let cb = get(&g, COPY, 16);
-        assert_eq!(ma[..15], mb[..15], "only the last sample depends on source[count]");
+        assert_eq!(
+            ma[..15],
+            mb[..15],
+            "only the last sample depends on source[count]"
+        );
         assert_ne!(ma[15], mb[15]);
         assert_eq!(ca[..15], cb[..15]);
         assert_ne!(ca[15], cb[15]);
@@ -843,9 +883,15 @@ mod tests {
         let (_, a, _, ra) = run(16, SOURCE, 1, &bus_in, 0.0);
         let (_, b, _, rb) = run(16, SOURCE, 1, &bus_in, 1.0);
         assert_ne!(a[0], b[0], "the first output sees f5 directly");
-        assert_ne!(a[15], b[15], "and it is still visible at the end of the block");
+        assert_ne!(
+            a[15], b[15],
+            "and it is still visible at the end of the block"
+        );
         assert_ne!(ra, rb);
-        assert_eq!(ra, a[15] as f64, "the result is the last single, read back from memory");
+        assert_eq!(
+            ra, a[15] as f64,
+            "the result is the last single, read back from memory"
+        );
         assert_eq!(rb, b[15] as f64);
     }
 
@@ -895,14 +941,25 @@ mod tests {
                 y as f64,
             )
             .unwrap();
-            assert_eq!(g.f32(MIXED).unwrap(), fused, "pole {pole} y {y} mixed {mixed}");
-            assert_ne!(g.f32(MIXED).unwrap(), split, "the two forms have to differ here");
+            assert_eq!(
+                g.f32(MIXED).unwrap(),
+                fused,
+                "pole {pole} y {y} mixed {mixed}"
+            );
+            assert_ne!(
+                g.f32(MIXED).unwrap(),
+                split,
+                "the two forms have to differ here"
+            );
             let _ = got;
             if found == 6 {
                 break;
             }
         }
-        assert!(found > 0, "no distinguishing input found: this test would prove nothing");
+        assert!(
+            found > 0,
+            "no distinguishing input found: this test would prove nothing"
+        );
 
         // And the sign: with pole = 1 and a constant feed-forward of 1, the outputs alternate 1, 0
         // rather than running away.
@@ -911,10 +968,22 @@ mod tests {
         put(&mut g, ADDEND, &vec![1.0f32; 16]);
         stack_args(&mut g, MIXED, COPY, 1);
         one_pole_stage(
-            &mut g, 16, ADDEND as u64, SOURCE as u64, FRAME, 1.0, 0.0, 0.0, 0.0, 0.0,
+            &mut g,
+            16,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         )
         .unwrap();
-        assert_eq!(get(&g, MIXED, 8), vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(
+            get(&g, MIXED, 8),
+            vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+        );
     }
 
     #[test]
@@ -936,16 +1005,34 @@ mod tests {
         stack_args(&mut g, MIXED, COPY, 0); // the clear flag
 
         one_pole_stage(
-            &mut g, 16, ADDEND as u64, SOURCE as u64, FRAME, POLE, FEED, BUS_COEFF, BUS_GAIN, 0.0,
+            &mut g,
+            16,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            POLE,
+            FEED,
+            BUS_COEFF,
+            BUS_GAIN,
+            0.0,
         )
         .unwrap();
 
         // The run accumulated onto zeroes, not onto the 9.0s.
-        let (_, want_copy, _) =
-            model(16, &addend_ramp(16), &source_ramp(17), &vec![0.0f32; 16], 0.0);
+        let (_, want_copy, _) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![0.0f32; 16],
+            0.0,
+        );
         assert_eq!(get(&g, COPY, 16), want_copy);
         // And the second half of the 128-byte line was zeroed even though no sample reaches it.
-        assert_eq!(get(&g, COPY + 64, 16), vec![0.0f32; 16], "the rest of the cache line");
+        assert_eq!(
+            get(&g, COPY + 64, 16),
+            vec![0.0f32; 16],
+            "the rest of the cache line"
+        );
         assert_eq!(g.f32(COPY + 128).unwrap(), 9.0, "and not the line after it");
     }
 
@@ -964,11 +1051,24 @@ mod tests {
         stack_args(&mut g, MIXED, COPY, 0); // the clear flag
 
         one_pole_stage(
-            &mut g, 32, ADDEND as u64, SOURCE as u64, FRAME, POLE, FEED, BUS_COEFF, BUS_GAIN, 0.0,
+            &mut g,
+            32,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            POLE,
+            FEED,
+            BUS_COEFF,
+            BUS_GAIN,
+            0.0,
         )
         .unwrap();
 
-        assert_eq!(g.f32(COPY + 128).unwrap(), 9.0, "the line after a one-line span");
+        assert_eq!(
+            g.f32(COPY + 128).unwrap(),
+            9.0,
+            "the line after a one-line span"
+        );
     }
 
     #[test]
@@ -978,10 +1078,13 @@ mod tests {
         for flag in [1u32, 0xFFFF_FFFF, 0x8000_0000] {
             let bus_in = vec![9.0f32; 16];
             let (_, _, copy, _) = run(16, SOURCE, flag, &bus_in, 0.0);
-            let (_, want_copy, _) =
-                model(16, &addend_ramp(16), &source_ramp(17), &bus_in, 0.0);
+            let (_, want_copy, _) = model(16, &addend_ramp(16), &source_ramp(17), &bus_in, 0.0);
             assert_eq!(copy, want_copy, "flag {flag:#x}");
-            assert_ne!(copy[0], want_copy[0] - 9.0, "the 9.0 has to be visible in the answer");
+            assert_ne!(
+                copy[0],
+                want_copy[0] - 9.0,
+                "the 9.0 has to be visible in the answer"
+            );
         }
     }
 
@@ -999,20 +1102,41 @@ mod tests {
         put(&mut g, ADDEND, &addend_ramp(16));
         stack_args(&mut g, MIXED, COPY, 1);
         one_pole_stage(
-            &mut g, 16, ADDEND as u64, SOURCE as u64, FRAME, POLE, FEED, BUS_COEFF, BUS_GAIN, 0.0,
+            &mut g,
+            16,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            POLE,
+            FEED,
+            BUS_COEFF,
+            BUS_GAIN,
+            0.0,
         )
         .unwrap();
 
         assert_eq!(
             words(&g, PERM_TABLE, 8),
             vec![
-                0x0001_0203, 0x0405_0607, 0x0809_0A0B, 0x0C0D_0E0F, 0x1011_1213, 0x1415_1617,
-                0x1819_1A1B, 0x1C1D_1E1F
+                0x0001_0203,
+                0x0405_0607,
+                0x0809_0A0B,
+                0x0C0D_0E0F,
+                0x1011_1213,
+                0x1415_1617,
+                0x1819_1A1B,
+                0x1C1D_1E1F
             ],
             "byte indices 0x00..0x1F, ascending"
         );
         // And the windows it formed from the rebuilt table are the right ones.
-        let (want_mixed, _, _) = model(16, &addend_ramp(16), &source_ramp(17), &vec![0.0f32; 16], 0.0);
+        let (want_mixed, _, _) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![0.0f32; 16],
+            0.0,
+        );
         assert_eq!(get(&g, MIXED, 16), want_mixed);
     }
 
@@ -1033,15 +1157,33 @@ mod tests {
         }
 
         one_pole_stage(
-            &mut g, 16, ADDEND as u64, SOURCE as u64, FRAME, POLE, FEED, BUS_COEFF, BUS_GAIN, 0.0,
+            &mut g,
+            16,
+            ADDEND as u64,
+            SOURCE as u64,
+            FRAME,
+            POLE,
+            FEED,
+            BUS_COEFF,
+            BUS_GAIN,
+            0.0,
         )
         .unwrap();
 
-        let (want_mixed, want_copy, _) =
-            model(16, &addend_ramp(16), &source_ramp(17), &vec![0.0f32; 16], 0.0);
+        let (want_mixed, want_copy, _) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![0.0f32; 16],
+            0.0,
+        );
         assert_eq!(get(&g, alt_mixed, 16), want_mixed);
         assert_eq!(get(&g, alt_copy, 16), want_copy);
-        assert_eq!(words(&g, MIXED, 16), vec![0x7F7F_7F7F; 16], "the default was written");
+        assert_eq!(
+            words(&g, MIXED, 16),
+            vec![0x7F7F_7F7F; 16],
+            "the default was written"
+        );
         assert_eq!(words(&g, COPY, 16), vec![0x7F7F_7F7F; 16]);
     }
 
@@ -1057,7 +1199,17 @@ mod tests {
 
     /// The gain block and descriptor [`run_stage`] reads.
     fn dispatcher(g: &mut Guest, select: u32) {
-        put(g, GAINS + GAIN0, &[POLE as f32, FEED as f32, BUS_COEFF as f32, BUS_GAIN as f32, 0.0]);
+        put(
+            g,
+            GAINS + GAIN0,
+            &[
+                POLE as f32,
+                FEED as f32,
+                BUS_COEFF as f32,
+                BUS_GAIN as f32,
+                0.0,
+            ],
+        );
         g.set_u32(DESC + DESC_ADDEND, ADDEND).unwrap();
         g.set_u32(DESC + DESC_SOURCE, SOURCE).unwrap();
         g.set_u32(DESC + DESC_SELECT, select).unwrap();
@@ -1075,8 +1227,13 @@ mod tests {
 
         run_stage(&mut g, GAINS, 16, 1, DESC, SP).unwrap();
 
-        let (want_mixed, want_copy, want_state) =
-            model(16, &addend_ramp(16), &source_ramp(17), &vec![3.0f32; 16], 0.0);
+        let (want_mixed, want_copy, want_state) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![3.0f32; 16],
+            0.0,
+        );
         assert_eq!(get(&g, MIXED, 16), want_mixed);
         assert_eq!(get(&g, COPY, 16), want_copy);
         // stfs f1,32(r31): the kernel's f1, narrowed to a single, is the next call's f5.
@@ -1135,7 +1292,11 @@ mod tests {
 
         run_stage(&mut g, GAINS, 16, 0x5A5A, DESC, SP).unwrap();
 
-        assert_eq!(g.u32(FRAME + ARG_MIXED).unwrap(), MIXED, "desc[16] -> 84(r1)");
+        assert_eq!(
+            g.u32(FRAME + ARG_MIXED).unwrap(),
+            MIXED,
+            "desc[16] -> 84(r1)"
+        );
         assert_eq!(g.u32(FRAME + ARG_COPY).unwrap(), COPY, "desc[20] -> 92(r1)");
         assert_eq!(g.u32(FRAME + ARG_CLEAR).unwrap(), 0x5A5A, "r5 -> 100(r1)");
         // stwu r1,-128(r1) writes the back chain at the new frame's first word.
@@ -1160,8 +1321,20 @@ mod tests {
         put(&mut one, COPY, &vec![9.0f32; 16]);
         run_stage(&mut one, GAINS, 16, 1, DESC, SP).unwrap();
 
-        let (_, cleared, _) = model(16, &addend_ramp(16), &source_ramp(17), &vec![0.0f32; 16], 0.0);
-        let (_, kept, _) = model(16, &addend_ramp(16), &source_ramp(17), &vec![9.0f32; 16], 0.0);
+        let (_, cleared, _) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![0.0f32; 16],
+            0.0,
+        );
+        let (_, kept, _) = model(
+            16,
+            &addend_ramp(16),
+            &source_ramp(17),
+            &vec![9.0f32; 16],
+            0.0,
+        );
         assert_eq!(get(&zero, COPY, 16), cleared, "r5 == 0 establishes the bus");
         assert_eq!(get(&one, COPY, 16), kept, "r5 != 0 accumulates onto it");
     }
@@ -1186,10 +1359,18 @@ mod tests {
         run_stage(&mut g, GAINS, 16, 0, DESC, SP).unwrap();
 
         assert_eq!(get(&g, COPY, 16), vec![0.0f32; 16], "the buffer is cleared");
-        assert_eq!(g.f32(COPY + 64).unwrap(), 9.0, "and not one byte past 4·count");
+        assert_eq!(
+            g.f32(COPY + 64).unwrap(),
+            9.0,
+            "and not one byte past 4·count"
+        );
         assert_eq!(words(&g, MIXED, 16), vec![0x7F7F_7F7F; 16], "no kernel ran");
         assert_eq!(g.u32(GAINS + GAIN_STATE).unwrap(), 0x1234_5678, "no latch");
-        assert_eq!(words(&g, PERM_TABLE, 8), vec![0xA5A5_A5A5; 8], "no permute table");
+        assert_eq!(
+            words(&g, PERM_TABLE, 8),
+            vec![0xA5A5_A5A5; 8],
+            "no permute table"
+        );
     }
 
     #[test]
@@ -1201,8 +1382,16 @@ mod tests {
         dispatcher(&mut g, 1);
         put(&mut g, COPY, &vec![9.0f32; 20]);
         run_stage(&mut g, GAINS, 0xDEAD_0000_0000_0003, 0, DESC, SP).unwrap();
-        assert_eq!(get(&g, COPY, 3), vec![0.0f32; 3], "three words of the low half");
-        assert_eq!(g.f32(COPY + 12).unwrap(), 9.0, "and the high half was dropped");
+        assert_eq!(
+            get(&g, COPY, 3),
+            vec![0.0f32; 3],
+            "three words of the low half"
+        );
+        assert_eq!(
+            g.f32(COPY + 12).unwrap(),
+            9.0,
+            "and the high half was dropped"
+        );
 
         // A zero count clears nothing and never touches the address, which is `crate::mem`'s contract.
         let mut h = guest();
@@ -1227,7 +1416,12 @@ mod tests {
         let base_mixed = get(&base_g, MIXED, 16);
         let base_copy = get(&base_g, COPY, 16);
 
-        for (slot, name) in [(GAIN0, "pole"), (GAIN1, "feed"), (GAIN2, "bus_coeff"), (GAIN3, "bus_gain")] {
+        for (slot, name) in [
+            (GAIN0, "pole"),
+            (GAIN1, "feed"),
+            (GAIN2, "bus_coeff"),
+            (GAIN3, "bus_gain"),
+        ] {
             let mut g = guest();
             baseline(&mut g);
             g.set_u32(GAINS + slot, 0.375f32.to_bits()).unwrap();
@@ -1239,9 +1433,15 @@ mod tests {
         // And the fifth is the one that also seeds the recursion.
         let mut seeded = guest();
         baseline(&mut seeded);
-        seeded.set_u32(GAINS + GAIN_STATE, 2.0f32.to_bits()).unwrap();
+        seeded
+            .set_u32(GAINS + GAIN_STATE, 2.0f32.to_bits())
+            .unwrap();
         run_stage(&mut seeded, GAINS, 16, 1, DESC, SP).unwrap();
-        assert_ne!(get(&seeded, MIXED, 16), base_mixed, "f5 seeds the recursion");
+        assert_ne!(
+            get(&seeded, MIXED, 16),
+            base_mixed,
+            "f5 seeds the recursion"
+        );
     }
 
     #[test]
@@ -1262,7 +1462,11 @@ mod tests {
         assert_eq!(quarter_to_zero(256), 64);
         assert_eq!(quarter_to_zero(7), 1);
         assert_eq!(quarter_to_zero(-7), -1, ">> 2 would give -2");
-        assert_eq!(quarter_to_zero(-8), -2, "an exact multiple needs no correction");
+        assert_eq!(
+            quarter_to_zero(-8),
+            -2,
+            "an exact multiple needs no correction"
+        );
         assert_eq!(quarter_to_zero(0), 0);
     }
 }

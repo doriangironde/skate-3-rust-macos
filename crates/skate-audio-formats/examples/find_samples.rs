@@ -10,24 +10,34 @@ use skate_audio_formats::{banks, eb};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let path = args.next().ok_or("usage: find_samples ARCHIVE INDEX:WORD...")?;
+    let path = args
+        .next()
+        .ok_or("usage: find_samples ARCHIVE INDEX:WORD...")?;
     // An index of None is `*`: any slot.
     let wanted: Vec<(Option<usize>, u32)> = args
         .map(|a| {
             let (i, w) = a.split_once(':').ok_or("INDEX:WORD")?;
-            let index = if i == "*" { None } else { Some(usize::from_str_radix(i, 16)?) };
+            let index = if i == "*" {
+                None
+            } else {
+                Some(usize::from_str_radix(i, 16)?)
+            };
             Ok((index, u32::from_str_radix(w, 16)?))
         })
         .collect::<Result<_, Box<dyn std::error::Error>>>()?;
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
     for entry in &archive.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".abk") || entry.is_compressed() {
             continue;
         }
         let bytes = &data[entry.range()];
-        let Ok(abk) = banks::Abk::parse(bytes) else { continue };
+        let Ok(abk) = banks::Abk::parse(bytes) else {
+            continue;
+        };
         let mut hits = Vec::new();
         for &(index, word) in &wanted {
             let slots: Vec<usize> = match index {
@@ -35,11 +45,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None => (0..abk.samples.len()).collect(),
             };
             for slot in slots {
-                let Some(range) = abk.sample_range(slot) else { continue };
+                let Some(range) = abk.sample_range(slot) else {
+                    continue;
+                };
                 if range.len() < 8 {
                     continue;
                 }
-                let second = u32::from_be_bytes(bytes[range.start + 4..range.start + 8].try_into()?);
+                let second =
+                    u32::from_be_bytes(bytes[range.start + 4..range.start + 8].try_into()?);
                 if second == word {
                     match index {
                         Some(i) => hits.push(format!("{i:x}:{word:x}")),
@@ -50,7 +63,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if !hits.is_empty() {
             let exports: Vec<&str> = abk.exports.iter().map(|e| e.name.as_str()).collect();
-            println!("{name}: {} of {} match [{}], exports {:?}", hits.len(), wanted.len(), hits.join(" "), exports);
+            println!(
+                "{name}: {} of {} match [{}], exports {:?}",
+                hits.len(),
+                wanted.len(),
+                hits.join(" "),
+                exports
+            );
         }
     }
     Ok(())

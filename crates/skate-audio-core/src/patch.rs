@@ -18,7 +18,8 @@
 //! | `sub_828E2D18` | [`redeliver`]: hand a held message's rewritten payload to its instances again |
 //! | `sub_828E2E08`, `sub_828E2EA0` | the unregister helpers (`sub_828E30B8` and `sub_828E2D78` are the verified ports in `voices.rs`) |
 //!
-//! Evaluator slot 27, the voice op, is in [`crate::voice`]; [`PatchHost`] runs it and slot 4.
+//! Evaluator slot 27, the voice op, is in [`crate::voice`]; [`PatchHost`] runs it and the two
+//! host-bound slots 4 and 5.
 //!
 //! What is left out, and why: the audio system's critical section around the installer and the
 //! listener, which only serialises threads; the installer's registration of an `AEMS` unload handler
@@ -102,10 +103,197 @@ impl crate::eval::interp::Host for PatchHost<'_> {
     fn op(&mut self, g: &mut Guest, opcode: u8, block: u32) -> Option<Result<u64>> {
         match opcode {
             4 => Some(end_instance(g, self.heap, self.device, block)),
+            5 => Some(clamp_and_broadcast(g, block)),
             27 => Some(voice_op(g, self.device, block)),
+            39 => Some(latch_and_notify(g, block)),
             _ => None,
         }
     }
+}
+
+/// Best-effort, non-failing read of a short NUL-terminated guest string, for diagnostics only.
+fn read_cstr(g: &Guest, ea: u32, max: u32) -> String {
+    let mut out = Vec::new();
+    for i in 0..max {
+        match g.u8(ea + i) {
+            Ok(0) | Err(_) => break,
+            Ok(b) => out.push(b),
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `ea..ea+len` falls inside any mapped guest segment, without dereferencing it.
+fn is_mapped(g: &Guest, ea: u32, len: u32) -> bool {
+    g.segments()
+        .iter()
+        .any(|s| ea >= s.base && (ea - s.base) as u64 + len as u64 <= s.bytes.len() as u64)
+}
+
+/// `sub_828E29C0`: validate a table-1 broadcast handle, then call every subscriber with `values`.
+///
+/// The handle is `{symbol, generation}`. The symbol owns the subscriber-list head at `+0` and its
+/// current generation at `+8`; subscriber nodes are `{next, prev, function, context}`. The recovered
+/// player banks use [`ON_BROADCAST`], whose callback copies the words and sets the arrival flag.
+/// Expected handle failures are returned as the guest's negative status rather than promoted to a
+/// host error. An unknown callback remains an explicit error.
+///
+/// `symbol` is either a table-1 export written by [`install_bank`]'s export loop
+/// (`lookup_table1`), or, in at least one confirmed shipped record (`Rolling_Rattle_Class` in
+/// `Rolling_Rattles.abk`), a small compiled placeholder (observed value `1`) that stays in place
+/// until some other, not-yet-identified retail object broadcasts a real value through it. Real
+/// retail traces (`D:\skate3-audio-captures\...\retail-audio*.log`) show the live Xbox 360
+/// process carries this exact same placeholder across dozens of captured deliveries of the same
+/// object while rattle audio keeps playing, which is not a mappable guest/process address either
+/// — so retail's own `sub_828E29C0` must already tolerate it as gracefully as it tolerates
+/// `symbol == 0` below. A guest lookup failure would also leave the same kind of raw literal in
+/// place. Either way, an unmapped `symbol` is treated as "no holder yet" (status `-6`, silently
+/// skipping the broadcast) instead of being dereferenced, which previously surfaced only as an
+/// opaque "no segment covers this address" host fault that killed the whole audio worker. Set
+/// `SKATE_AUDIO_BROADCAST_TRACE=1` to log every time this path is taken, for tracking down the
+/// real broadcaster later (see docs/wheel-audio-handoff-2026-09-17.md).
+fn broadcast(g: &mut Guest, binding: u32, values: u32) -> Result<i32> {
+    let generation = g.u32(binding + 4)?;
+    if (generation as i32) < 0 {
+        return Ok(generation as i32);
+    }
+    let symbol = g.u32(binding)?;
+    if symbol == 0 {
+        return Ok(-6);
+    }
+    if !is_mapped(g, symbol, 12) {
+        if std::env::var_os("SKATE_AUDIO_BROADCAST_TRACE").is_some() {
+            eprintln!(
+                "SKATE_AUDIO_BROADCAST skipped: binding {binding:#010x} has unresolved symbol \
+                 {symbol:#010x} (generation {generation:#010x})"
+            );
+        }
+        return Ok(-6);
+    }
+    if generation != g.u32(symbol + 8)? {
+        g.set_u32(binding + 4, (-3i32) as u32)?;
+        g.set_u32(binding, 0)?;
+        return Ok(-3);
+    }
+    let mut subscriber = g.u32(symbol)?;
+    if subscriber == 0 {
+        return Ok(-4);
+    }
+    while subscriber != 0 {
+        let function = g.u32(subscriber + 8)?;
+        let context = g.u32(subscriber + 12)?;
+        match function {
+            ON_BROADCAST => on_broadcast(g, values, context)?,
+            other => {
+                return Err(Error::new(
+                    other,
+                    format!("broadcast callback {other:#010x} is not implemented"),
+                ));
+            }
+        }
+        subscriber = g.u32(subscriber)?;
+    }
+    Ok(0)
+}
+
+/// Evaluator slot 5, `sub_82B1C210`: optionally clamp each outgoing word to its signed range,
+/// then broadcast the words through the generation-checked table-1 handle. Always returns zero;
+/// the guest deliberately ignores the broadcast helper's ordinary negative status codes.
+fn clamp_and_broadcast(g: &mut Guest, block: u32) -> Result<u64> {
+    let ranged = g.u8(block + 8)? != 0;
+    let count = g.u8(block + 9)? as u32;
+    let binding = if ranged {
+        block + 12 + count * 8
+    } else {
+        block + 12
+    };
+    if ranged {
+        for i in 0..count {
+            let range = block + 12 + i * 8;
+            let minimum = g.u32(range)? as i32;
+            let maximum = g.u32(range + 4)? as i32;
+            let at = binding + 4 + i * 4;
+            let value = g.u32(at)? as i32;
+            let value = if value < minimum {
+                minimum
+            } else if value > maximum {
+                maximum
+            } else {
+                value
+            };
+            g.set_u32(at, value as u32)?;
+        }
+    }
+    if g.u32(binding)? != 0 {
+        let _ = broadcast(g, binding, binding + 4)?;
+    }
+    Ok(0)
+}
+
+/// Evaluator slot 39, `sub_82B1C450`: publish a changed requested setpoint.
+///
+/// The operand is both a `{holder, generation}` handle at `+0/+4` and the
+/// `{low, high, applied, requested}` control at `+8..+20`. The retail helper
+/// (`sub_828E2F38`) gives each registered table-2 listener the address of the
+/// holder's value cell. Player banks use the known `ON_SUBSCRIBE` callback for
+/// this path, which copies that word into the listener state at `+24`. An unmapped `holder` is
+/// treated as "no holder yet" rather than dereferenced; see [`broadcast`]'s doc comment for the
+/// retail evidence behind that choice.
+fn latch_and_notify(g: &mut Guest, block: u32) -> Result<u64> {
+    let requested = g.u32(block + 20)? as i32;
+    if g.u32(block + 16)? as i32 == requested {
+        return Ok(0);
+    }
+    let low = g.u32(block + 8)? as i32;
+    let high = g.u32(block + 12)? as i32;
+    // The applied word retains the raw request; only the published value is clamped.
+    g.set_u32(block + 16, requested as u32)?;
+    let published = requested.clamp(low, high) as u32;
+
+    let generation = g.u32(block + 4)?;
+    if (generation as i32) < 0 {
+        return Ok(0);
+    }
+    let holder = g.u32(block)?;
+    if holder == 0 {
+        return Ok(0);
+    }
+    if !is_mapped(g, holder, 16) {
+        // Same reasoning as broadcast()'s symbol check above: an unmapped holder is treated as
+        // "no holder yet" rather than dereferenced and crashed on.
+        if std::env::var_os("SKATE_AUDIO_BROADCAST_TRACE").is_some() {
+            eprintln!(
+                "SKATE_AUDIO_BROADCAST skipped: slot-39 handle at {block:#010x} has unresolved \
+                 holder {holder:#010x} (generation {generation:#010x})"
+            );
+        }
+        return Ok(0);
+    }
+    if generation as i32 != g.u32(holder + 12)? as i32 {
+        g.set_u32(block + 4, (-3i32) as u32)?;
+        g.set_u32(block, 0)?;
+        return Ok(0);
+    }
+    if g.u32(holder + 4)? == published {
+        return Ok(0);
+    }
+    let mut listener = g.u32(holder)?;
+    g.set_u32(holder + 4, published)?;
+    while listener != 0 {
+        let function = g.u32(listener + 8)?;
+        let context = g.u32(listener + 12)?;
+        match function {
+            ON_SUBSCRIBE => g.set_u32(context + 24, published)?,
+            other => {
+                return Err(Error::new(
+                    other,
+                    format!("slot-39 listener callback {other:#010x} is not implemented"),
+                ));
+            }
+        }
+        listener = g.u32(listener)?;
+    }
+    Ok(0)
 }
 
 /// Unlink a `{next, prev}` item from its neighbours, the way every helper here does: the previous
@@ -127,7 +315,12 @@ fn unlink(g: &mut Guest, item: u32) -> Result<()> {
 /// Evaluator slot 4, `sub_82B1C150`: when `triple+12` is set, unlink the instance from its record's
 /// live list and from the interpreter's list, then free it. `triple` is the instance's
 /// `{record, instance, post node}` back-pointer block. Always returns 0.
-pub fn end_instance(g: &mut Guest, heap: &mut dyn Heap, device: &mut dyn VoiceDevice, triple: u32) -> Result<u64> {
+pub fn end_instance(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    device: &mut dyn VoiceDevice,
+    triple: u32,
+) -> Result<u64> {
     if g.u32(triple + 12)? as i32 == 0 {
         return Ok(0);
     }
@@ -152,7 +345,12 @@ pub fn end_instance(g: &mut Guest, heap: &mut dyn Heap, device: &mut dyn VoiceDe
 
 /// `sub_82B1BF98`: take an instance's entries off every list they joined, release what it owns,
 /// drop the record's live count and free the instance.
-fn free_instance(g: &mut Guest, heap: &mut dyn Heap, device: &mut dyn VoiceDevice, triple: u32) -> Result<()> {
+fn free_instance(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    device: &mut dyn VoiceDevice,
+    triple: u32,
+) -> Result<()> {
     let record = g.u32(triple)?;
     let mut entry = g.u32(triple + 4)?.wrapping_add(24);
     if g.u8(record + 37)? != 0 {
@@ -238,7 +436,13 @@ fn free_instance(g: &mut Guest, heap: &mut dyn Heap, device: &mut dyn VoiceDevic
 
 /// `sub_828E2E08` (`list_at` 12) and `sub_828E2EA0` (`list_at` 8): take `item` off one of a post
 /// node's callback lists, drop the node's reference and free it at zero.
-fn unregister_node_callback(g: &mut Guest, heap: &mut dyn Heap, node: u32, item: u32, list_at: u32) -> Result<()> {
+fn unregister_node_callback(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    node: u32,
+    item: u32,
+    list_at: u32,
+) -> Result<()> {
     let head = g.u32(node + list_at)?;
     if item == head {
         let next = g.u32(head)?;
@@ -263,7 +467,12 @@ pub fn release_message(g: &mut Guest, heap: &mut dyn Heap, node: u32) -> Result<
         let ctx = g.u32(callback + 12)?;
         match function {
             ON_RELEASE => on_release(g, ctx)?,
-            other => return Err(Error::new(other, format!("release callback {other:#010x} is not implemented"))),
+            other => {
+                return Err(Error::new(
+                    other,
+                    format!("release callback {other:#010x} is not implemented"),
+                ));
+            }
         }
         callback = next;
     }
@@ -373,11 +582,18 @@ pub fn install_bank(g: &mut Guest, bank: u32, fixups: u32, sp: u32) -> Result<bo
             let slot = g.u32(entry)?.wrapping_add(bank);
             g.set_u16(query + 4, project)?;
             g.set_u16(query + 6, name_id)?;
-            match kind {
+            let resolved = match kind {
                 0 => lookup_table2(g, slot, query)?,
                 1 => lookup_table1(g, slot, query)?,
                 _ => lookup_table0(g, slot, query)?,
             };
+            if resolved.status != 0 && std::env::var_os("SKATE_AUDIO_EXPORT_TRACE").is_some() {
+                eprintln!(
+                    "SKATE_AUDIO_EXPORT unresolved bank={bank:#010x} slot={slot:#010x} kind={kind} \
+                     project={project:#06x} name_id={name_id:#06x} name={:?}",
+                    read_cstr(g, record + 4, 64)
+                );
+            }
             j += 1;
             entry += 12;
             if !(j < g.u32(exports)? as i32) {
@@ -439,7 +655,13 @@ pub fn install_bank(g: &mut Guest, bank: u32, fixups: u32, sp: u32) -> Result<bo
 /// `sub_828E2B48`: post the message whose payload is at `payload` to the object in `slot`. Returns
 /// 0, the slot's own negative id, -6 for an empty slot, -3 for a stale one, or -1 when the heap is
 /// out of memory. On success `message` receives the post's node.
-pub fn post(g: &mut Guest, heap: &mut dyn Heap, slot: u32, payload: u32, message: u32) -> Result<i32> {
+pub fn post(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    slot: u32,
+    payload: u32,
+    message: u32,
+) -> Result<i32> {
     g.set_u32(message, 0)?; // stw r29,0(r5)
     let id = g.u32(slot + 4)?;
     if (id as i32) < 0 {
@@ -495,22 +717,41 @@ pub fn redeliver(g: &mut Guest, node: u32, payload: u32) -> Result<i32> {
     Ok(0)
 }
 
-fn call_listener(g: &mut Guest, heap: &mut dyn Heap, function: u32, node: u32, payload: u32, ctx: u32) -> Result<()> {
+fn call_listener(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    function: u32,
+    node: u32,
+    payload: u32,
+    ctx: u32,
+) -> Result<()> {
     match function {
         LISTENER => listener(g, heap, node, payload, ctx),
-        other => Err(Error::new(other, format!("listener {other:#010x} is not implemented"))),
+        other => Err(Error::new(
+            other,
+            format!("listener {other:#010x} is not implemented"),
+        )),
     }
 }
 
 fn call_payload_callback(g: &mut Guest, function: u32, payload: u32, ctx: u32) -> Result<()> {
     match function {
         ON_PAYLOAD => copy_words(g, payload, ctx, 16, 20, None),
-        other => Err(Error::new(other, format!("payload callback {other:#010x} is not implemented"))),
+        other => Err(Error::new(
+            other,
+            format!("payload callback {other:#010x} is not implemented"),
+        )),
     }
 }
 
 /// `sub_82B1DAD0`: a post reached an input record; spawn an instance if there is capacity.
-fn listener(g: &mut Guest, heap: &mut dyn Heap, node: u32, _payload: u32, record: u32) -> Result<()> {
+fn listener(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    node: u32,
+    _payload: u32,
+    record: u32,
+) -> Result<()> {
     let capacity = g.u16(record + 30)? as i16;
     let live = g.u16(record + 28)? as i16;
     if live < capacity {
@@ -532,7 +773,12 @@ fn listener(g: &mut Guest, heap: &mut dyn Heap, node: u32, _payload: u32, record
 
 /// `sub_82B1D880`: copy `record`'s template into a new instance and wire its entries to the post
 /// `node` and to the symbols they subscribe to. Returns the instance, or 0.
-pub fn allocate_instance(g: &mut Guest, heap: &mut dyn Heap, node: u32, record: u32) -> Result<u32> {
+pub fn allocate_instance(
+    g: &mut Guest,
+    heap: &mut dyn Heap,
+    node: u32,
+    record: u32,
+) -> Result<u32> {
     let size = g.u32(record + 48)?;
     let instance = heap.alloc(g, size, 16)?; // allocator vtable +4: size, tag 0x82124690, align 16
     if instance == 0 {
@@ -674,7 +920,12 @@ pub fn subscribe(g: &mut Guest, binding: u32, node: u32) -> Result<i32> {
             let value = g.u32(symbol + 4)?;
             g.set_u32(ctx + 24, value)?;
         }
-        other => return Err(Error::new(other, format!("subscription callback {other:#010x} is not implemented"))),
+        other => {
+            return Err(Error::new(
+                other,
+                format!("subscription callback {other:#010x} is not implemented"),
+            ));
+        }
     }
     Ok(0)
 }
@@ -682,7 +933,14 @@ pub fn subscribe(g: &mut Guest, binding: u32, node: u32) -> Result<i32> {
 /// `sub_82B1D808` (count at `+16`, words from `+20`) and `sub_82B1D840` (count at `+24`, words from
 /// `+28`, then the arrival flag at `+25`): copy `count` words from `src` into the entry. The count
 /// is reloaded on every trip.
-fn copy_words(g: &mut Guest, src: u32, ctx: u32, count_at: u32, dst_at: u32, flag_at: Option<u32>) -> Result<()> {
+fn copy_words(
+    g: &mut Guest,
+    src: u32,
+    ctx: u32,
+    count_at: u32,
+    dst_at: u32,
+    flag_at: Option<u32>,
+) -> Result<()> {
     let mut i = 0i32;
     if g.u8(ctx + count_at)? != 0 {
         loop {
@@ -778,7 +1036,13 @@ mod tests {
         bank(&mut g);
         let (id, first) = load_bank(&mut g, BANK, STACK).unwrap();
         assert_eq!((id, first), (1, true));
-        (g, BumpHeap { next: HEAP, end: HEAP + 0x1000 })
+        (
+            g,
+            BumpHeap {
+                next: HEAP,
+                end: HEAP + 0x1000,
+            },
+        )
     }
 
     #[test]
@@ -786,13 +1050,29 @@ mod tests {
         let (g, _) = installed();
         let rec = BANK + 0x5C;
         assert_eq!(g.u32(BANK + 0x300).unwrap(), 0x123 + BANK, "the rebase");
-        assert_eq!(g.u32(rec + 4).unwrap(), CSI + 40, "the export bound by name on the second pass");
+        assert_eq!(
+            g.u32(rec + 4).unwrap(),
+            CSI + 40,
+            "the export bound by name on the second pass"
+        );
         assert_eq!(g.u32(rec + 40).unwrap(), BANK + 0x180);
         assert_eq!(g.u32(rec + 44).unwrap(), BANK + 0x200);
         assert_eq!(g.u32(rec + 20).unwrap(), LISTENER);
-        assert_eq!(g.u32(rec + 24).unwrap(), rec, "the listener's context is the record");
-        assert_eq!(g.u32(CSI + 40).unwrap(), rec + 12, "the listener node heads the symbol's list");
-        assert_eq!(g.u32(BANK + 0x200 + 56).unwrap(), BANK, "the template's back-pointer");
+        assert_eq!(
+            g.u32(rec + 24).unwrap(),
+            rec,
+            "the listener's context is the record"
+        );
+        assert_eq!(
+            g.u32(CSI + 40).unwrap(),
+            rec + 12,
+            "the listener node heads the symbol's list"
+        );
+        assert_eq!(
+            g.u32(BANK + 0x200 + 56).unwrap(),
+            BANK,
+            "the template's back-pointer"
+        );
         assert_eq!(g.u32(BANK_LIST).unwrap(), BANK + 80);
     }
 
@@ -813,14 +1093,26 @@ mod tests {
         let instance = g.u32(rec + 56).unwrap();
         assert_ne!(instance, 0);
         assert_eq!(g.u16(rec + 28).unwrap(), 1, "one live instance");
-        assert_eq!(g.u32(LIST_HEAD).unwrap(), instance + 8, "queued for the interpreter");
+        assert_eq!(
+            g.u32(LIST_HEAD).unwrap(),
+            instance + 8,
+            "queued for the interpreter"
+        );
         assert_eq!(g.u32(instance + 16).unwrap(), BANK + 0x180, "node program");
         assert_eq!(g.u32(instance + 20).unwrap(), instance + 24, "node block");
-        assert_eq!(g.u32(instance + 72).unwrap(), rec, "back-pointer triple at +72");
+        assert_eq!(
+            g.u32(instance + 72).unwrap(),
+            rec,
+            "back-pointer triple at +72"
+        );
         assert_eq!(g.u32(instance + 24 + 20).unwrap(), 0xAAAA, "payload word 0");
         assert_eq!(g.u32(instance + 24 + 24).unwrap(), 0xBBBB, "payload word 1");
         let node = g.u32(MSG).unwrap();
-        assert_eq!(g.u32(node + 4).unwrap(), 2, "the payload callback took a reference");
+        assert_eq!(
+            g.u32(node + 4).unwrap(),
+            2,
+            "the payload callback took a reference"
+        );
     }
 
     #[test]
@@ -833,7 +1125,10 @@ mod tests {
         w(&mut g, MSG + 4, &[32767, 7]);
         let node = g.u32(MSG).unwrap();
         assert_eq!(redeliver(&mut g, node, MSG + 4).unwrap(), 0);
-        assert_eq!((g.u32(instance + 44).unwrap(), g.u32(instance + 48).unwrap()), (32767, 7));
+        assert_eq!(
+            (g.u32(instance + 44).unwrap(), g.u32(instance + 48).unwrap()),
+            (32767, 7)
+        );
     }
 
     #[test]
@@ -852,8 +1147,15 @@ mod tests {
         resolve_game_slot(&mut g);
         g.set_u32(SLOT + 4, 0x09C5_7777).unwrap();
         assert_eq!(post(&mut g, &mut heap, SLOT, MSG + 4, MSG).unwrap(), -3);
-        assert_eq!((g.u32(SLOT).unwrap(), g.u32(SLOT + 4).unwrap()), (0, (-3i32) as u32));
-        assert_eq!(post(&mut g, &mut heap, SLOT, MSG + 4, MSG).unwrap(), -3, "now its own negative id");
+        assert_eq!(
+            (g.u32(SLOT).unwrap(), g.u32(SLOT + 4).unwrap()),
+            (0, (-3i32) as u32)
+        );
+        assert_eq!(
+            post(&mut g, &mut heap, SLOT, MSG + 4, MSG).unwrap(),
+            -3,
+            "now its own negative id"
+        );
         g.set_u32(SLOT + 4, 0).unwrap();
         assert_eq!(post(&mut g, &mut heap, SLOT, MSG + 4, MSG).unwrap(), -6);
     }
@@ -867,14 +1169,25 @@ mod tests {
         let instance = g.u32(rec + 56).unwrap();
         let node = g.u32(MSG).unwrap();
         let triple = instance + 72;
-        assert_eq!(end_instance(&mut g, &mut heap, &mut NoDevice, triple).unwrap(), 0);
-        assert_eq!(g.u16(rec + 28).unwrap(), 1, "an unflagged instance is left alone");
+        assert_eq!(
+            end_instance(&mut g, &mut heap, &mut NoDevice, triple).unwrap(),
+            0
+        );
+        assert_eq!(
+            g.u16(rec + 28).unwrap(),
+            1,
+            "an unflagged instance is left alone"
+        );
         g.set_u32(triple + 12, 1).unwrap();
         end_instance(&mut g, &mut heap, &mut NoDevice, triple).unwrap();
         assert_eq!(g.u32(rec + 56).unwrap(), 0, "off the record's live list");
         assert_eq!(g.u32(LIST_HEAD).unwrap(), 0, "off the interpreter's list");
         assert_eq!(g.u16(rec + 28).unwrap(), 0);
-        assert_eq!(g.u32(node + 8).unwrap(), 0, "the payload callback was unregistered");
+        assert_eq!(
+            g.u32(node + 8).unwrap(),
+            0,
+            "the payload callback was unregistered"
+        );
         assert_eq!(g.u32(node + 4).unwrap(), 1, "and gave back its reference");
     }
 
@@ -887,16 +1200,36 @@ mod tests {
         let instance = g.u32(BANK + 0x5C + 56).unwrap();
         // A program at the bank's 0x180 that moves the block to the triple (+48 from +24) and ends
         // the instance.
-        w(&mut g, BANK + 0x180, &[0x0000_0000, 48, 0x0400_0000, 0, 0xFF00_0000]);
+        w(
+            &mut g,
+            BANK + 0x180,
+            &[0x0000_0000, 48, 0x0400_0000, 0, 0xFF00_0000],
+        );
         g.set_u32(instance + 72 + 12, 1).unwrap();
-        for cell in [interp::PERIOD_NUMER, interp::PERIOD_DENOM, interp::SCALE_UNIT] {
+        for cell in [
+            interp::PERIOD_NUMER,
+            interp::PERIOD_DENOM,
+            interp::SCALE_UNIT,
+        ] {
             g.put(cell, 1.0f32.to_bits().to_be_bytes().to_vec());
         }
         g.put(interp::ZERO_SINGLE, vec![0; 4]);
         g.put(interp::SCALE_GLOBAL, vec![0; 16]);
-        let t = tick_with(&mut g, 1.0, &mut PatchHost { heap: &mut heap, device: &mut NoDevice }).unwrap();
+        let t = tick_with(
+            &mut g,
+            1.0,
+            &mut PatchHost {
+                heap: &mut heap,
+                device: &mut NoDevice,
+            },
+        )
+        .unwrap();
         assert_eq!((t.walked, t.ops), (true, 2));
-        assert_eq!(g.u32(LIST_HEAD).unwrap(), 0, "slot 4 took the instance off the list");
+        assert_eq!(
+            g.u32(LIST_HEAD).unwrap(),
+            0,
+            "slot 4 took the instance off the list"
+        );
     }
 
     #[test]
@@ -905,7 +1238,98 @@ mod tests {
         w(&mut g, MEM + 0x10, &[7, 8, 9]);
         g.set_u8(MEM + 0x100 + 24, 2).unwrap();
         on_broadcast(&mut g, MEM + 0x10, MEM + 0x100).unwrap();
-        assert_eq!((g.u32(MEM + 0x100 + 28).unwrap(), g.u32(MEM + 0x100 + 32).unwrap()), (7, 8));
+        assert_eq!(
+            (
+                g.u32(MEM + 0x100 + 28).unwrap(),
+                g.u32(MEM + 0x100 + 32).unwrap()
+            ),
+            (7, 8)
+        );
         assert_eq!(g.u8(MEM + 0x100 + 25).unwrap(), 1);
+    }
+
+    #[test]
+    fn slot_five_clamps_and_runs_the_registered_broadcast_callback() {
+        let mut g = guest();
+        let block = MEM + 0x500;
+        let symbol = MEM + 0x600;
+        let subscriber = MEM + 0x640;
+        let context = MEM + 0x700;
+        let binding = block + 12 + 2 * 8;
+
+        g.set_u8(block + 8, 1).unwrap();
+        g.set_u8(block + 9, 2).unwrap();
+        w(&mut g, block + 12, &[10, 20, (-10i32) as u32, 40]);
+        g.set_u32(binding, symbol).unwrap();
+        g.set_u32(binding + 4, 25).unwrap();
+        g.set_u32(binding + 8, 50).unwrap();
+        g.set_u32(symbol, subscriber).unwrap();
+        g.set_u32(symbol + 8, 20).unwrap();
+        w(&mut g, subscriber, &[0, 0, ON_BROADCAST, context]);
+        g.set_u8(context + 24, 2).unwrap();
+
+        assert_eq!(clamp_and_broadcast(&mut g, block).unwrap(), 0);
+        assert_eq!(
+            (g.u32(binding + 4).unwrap(), g.u32(binding + 8).unwrap()),
+            (20, 40)
+        );
+        assert_eq!(
+            (g.u32(context + 28).unwrap(), g.u32(context + 32).unwrap()),
+            (20, 40)
+        );
+        assert_eq!(g.u8(context + 25).unwrap(), 1);
+    }
+
+    #[test]
+    fn slot_five_invalidates_a_stale_handle_and_still_returns_zero() {
+        let mut g = guest();
+        let block = MEM + 0x500;
+        let symbol = MEM + 0x600;
+        let binding = block + 12;
+        g.set_u32(binding, symbol).unwrap();
+        g.set_u32(binding + 4, 7).unwrap();
+        g.set_u32(symbol + 8, 8).unwrap();
+
+        assert_eq!(clamp_and_broadcast(&mut g, block).unwrap(), 0);
+        assert_eq!(g.u32(binding).unwrap(), 0);
+        assert_eq!(g.u32(binding + 4).unwrap(), (-3i32) as u32);
+    }
+
+    #[test]
+    fn slot_five_skips_an_unrelocated_symbol_instead_of_faulting_blind() {
+        // An unresolved table-1 export, or a retail broadcaster that hasn't run yet, leaves a
+        // small compiled literal (e.g. `9`, or the confirmed real-bank value `1`) in place
+        // instead of a guest pointer. Retail's own traces show this exact literal surviving in
+        // the live Xbox 360 process across dozens of deliveries of the same object while its
+        // audio keeps playing, so this must be tolerated the same way `symbol == 0` already is
+        // (status -6), not promoted to a fatal error that kills the whole audio worker.
+        // Regression case for the retail wheel-audio crash logged in
+        // docs/wheel-audio-handoff-2026-09-17.md (symbol `0x00000009` / `0x00000001`).
+        let mut g = guest();
+        let block = MEM + 0x500;
+        let binding = block + 12;
+        g.set_u32(binding, 9).unwrap(); // never a mapped address
+        g.set_u32(binding + 4, 0).unwrap();
+
+        assert_eq!(clamp_and_broadcast(&mut g, block).unwrap(), 0);
+        // The bogus symbol/generation are left untouched: unlike a stale-generation handle, this
+        // is not known to be permanently dead, so nothing is cleared.
+        assert_eq!(g.u32(binding).unwrap(), 9);
+    }
+
+    #[test]
+    fn slot_thirty_nine_skips_an_unrelocated_holder_instead_of_faulting_blind() {
+        // The table-2 counterpart of the slot-five case above: an unresolved holder must be
+        // skipped, not dereferenced.
+        let mut g = guest();
+        let block = MEM + 0x500;
+        w(&mut g, block + 16, &[0, 1]); // applied=0, requested=1: forces the changed-value path
+        g.set_u32(block, 9).unwrap(); // holder: never a mapped address
+        g.set_u32(block + 4, 0).unwrap(); // generation: not negative, so the holder is reached
+
+        assert_eq!(latch_and_notify(&mut g, block).unwrap(), 0);
+        // The requested value is still latched into "applied" (that store happens before the
+        // holder is ever read); only the broadcast itself is skipped.
+        assert_eq!(g.u32(block + 16).unwrap(), 1);
     }
 }

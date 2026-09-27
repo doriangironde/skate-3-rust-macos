@@ -10,17 +10,25 @@ use skate_audio_formats::{eaac, eb};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let path = args.next().ok_or("usage: verify_blocks <archive> <entry> <channels>")?;
+    let path = args
+        .next()
+        .ok_or("usage: verify_blocks <archive> <entry> <channels>")?;
     let entry: usize = args.next().ok_or("need entry index")?.parse()?;
     let channels: u8 = args.next().ok_or("need channel count")?.parse()?;
 
     let data = std::fs::read(&path)?;
     let archive = eb::Archive::parse(&data)?;
     let member = archive.entries.get(entry).ok_or("entry out of range")?;
-    let payload_all = data.get(member.range()).ok_or("entry range outside archive")?;
+    let payload_all = data
+        .get(member.range())
+        .ok_or("entry range outside archive")?;
 
     let contexts = eaac::context_count(channels);
-    println!("{}  entry {entry} ({})", path, member.name.as_deref().unwrap_or("?"));
+    println!(
+        "{}  entry {entry} ({})",
+        path,
+        member.name.as_deref().unwrap_or("?")
+    );
     println!("  {channels} channels -> {contexts} context(s)");
 
     let mut at = 0usize;

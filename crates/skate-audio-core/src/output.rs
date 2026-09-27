@@ -41,7 +41,7 @@
 //! and the second is not. Reproduced as the original does it; what it is *for* is not established.
 
 use crate::vmx::Fpscr;
-use crate::{fp, interleave, routing, Guest, Result};
+use crate::{Guest, Result, fp, interleave, routing};
 
 const LIS_83060000: u32 = ((-31994i32 as u32) & 0xFFFF) << 16;
 const _: () = assert!(LIS_83060000 == 0x8306_0000, "lis -31994");
@@ -69,7 +69,10 @@ const _: () = assert!(CHANNEL_COUNT_BYTE == 0x8306_705D && RAMP_FLAG_BYTE == 0x8
 const _: () = assert!(PAIR_TABLE == 0x820E_D6CC && OP_TABLE == 0x820E_D6DC);
 const _: () = assert!(CLAMP_HIGH == 0x8231_A844 && CLAMP_LOW == 0x8216_DEE0);
 const _: () = assert!(RAMP_ZERO == 0x8216_5A10 && RAMP_SCALE == 0x8203_00D4);
-const _: () = assert!(CLAMP_HIGH == routing::UNITY_GAIN, "the clamp bound is the mixer's 1.0");
+const _: () = assert!(
+    CLAMP_HIGH == routing::UNITY_GAIN,
+    "the clamp bound is the mixer's 1.0"
+);
 
 /// `lwz r10,44(r3)` — the object's pointer to its pair of plane descriptors.
 pub const DESC_HOLDER: u32 = 44;
@@ -187,7 +190,8 @@ pub fn mix_and_clamp(g: &mut Guest, object: u32, sp: u32) -> Result<()> {
     // cmplwi cr6,r5,0 ; beq -- a zero count leaves the destination array alone, and is also what
     // stops `mtctr` running 2^32 times.
     if outputs != 0 {
-        let stride = u64::from(u32::from(g.u16(dst_desc + interleave::PLANE_FRAMES)?).rotate_left(2));
+        let stride =
+            u64::from(u32::from(g.u16(dst_desc + interleave::PLANE_FRAMES)?).rotate_left(2));
         let mut pointer = u64::from(g.u32(dst_desc + interleave::PLANE_BASE)?); // lwz r11,4(r30)
         for i in 0..outputs {
             g.set_u32(frame + DST_ARRAY + 4 * i, pointer as u32)?; // stwu r11,4(r10)
@@ -199,7 +203,15 @@ pub fn mix_and_clamp(g: &mut Guest, object: u32, sp: u32) -> Result<()> {
 
     // rlwinm r5,1,0,30 ; add ; addi r7,r11,-2 -- the route range for this output count.
     let pair = PAIR_TABLE.wrapping_add(2 * outputs).wrapping_sub(2);
-    routing::scatter_mix(g, frame + DST_ARRAY, frame + SRC_ARRAY, outputs, MIX_FRAMES, pair, OP_TABLE)?;
+    routing::scatter_mix(
+        g,
+        frame + DST_ARRAY,
+        frame + SRC_ARRAY,
+        outputs,
+        MIX_FRAMES,
+        pair,
+        OP_TABLE,
+    )?;
 
     let block_index = g.u32(object + BLOCK_INDEX)?; // lwz r11,92(r31)
     let block_base = u64::from(g.u32(object + BLOCK_BASE)?); // lwz r10,84(r31)
@@ -272,7 +284,11 @@ mod tests {
     }
 
     fn slot_of(plane: u32) -> u32 {
-        interleave::LANES.iter().find(|(p, _)| *p == plane).unwrap().1
+        interleave::LANES
+            .iter()
+            .find(|(p, _)| *p == plane)
+            .unwrap()
+            .1
     }
 
     /// Six outputs, each routed from the source plane of the same index at gain 1.0.
@@ -298,15 +314,20 @@ mod tests {
         g.set_u32(OBJECT + DESC_HOLDER, HOLDER).unwrap();
         g.set_u32(HOLDER + SRC_DESC, SRC_DESC_AT).unwrap();
         g.set_u32(HOLDER + DST_DESC, DST_DESC_AT).unwrap();
-        g.set_u32(SRC_DESC_AT + interleave::PLANE_BASE, SRC_PLANES).unwrap();
-        g.set_u16(SRC_DESC_AT + interleave::PLANE_FRAMES, 256).unwrap();
-        g.set_u32(DST_DESC_AT + interleave::PLANE_BASE, DST_PLANES).unwrap();
-        g.set_u16(DST_DESC_AT + interleave::PLANE_FRAMES, 256).unwrap();
+        g.set_u32(SRC_DESC_AT + interleave::PLANE_BASE, SRC_PLANES)
+            .unwrap();
+        g.set_u16(SRC_DESC_AT + interleave::PLANE_FRAMES, 256)
+            .unwrap();
+        g.set_u32(DST_DESC_AT + interleave::PLANE_BASE, DST_PLANES)
+            .unwrap();
+        g.set_u16(DST_DESC_AT + interleave::PLANE_FRAMES, 256)
+            .unwrap();
         g.set_u32(OBJECT + BLOCK_BASE, BLOCKS).unwrap();
         g.set_u32(OBJECT + BLOCK_INDEX, 1).unwrap();
         for p in 0..8u32 {
             for f in 0..256u32 {
-                g.set_u32(SRC_PLANES + p * 1024 + f * 4, source(p, f).to_bits()).unwrap();
+                g.set_u32(SRC_PLANES + p * 1024 + f * 4, source(p, f).to_bits())
+                    .unwrap();
             }
         }
         g
@@ -323,12 +344,23 @@ mod tests {
         for f in [0u32, 1, 100, 255] {
             for p in 0..6u32 {
                 let at = BLOCK + f * interleave::FRAME_BYTES + slot_of(p);
-                assert_eq!(g.f32(at).unwrap(), clamp(source(p, f)), "frame {f}, plane {p}");
+                assert_eq!(
+                    g.f32(at).unwrap(),
+                    clamp(source(p, f)),
+                    "frame {f}, plane {p}"
+                );
             }
         }
         // The destination planes carry the unclamped routed values; the clamp is on the block only.
-        assert_eq!(g.f32(DST_PLANES).unwrap(), source(0, 0), "plane 0 before the clamp");
-        assert!(source(0, 0) < -1.0, "and it was out of range, so the clamp had work to do");
+        assert_eq!(
+            g.f32(DST_PLANES).unwrap(),
+            source(0, 0),
+            "plane 0 before the clamp"
+        );
+        assert!(
+            source(0, 0) < -1.0,
+            "and it was out of range, so the clamp had work to do"
+        );
     }
 
     #[test]
@@ -367,7 +399,10 @@ mod tests {
         g.set_u32(SRC_PLANES + 1024 + 4 * 7, 0x7FC0_1234).unwrap(); // plane 1, frame 7: a NaN
         mix_and_clamp(&mut g, OBJECT, SP).unwrap();
         let at = BLOCK + 7 * interleave::FRAME_BYTES + slot_of(1);
-        assert!(g.f32(at).unwrap().is_nan(), "both compares fail, so no store");
+        assert!(
+            g.f32(at).unwrap().is_nan(),
+            "both compares fail, so no store"
+        );
     }
 
     #[test]
@@ -377,8 +412,16 @@ mod tests {
         let pass_frame = SP - PASS_FRAME_BYTES;
         let mix_frame = pass_frame - MIX_FRAME_BYTES;
         assert_eq!(g.u32(pass_frame).unwrap(), SP, "the wrapper's back chain");
-        assert_eq!(g.u32(mix_frame).unwrap(), pass_frame, "the pass's, 96 bytes lower");
-        assert_eq!(g.u32(mix_frame + SRC_ARRAY).unwrap(), SRC_PLANES, "arrays in the lower frame");
+        assert_eq!(
+            g.u32(mix_frame).unwrap(),
+            pass_frame,
+            "the pass's, 96 bytes lower"
+        );
+        assert_eq!(
+            g.u32(mix_frame + SRC_ARRAY).unwrap(),
+            SRC_PLANES,
+            "arrays in the lower frame"
+        );
         assert_eq!(g.u32(mix_frame + DST_ARRAY + 4).unwrap(), DST_PLANES + 1024);
     }
 
@@ -386,7 +429,10 @@ mod tests {
     fn more_than_eight_outputs_is_refused() {
         let mut g = guest(false);
         g.set_u8(CHANNEL_COUNT_BYTE, 9).unwrap();
-        assert!(mix_and_clamp(&mut g, OBJECT, SP).is_err(), "the scatter-mixer refuses nine");
+        assert!(
+            mix_and_clamp(&mut g, OBJECT, SP).is_err(),
+            "the scatter-mixer refuses nine"
+        );
     }
 
     // ---------------------------------------------------------------------------- the ramp
@@ -406,11 +452,19 @@ mod tests {
         // separately and must agree.
         let mut g = ramp_guest(5, 2.0);
         let end = ramp_block(&mut g, u64::from(BLOCK)).unwrap();
-        assert_eq!(end, u64::from(BLOCK + RAMP_FRAMES * 5 * 4), "r3 is the end of frame 127");
+        assert_eq!(
+            end,
+            u64::from(BLOCK + RAMP_FRAMES * 5 * 4),
+            "r3 is the end of frame 127"
+        );
         for k in [0u32, 1, 2, 63, 127] {
             for c in 0..5u32 {
                 let want = 2.0 * (k as f32 * SCALE);
-                assert_eq!(g.f32(BLOCK + (k * 5 + c) * 4).unwrap(), want, "frame {k}, channel {c}");
+                assert_eq!(
+                    g.f32(BLOCK + (k * 5 + c) * 4).unwrap(),
+                    want,
+                    "frame {k}, channel {c}"
+                );
             }
         }
         // And the word after the 128th frame is not touched.
@@ -421,7 +475,11 @@ mod tests {
     fn an_empty_ramp_returns_r3_untouched() {
         let mut g = ramp_guest(0, 2.0);
         let r3 = 0xFFFF_FFFF_0000_0000 | u64::from(BLOCK);
-        assert_eq!(ramp_block(&mut g, r3).unwrap(), r3, "bgelr before r3 is written");
+        assert_eq!(
+            ramp_block(&mut g, r3).unwrap(),
+            r3,
+            "bgelr before r3 is written"
+        );
         assert_eq!(g.f32(BLOCK).unwrap(), 2.0);
     }
 
@@ -430,8 +488,16 @@ mod tests {
         assert_eq!(CHANNEL_COUNT_BYTE, 0x8306_0000 + 28765);
         assert_eq!(RAMP_FLAG_BYTE, 0x8306_0000 + 28759);
         assert_eq!(PAIR_TABLE, 0x820F_0000 - 10548);
-        assert_eq!(OP_TABLE - PAIR_TABLE, 16, "eight two-byte ranges, then the route bytes");
-        assert_eq!(CLAMP_LOW, crate::dsp::clip::FLOOR_SCALE, "the clipper's -1.0, reached again");
+        assert_eq!(
+            OP_TABLE - PAIR_TABLE,
+            16,
+            "eight two-byte ranges, then the route bytes"
+        );
+        assert_eq!(
+            CLAMP_LOW,
+            crate::dsp::clip::FLOOR_SCALE,
+            "the clipper's -1.0, reached again"
+        );
         assert_eq!(CLAMP_TRIPS, 1536);
     }
 }

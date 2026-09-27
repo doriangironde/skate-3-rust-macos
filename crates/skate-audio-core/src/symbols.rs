@@ -47,9 +47,27 @@ struct Shape {
     word_at: u32,
 }
 
-const TABLE0: Shape = Shape { table_back: 12, count_back: 22, stride: 12, name_at: 4, word_at: 8 };
-const TABLE1: Shape = Shape { table_back: 8, count_back: 20, stride: 12, name_at: 4, word_at: 8 };
-const TABLE2: Shape = Shape { table_back: 4, count_back: 18, stride: 16, name_at: 8, word_at: 12 };
+const TABLE0: Shape = Shape {
+    table_back: 12,
+    count_back: 22,
+    stride: 12,
+    name_at: 4,
+    word_at: 8,
+};
+const TABLE1: Shape = Shape {
+    table_back: 8,
+    count_back: 20,
+    stride: 12,
+    name_at: 4,
+    word_at: 8,
+};
+const TABLE2: Shape = Shape {
+    table_back: 4,
+    count_back: 18,
+    stride: 16,
+    name_at: 8,
+    word_at: 12,
+};
 
 /// What a lookup did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,9 +97,17 @@ pub fn install_project(g: &mut Guest, csi: u32) -> Result<()> {
 
     // The three loops differ only in which table, count, stride and fields they touch. Table 0 is
     // entered on a signed `count > 0`, tables 1 and 2 on a reloaded `count != 0`.
-    let tables = [(20u32, 10u32, 12u64, 4u32, 10u32), (24, 12, 12, 4, 10), (28, 14, 16, 8, 14)];
+    let tables = [
+        (20u32, 10u32, 12u64, 4u32, 10u32),
+        (24, 12, 12, 4, 10),
+        (28, 14, 16, 8, 14),
+    ];
     for (t, &(table_at, count_at, stride, name_at, gen_at)) in tables.iter().enumerate() {
-        let enter = if t == 0 { count0 as i32 > 0 } else { g.u16(csi + count_at)? != 0 };
+        let enter = if t == 0 {
+            count0 as i32 > 0
+        } else {
+            g.u16(csi + count_at)? != 0
+        };
         if !enter {
             continue;
         }
@@ -91,7 +117,10 @@ pub fn install_project(g: &mut Guest, csi: u32) -> Result<()> {
             let record = (g.u32(csi + table_at)? as u64).wrapping_add(offset); // lwz ; add
             generation = sext16(generation.wrapping_add(1)) as u64; // addi r8,r11,1 ; extsh r11,r8
             let name = g.u32(record as u32 + name_at)? as u64; // lwz r8,4(r10)
-            g.set_u32(record as u32 + name_at, name.wrapping_add(csi as u64) as u32)?; // stw r4,4(r10)
+            g.set_u32(
+                record as u32 + name_at,
+                name.wrapping_add(csi as u64) as u32,
+            )?; // stw r4,4(r10)
             if (generation as i64) < 0 {
                 generation = 1; // li r11,1
                 g.set_u16(GENERATION, 1)?; // sth r11,15568(r6)
@@ -155,7 +184,10 @@ fn lookup(g: &mut Guest, shape: Shape, slot: u32, query: u32) -> Result<Lookup> 
                                 g.set_u32(slot, record)?; // stw r11,0(r27)
                                 let word = g.u32(record.wrapping_add(shape.word_at))?; // lwz r10,8(r11)
                                 g.set_u32(slot + 4, word)?; // stw r10,4(r27)
-                                return Ok(Lookup { status: 0, second_pass: second });
+                                return Ok(Lookup {
+                                    status: 0,
+                                    second_pass: second,
+                                });
                             }
                         }
                         entry = entry.wrapping_add(shape.stride);
@@ -166,7 +198,10 @@ fn lookup(g: &mut Guest, shape: Shape, slot: u32, query: u32) -> Result<Lookup> 
         }
         // loc_828E3318
         if second {
-            return Ok(Lookup { status: NOT_FOUND, second_pass: true });
+            return Ok(Lookup {
+                status: NOT_FOUND,
+                second_pass: true,
+            });
         }
         second = true;
     }
@@ -238,7 +273,12 @@ mod tests {
 
     fn installed() -> Guest {
         let mut g = guest();
-        put_project(&mut g, CSI_A, 0x64BD, &[("Class_grind", 0x09C5), ("Class_Flips", 0x47A3)]);
+        put_project(
+            &mut g,
+            CSI_A,
+            0x64BD,
+            &[("Class_grind", 0x09C5), ("Class_Flips", 0x47A3)],
+        );
         put_project(&mut g, CSI_B, 0x5C48, &[("c_body_slide", 0x4A6C)]);
         install_project(&mut g, CSI_A).unwrap();
         install_project(&mut g, CSI_B).unwrap();
@@ -248,15 +288,37 @@ mod tests {
     #[test]
     fn installing_relocates_names_stamps_generations_and_links_the_list() {
         let g = installed();
-        assert_eq!(g.u32(CSI_A + 24).unwrap(), CSI_A + 40, "table 1 follows an empty table 0");
-        assert_eq!(g.u32(CSI_A + 40 + 4).unwrap(), CSI_A + 40 + 24 + 16, "name offset became a pointer");
-        let gens: Vec<u16> = [CSI_A + 40 + 10, CSI_A + 52 + 10, CSI_A + 64 + 14, CSI_B + 40 + 10, CSI_B + 52 + 14]
-            .iter()
-            .map(|a| g.u16(*a).unwrap())
-            .collect();
-        assert_eq!(gens, vec![1, 2, 3, 4, 5], "one counter across tables and projects");
+        assert_eq!(
+            g.u32(CSI_A + 24).unwrap(),
+            CSI_A + 40,
+            "table 1 follows an empty table 0"
+        );
+        assert_eq!(
+            g.u32(CSI_A + 40 + 4).unwrap(),
+            CSI_A + 40 + 24 + 16,
+            "name offset became a pointer"
+        );
+        let gens: Vec<u16> = [
+            CSI_A + 40 + 10,
+            CSI_A + 52 + 10,
+            CSI_A + 64 + 14,
+            CSI_B + 40 + 10,
+            CSI_B + 52 + 14,
+        ]
+        .iter()
+        .map(|a| g.u16(*a).unwrap())
+        .collect();
+        assert_eq!(
+            gens,
+            vec![1, 2, 3, 4, 5],
+            "one counter across tables and projects"
+        );
         assert_eq!(g.u16(GENERATION).unwrap(), 5);
-        assert_eq!(g.u32(PROJECT_LIST_HEAD).unwrap(), CSI_B + 32, "the newest project heads the list");
+        assert_eq!(
+            g.u32(PROJECT_LIST_HEAD).unwrap(),
+            CSI_B + 32,
+            "the newest project heads the list"
+        );
         assert_eq!(g.u32(CSI_B + 32).unwrap(), CSI_A + 32);
         assert_eq!(g.u32(CSI_A + 36).unwrap(), CSI_B + 32, "prev link");
     }
@@ -276,7 +338,13 @@ mod tests {
         let mut g = installed();
         put_query(&mut g, "Class_Flips", 0x64BD, 0x47A3);
         let l = lookup_table1(&mut g, SLOT, QUERY).unwrap();
-        assert_eq!(l, Lookup { status: 0, second_pass: false });
+        assert_eq!(
+            l,
+            Lookup {
+                status: 0,
+                second_pass: false
+            }
+        );
         assert_eq!(g.u32(SLOT).unwrap(), CSI_A + 52);
         assert_eq!(g.u32(SLOT + 4).unwrap(), 0x47A3_0002);
     }
@@ -286,7 +354,13 @@ mod tests {
         let mut g = installed();
         put_query(&mut g, "Class_grind", 0x63D9, 0x09C5);
         let l = lookup_table1(&mut g, SLOT, QUERY).unwrap();
-        assert_eq!(l, Lookup { status: 0, second_pass: true });
+        assert_eq!(
+            l,
+            Lookup {
+                status: 0,
+                second_pass: true
+            }
+        );
         assert_eq!(g.u32(SLOT).unwrap(), CSI_A + 40);
     }
 
@@ -294,10 +368,21 @@ mod tests {
     fn the_name_must_match_as_well_as_the_id() {
         let mut g = installed();
         put_query(&mut g, "Class_grinD", 0x64BD, 0x09C5);
-        assert_eq!(lookup_table1(&mut g, SLOT, QUERY).unwrap().status, NOT_FOUND);
+        assert_eq!(
+            lookup_table1(&mut g, SLOT, QUERY).unwrap().status,
+            NOT_FOUND
+        );
         put_query(&mut g, "Class_grin", 0x64BD, 0x09C5);
-        assert_eq!(lookup_table1(&mut g, SLOT, QUERY).unwrap().status, NOT_FOUND, "a prefix is not a match");
-        assert_eq!(g.u32(SLOT).unwrap(), 0, "a failed lookup leaves the slot alone");
+        assert_eq!(
+            lookup_table1(&mut g, SLOT, QUERY).unwrap().status,
+            NOT_FOUND,
+            "a prefix is not a match"
+        );
+        assert_eq!(
+            g.u32(SLOT).unwrap(),
+            0,
+            "a failed lookup leaves the slot alone"
+        );
     }
 
     #[test]
@@ -307,13 +392,23 @@ mod tests {
         assert_eq!(lookup_table2(&mut g, SLOT, QUERY).unwrap().status, 0);
         assert_eq!(g.u32(SLOT).unwrap(), CSI_B + 52);
         assert_eq!(g.u32(SLOT + 4).unwrap(), 0x4A6C_0005);
-        assert_eq!(lookup_table0(&mut g, SLOT, QUERY).unwrap().status, NOT_FOUND, "table 0 is empty");
+        assert_eq!(
+            lookup_table0(&mut g, SLOT, QUERY).unwrap().status,
+            NOT_FOUND,
+            "table 0 is empty"
+        );
     }
 
     #[test]
     fn an_empty_list_finds_nothing() {
         let mut g = guest();
         put_query(&mut g, "x", 1, 1);
-        assert_eq!(lookup_table1(&mut g, SLOT, QUERY).unwrap(), Lookup { status: NOT_FOUND, second_pass: true });
+        assert_eq!(
+            lookup_table1(&mut g, SLOT, QUERY).unwrap(),
+            Lookup {
+                status: NOT_FOUND,
+                second_pass: true
+            }
+        );
     }
 }

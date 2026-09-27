@@ -121,14 +121,14 @@ const _: () = assert!(LANE3_SCALE == 0x8206_3B08);
 /// The mapping from pool address to group is read off the register plumbing (`addi -17824 -> v4`
 /// and so on), and the measured values confirm it: the vector at `-17824` really is a splat of 1.0.
 pub const SCALE: [u32; 8] = [
-    0,                                            // group 0 is not scaled at all
-    LIS_82320000.wrapping_add(-17824i32 as u32),  // addi -17824 -> v4, measured 1.0
-    LIS_82320000.wrapping_add(-17808i32 as u32),  // addi -17808 -> v3, measured 2.0
-    LIS_82320000.wrapping_add(-17792i32 as u32),  // addi -17792 -> v2, measured 3.0
-    LIS_82320000.wrapping_add(-17776i32 as u32),  // addi -17776 -> v1, measured 4.0
-    LIS_82320000.wrapping_add(-17888i32 as u32),  // addi -17888 -> v31, measured 5.0
-    LIS_82320000.wrapping_add(-17872i32 as u32),  // addi -17872 -> v30, measured 6.0
-    LIS_82320000.wrapping_add(-17856i32 as u32),  // addi -17856 -> v29, measured 7.0
+    0,                                           // group 0 is not scaled at all
+    LIS_82320000.wrapping_add(-17824i32 as u32), // addi -17824 -> v4, measured 1.0
+    LIS_82320000.wrapping_add(-17808i32 as u32), // addi -17808 -> v3, measured 2.0
+    LIS_82320000.wrapping_add(-17792i32 as u32), // addi -17792 -> v2, measured 3.0
+    LIS_82320000.wrapping_add(-17776i32 as u32), // addi -17776 -> v1, measured 4.0
+    LIS_82320000.wrapping_add(-17888i32 as u32), // addi -17888 -> v31, measured 5.0
+    LIS_82320000.wrapping_add(-17872i32 as u32), // addi -17872 -> v30, measured 6.0
+    LIS_82320000.wrapping_add(-17856i32 as u32), // addi -17856 -> v29, measured 7.0
 ];
 /// `addi -17840 -> v28`, measured 8.0: the increment applied once per 128-byte block.
 pub const SCALE_STEP: u32 = LIS_82320000.wrapping_add(-17840i32 as u32);
@@ -220,8 +220,7 @@ unsafe fn gain_ramp_copy_impl(
     // lane 3 — i.e. the gain of sample 0. Built in registers here; the port never writes the guest
     // stack.
     let step_v = unsafe { _mm_set1_ps(step as f32) };
-    let start =
-        unsafe { _mm_set_ps(f1 as f32, gain1 as f32, gain2 as f32, gain3 as f32) };
+    let start = unsafe { _mm_set_ps(f1 as f32, gain1 as f32, gain2 as f32, gain3 as f32) };
 
     // The eight group multipliers, in the order the lifted body loads them.
     let scale_step = unsafe { vmx::lvx128_ps(g, SCALE_STEP)? }; // lvx128 v28,r0,r9
@@ -559,15 +558,30 @@ mod tests {
     /// read out of the validated image dump.
     fn image() -> Guest {
         let mut g = Guest::from_segments(vec![
-            crate::Segment { base: BASE, bytes: vec![0u8; 0x4000] },
+            crate::Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x4000],
+            },
             // 0x82060C50 and 0x82063B08.
-            crate::Segment { base: RODATA, bytes: vec![0u8; 0x4000] },
+            crate::Segment {
+                base: RODATA,
+                bytes: vec![0u8; 0x4000],
+            },
             // 0x82257308.
-            crate::Segment { base: 0x8225_7000, bytes: vec![0u8; 0x1000] },
+            crate::Segment {
+                base: 0x8225_7000,
+                bytes: vec![0u8; 0x1000],
+            },
             // 0x820ED958.
-            crate::Segment { base: 0x820E_D000, bytes: vec![0u8; 0x1000] },
+            crate::Segment {
+                base: 0x820E_D000,
+                bytes: vec![0u8; 0x1000],
+            },
             // 0x8231BA20 .. 0x8231BA9F.
-            crate::Segment { base: 0x8231_BA00, bytes: vec![0u8; 0x100] },
+            crate::Segment {
+                base: 0x8231_BA00,
+                bytes: vec![0u8; 0x100],
+            },
         ]);
         g.set_u32(STEP_SCALE, 4.0f32.to_bits()).unwrap();
         g.set_u32(RAMP_SPAN, 64.0f32.to_bits()).unwrap();
@@ -593,7 +607,9 @@ mod tests {
     }
 
     fn get(g: &Guest, base: u32, n: usize) -> Vec<f32> {
-        (0..n).map(|i| g.f32(base + 4 * i as u32).unwrap()).collect()
+        (0..n)
+            .map(|i| g.f32(base + 4 * i as u32).unwrap())
+            .collect()
     }
 
     fn source() -> Vec<f32> {
@@ -684,7 +700,11 @@ mod tests {
         }
         let held = 64.0 * 0.01f32;
         for k in 64..256 {
-            assert!((out[k] - held).abs() < 1e-5, "sample {k}: gain {} should be held", out[k]);
+            assert!(
+                (out[k] - held).abs() < 1e-5,
+                "sample {k}: gain {} should be held",
+                out[k]
+            );
         }
         // The ramp is strictly increasing over its 64 samples and then dead flat, which is what
         // distinguishes it from a ramp that runs the whole block.
@@ -701,7 +721,11 @@ mod tests {
         put(&mut g, SRC, &vec![1.0f32; 256]);
         gain_ramp_copy(&mut g, DST, SRC, 100.0, 1.0).unwrap();
         let out = get(&g, DST, 256);
-        assert_eq!(&out[0..4], &[100.0, 101.0, 102.0, 103.0], "ascending, not descending");
+        assert_eq!(
+            &out[0..4],
+            &[100.0, 101.0, 102.0, 103.0],
+            "ascending, not descending"
+        );
         // And across a group boundary: group 1 continues from 104, so the group multipliers are
         // applied to the right groups too.
         assert_eq!(&out[4..8], &[104.0, 105.0, 106.0, 107.0]);
@@ -724,11 +748,21 @@ mod tests {
     #[test]
     fn it_matches_the_independent_model_bit_for_bit() {
         let src = source();
-        for (f1, f2) in [(0.0, 0.001), (1.0, -0.0025), (0.5, 0.0), (-2.0, 0.125), (0.25, 1e-5)] {
+        for (f1, f2) in [
+            (0.0, 0.001),
+            (1.0, -0.0025),
+            (0.5, 0.0),
+            (-2.0, 0.125),
+            (0.25, 1e-5),
+        ] {
             let mut g = image();
             put(&mut g, SRC, &src);
             gain_ramp_copy(&mut g, DST, SRC, f1, f2).unwrap();
-            assert_eq!(get(&g, DST, 256), model_ftz(&src, f1, f2), "f1 = {f1}, f2 = {f2}");
+            assert_eq!(
+                get(&g, DST, 256),
+                model_ftz(&src, f1, f2),
+                "f1 = {f1}, f2 = {f2}"
+            );
         }
     }
 
@@ -738,7 +772,10 @@ mod tests {
         let mut g = image();
         put(&mut g, SRC, &src);
         gain_ramp_copy(&mut g, DST, SRC, 0.5, 0.0).unwrap();
-        assert_eq!(get(&g, DST, 256), src.iter().map(|x| x * 0.5).collect::<Vec<_>>());
+        assert_eq!(
+            get(&g, DST, 256),
+            src.iter().map(|x| x * 0.5).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -748,7 +785,11 @@ mod tests {
         put(&mut g, SRC, &vec![1.0f32; 512]); // twice as much source as it will read
         gain_ramp_copy(&mut g, DST, SRC, 1.0, 0.0).unwrap();
         assert_eq!(get(&g, DST, 256), vec![1.0f32; 256]);
-        assert_eq!(get(&g, DST + 1024, 256), vec![7.0f32; 256], "nothing past 1024 bytes");
+        assert_eq!(
+            get(&g, DST + 1024, 256),
+            vec![7.0f32; 256],
+            "nothing past 1024 bytes"
+        );
         assert_eq!(TOTAL_BYTES, 1024);
     }
 
@@ -763,7 +804,11 @@ mod tests {
         assert_ne!(unaligned & 127, 0);
         put(&mut g, DST, &vec![7.0f32; 4]); // the 16 bytes below `unaligned`, inside its line
         gain_ramp_copy(&mut g, unaligned, SRC, 1.0, 0.0).unwrap();
-        assert_eq!(get(&g, DST, 4), vec![0.0f32; 4], "the dcbzl cleared the head of the line");
+        assert_eq!(
+            get(&g, DST, 4),
+            vec![0.0f32; 4],
+            "the dcbzl cleared the head of the line"
+        );
         // And it is 128 bytes, not 32 or 64. A destination 124 bytes into a line has its whole
         // line cleared; the first `stvx128` then masks its own address back down to `DST + 112`,
         // so the last four floats of that line are output rather than zero. Both halves of that
@@ -773,8 +818,16 @@ mod tests {
         let far = DST + 124;
         put(&mut h, DST, &vec![7.0f32; 31]);
         gain_ramp_copy(&mut h, far, SRC, 1.0, 0.0).unwrap();
-        assert_eq!(get(&h, DST, 28), vec![0.0f32; 28], "the dcbzl reached back 124 bytes");
-        assert_eq!(get(&h, DST + 112, 4), vec![1.0f32; 4], "stvx128 masked its address to +112");
+        assert_eq!(
+            get(&h, DST, 28),
+            vec![0.0f32; 28],
+            "the dcbzl reached back 124 bytes"
+        );
+        assert_eq!(
+            get(&h, DST + 112, 4),
+            vec![1.0f32; 4],
+            "stvx128 masked its address to +112"
+        );
     }
 
     #[test]
@@ -820,7 +873,11 @@ mod tests {
         let src = source();
         let mut g = image();
         put(&mut g, SRC, &src);
-        assert_eq!(SRC & 127, 0, "so the dcbzl line is exactly block 0's source");
+        assert_eq!(
+            SRC & 127,
+            0,
+            "so the dcbzl line is exactly block 0's source"
+        );
         gain_ramp_copy(&mut g, SRC + 16, SRC, 1.0, 0.0).unwrap();
         assert_eq!(
             get(&g, SRC + 16, 28),
@@ -832,7 +889,11 @@ mod tests {
         // `SRC+128 .. SRC+256` and only stores from `SRC+144`, so `SRC+128 .. SRC+144` is left
         // zeroed. That is the original's behaviour for an unaligned destination and it is checked
         // here rather than written around.
-        assert_eq!(get(&g, SRC + 128, 4), vec![0.0f32; 4], "block 1's line clear reached back");
+        assert_eq!(
+            get(&g, SRC + 128, 4),
+            vec![0.0f32; 4],
+            "block 1's line clear reached back"
+        );
         // Blocks 1 onward also read source bytes this call has already written, which the original
         // does too, so nothing is asserted about their output.
     }
@@ -863,7 +924,9 @@ mod tests {
     /// there. With exact products the two readings are the *same function*, so every expected value
     /// here holds under either, and nothing in this module asserts one of them.
     fn accumulator() -> Vec<f32> {
-        (0..256).map(|i| ((i * 7 % 23) as f32) * 0.125 - 1.0).collect()
+        (0..256)
+            .map(|i| ((i * 7 % 23) as f32) * 0.125 - 1.0)
+            .collect()
     }
 
     /// The independent model: `dst[k] + src[k]*gain(k)` with `gain(k) = f1 + k*f2` for 64 samples and
@@ -877,7 +940,11 @@ mod tests {
     fn accumulate_model(dst: &[f32], src: &[f32], f1: f64, f2: f64) -> Vec<f32> {
         (0..256)
             .map(|k| {
-                let gain = if k < 64 { f1 + k as f64 * f2 } else { f1 + 64.0 * f2 };
+                let gain = if k < 64 {
+                    f1 + k as f64 * f2
+                } else {
+                    f1 + 64.0 * f2
+                };
                 src[k] * (gain as f32) + dst[k]
             })
             .collect()
@@ -891,7 +958,12 @@ mod tests {
     /// Host lanes of a vector loaded from four guest words: `lvx128` reverses all sixteen bytes, so
     /// guest element `e` is host lane `3 - e`.
     fn lanes_of(words: &[f32]) -> [u32; 4] {
-        [words[3].to_bits(), words[2].to_bits(), words[1].to_bits(), words[0].to_bits()]
+        [
+            words[3].to_bits(),
+            words[2].to_bits(),
+            words[1].to_bits(),
+            words[0].to_bits(),
+        ]
     }
 
     #[test]
@@ -916,7 +988,13 @@ mod tests {
     fn accumulate_matches_the_independent_model_on_exact_products() {
         let src = source();
         let dst = accumulator();
-        for (f1, f2) in [(0.5, 1.0 / 1024.0), (1.0, -1.0 / 2048.0), (-2.0, 0.125), (0.25, 0.0), (3.0, 1.0 / 256.0)] {
+        for (f1, f2) in [
+            (0.5, 1.0 / 1024.0),
+            (1.0, -1.0 / 2048.0),
+            (-2.0, 0.125),
+            (0.25, 0.0),
+            (3.0, 1.0 / 256.0),
+        ] {
             // The guard this test's neutrality rests on, checked rather than assumed: every gain the
             // kernel forms is exact, and every product of a gain and a sample is exact.
             for k in 0..=64 {
@@ -930,7 +1008,11 @@ mod tests {
             put(&mut g, SRC, &src);
             put(&mut g, DST, &dst);
             gain_ramp_accumulate(&mut g, DST, SRC, f1, f2).unwrap();
-            assert_eq!(get(&g, DST, 256), accumulate_model(&dst, &src, f1, f2), "f1 = {f1}, f2 = {f2}");
+            assert_eq!(
+                get(&g, DST, 256),
+                accumulate_model(&dst, &src, f1, f2),
+                "f1 = {f1}, f2 = {f2}"
+            );
         }
     }
 
@@ -944,9 +1026,21 @@ mod tests {
         assert_ne!(unaligned & 127, 0);
         put(&mut g, DST, &vec![7.0f32; 4 + 256 + 4]);
         gain_ramp_accumulate(&mut g, unaligned, SRC, 1.0, 0.0).unwrap();
-        assert_eq!(get(&g, DST, 4), vec![7.0f32; 4], "the head of the line is untouched");
-        assert_eq!(get(&g, unaligned, 256), vec![8.0f32; 256], "7 + 1*1 everywhere");
-        assert_eq!(get(&g, unaligned + 1024, 4), vec![7.0f32; 4], "nothing past 1024 bytes");
+        assert_eq!(
+            get(&g, DST, 4),
+            vec![7.0f32; 4],
+            "the head of the line is untouched"
+        );
+        assert_eq!(
+            get(&g, unaligned, 256),
+            vec![8.0f32; 256],
+            "7 + 1*1 everywhere"
+        );
+        assert_eq!(
+            get(&g, unaligned + 1024, 4),
+            vec![7.0f32; 4],
+            "nothing past 1024 bytes"
+        );
     }
 
     #[test]
@@ -958,8 +1052,16 @@ mod tests {
         put(&mut g, SRC, &vec![1.0f32; 256]);
         put(&mut g, DST, &vec![7.0f32; 260]);
         gain_ramp_accumulate(&mut g, DST + 4, SRC, 1.0, 0.0).unwrap();
-        assert_eq!(get(&g, DST, 256), vec![8.0f32; 256], "the aligned run below the pointer");
-        assert_eq!(get(&g, DST + 1024, 4), vec![7.0f32; 4], "the nominal tail is not written");
+        assert_eq!(
+            get(&g, DST, 256),
+            vec![8.0f32; 256],
+            "the aligned run below the pointer"
+        );
+        assert_eq!(
+            get(&g, DST + 1024, 4),
+            vec![7.0f32; 4],
+            "the nominal tail is not written"
+        );
     }
 
     #[test]
@@ -991,17 +1093,49 @@ mod tests {
         let c = gain_ramp_accumulate(&mut g, DST, SRC, f1, f2).unwrap();
         let out = get(&g, DST, 256);
 
-        for (n, value) in [(14, 8.0f32), (15, 7.0), (16, 6.0), (17, 5.0), (18, 4.0), (19, 3.0), (20, 2.0), (21, 1.0)] {
+        for (n, value) in [
+            (14, 8.0f32),
+            (15, 7.0),
+            (16, 6.0),
+            (17, 5.0),
+            (18, 4.0),
+            (19, 3.0),
+            (20, 2.0),
+            (21, 1.0),
+        ] {
             assert_eq!(c.v(n), [value.to_bits(); 4], "v{n} is a pool multiplier");
         }
         // The second ramp block covers samples 32..64, i.e. destination words 32..64.
-        assert_eq!(c.v(22), lanes_of(&dst[32 + 12..32 + 16]), "v22: the accumulator at +48");
-        assert_eq!(c.v(23), lanes_of(&dst[32 + 8..32 + 12]), "v23: the accumulator at +32");
-        assert_eq!(c.v(24), lanes_of(&out[32 + 4..32 + 8]), "v24: group 1's result");
+        assert_eq!(
+            c.v(22),
+            lanes_of(&dst[32 + 12..32 + 16]),
+            "v22: the accumulator at +48"
+        );
+        assert_eq!(
+            c.v(23),
+            lanes_of(&dst[32 + 8..32 + 12]),
+            "v23: the accumulator at +32"
+        );
+        assert_eq!(
+            c.v(24),
+            lanes_of(&out[32 + 4..32 + 8]),
+            "v24: group 1's result"
+        );
         assert_eq!(c.v(25), lanes_of(&out[32..32 + 4]), "v25: group 0's result");
         let gain = |k: usize| (f1 + k as f64 * f2) as f32;
-        let gains = |first: usize| lanes_of(&[gain(first), gain(first + 1), gain(first + 2), gain(first + 3)]);
-        assert_eq!(c.v(26), gains(64), "v26: where a third ramp block would start");
+        let gains = |first: usize| {
+            lanes_of(&[
+                gain(first),
+                gain(first + 1),
+                gain(first + 2),
+                gain(first + 3),
+            ])
+        };
+        assert_eq!(
+            c.v(26),
+            gains(64),
+            "v26: where a third ramp block would start"
+        );
         for (n, group) in [(27, 7usize), (28, 6), (29, 5), (30, 4), (31, 3)] {
             assert_eq!(c.v(n), gains(32 + 4 * group), "v{n}: group {group}'s gain");
         }

@@ -42,7 +42,7 @@
 //! The frame is reproduced here, because the pointer arrays are guest memory the gather reads back.
 
 use crate::vmx::Fpscr;
-use crate::{fp, mem, routing, Guest, Result};
+use crate::{Guest, Result, fp, mem, routing};
 
 /// `+0` — the next node. The list head's `+0` is the second node.
 pub const LINK_NEXT: u32 = 0;
@@ -157,11 +157,24 @@ pub fn release_voice(g: &mut Guest, r3: u64, sp: u32) -> Result<u64> {
     let channels = u32::from(g.u8(voice + VOICE_CHANNELS)?); // lbz r6,41(r3)
     for i in 0..8u32 {
         // 64-bit adds, each stored as its low word.
-        g.set_u32(frame + RELEASE_SOURCES + 4 * i, (r3 + u64::from(VOICE_GAINS + 4 * i)) as u32)?;
-        g.set_u32(frame + RELEASE_DESTS + 4 * i, frame + RELEASE_SCRATCH + 4 * i)?;
+        g.set_u32(
+            frame + RELEASE_SOURCES + 4 * i,
+            (r3 + u64::from(VOICE_GAINS + 4 * i)) as u32,
+        )?;
+        g.set_u32(
+            frame + RELEASE_DESTS + 4 * i,
+            frame + RELEASE_SCRATCH + 4 * i,
+        )?;
     }
     // bl 0x82b468c0 -- r7 is the literal 1: one gain word per entry.
-    routing::gather_bank(g, frame + RELEASE_DESTS, frame + RELEASE_SOURCES, gain_count, channels, 1)?;
+    routing::gather_bank(
+        g,
+        frame + RELEASE_DESTS,
+        frame + RELEASE_SOURCES,
+        gain_count,
+        channels,
+        1,
+    )?;
     // bl 0x82b34bd0 -- unlink, folding the gathered gains into the owner.
     unlink_voice(g, voice + VOICE_NODE, frame + RELEASE_SCRATCH)?;
     for i in 0..8u32 {
@@ -235,7 +248,12 @@ pub const ERROR_STALE: i64 = -3;
 
 /// Validate `handle` against the generation at `owner + generation_at`, then unlink `node` from the
 /// owner's list, whose head is the owner's `+0`. Returns the result `r3` carries, sign-extended.
-fn unlink_with_generation(g: &mut Guest, handle: u32, node: u32, generation_at: u32) -> Result<u64> {
+fn unlink_with_generation(
+    g: &mut Guest,
+    handle: u32,
+    node: u32,
+    generation_at: u32,
+) -> Result<u64> {
     let generation = g.u32(handle + HANDLE_GENERATION)? as i32;
     if generation < 0 {
         return Ok(i64::from(generation) as u64); // already invalid: returned as it is
@@ -327,7 +345,10 @@ pub fn remove_handle(g: &mut Guest, object: u32) -> Result<u64> {
     let owner2 = g.u32(object + HANDLE_ARRAY_OWNER)?; // reloaded
     let offset = times_eight(u64::from(index)); // rlwinm r9,r11,3,0,28
     let used = u32::from(g.u16(owner2.wrapping_add(HANDLE_COUNT))?);
-    g.set_u16(owner2.wrapping_add(HANDLE_COUNT), used.wrapping_add(0xFFFF) as u16)?; // addis ; addi -1 ; sth
+    g.set_u16(
+        owner2.wrapping_add(HANDLE_COUNT),
+        used.wrapping_add(0xFFFF) as u16,
+    )?; // addis ; addi -1 ; sth
     let owner3 = g.u32(object + HANDLE_ARRAY_OWNER)?; // reloaded again
     let array = u64::from(g.u32(owner3.wrapping_add(HANDLE_ARRAY))?);
     let remaining = u64::from(g.u16(owner3.wrapping_add(HANDLE_COUNT))?); // the NEW count
@@ -466,9 +487,17 @@ mod tests {
         unlink_voice(&mut g, B, 0).unwrap();
         assert_eq!(g.u32(A + LINK_NEXT).unwrap(), C, "A now points past B");
         assert_eq!(g.u32(C + LINK_PREV).unwrap(), A, "and C back to A");
-        assert_eq!(g.u32(OWNER + OWNER_HEAD).unwrap(), A, "the head is untouched");
+        assert_eq!(
+            g.u32(OWNER + OWNER_HEAD).unwrap(),
+            A,
+            "the head is untouched"
+        );
         assert!(cleared(&g, B), "B's fields are cleared");
-        assert_eq!(g.u8(OWNER + OWNER_DIRTY).unwrap(), 0, "no gains, so no fold and no dirty flag");
+        assert_eq!(
+            g.u8(OWNER + OWNER_DIRTY).unwrap(),
+            0,
+            "no gains, so no fold and no dirty flag"
+        );
     }
 
     #[test]
@@ -476,7 +505,11 @@ mod tests {
         let mut g = listed();
         unlink_voice(&mut g, A, 0).unwrap();
         assert_eq!(g.u32(OWNER + OWNER_HEAD).unwrap(), B);
-        assert_eq!(g.u32(B + LINK_PREV).unwrap(), 0, "B's prev was A's, which is zero");
+        assert_eq!(
+            g.u32(B + LINK_PREV).unwrap(),
+            0,
+            "B's prev was A's, which is zero"
+        );
     }
 
     #[test]
@@ -485,7 +518,11 @@ mod tests {
         g.set_u32(B + NODE_ITEM, 0).unwrap();
         unlink_voice(&mut g, B, BASE + 0x800).unwrap();
         assert_eq!(g.u32(A + LINK_NEXT).unwrap(), B, "still linked");
-        assert_eq!(g.u32(B + NODE_VALUE).unwrap(), 0x1111, "and nothing cleared");
+        assert_eq!(
+            g.u32(B + NODE_VALUE).unwrap(),
+            0x1111,
+            "and nothing cleared"
+        );
         assert_eq!(g.u8(OWNER + OWNER_DIRTY).unwrap(), 0);
     }
 
@@ -495,13 +532,18 @@ mod tests {
         let gains = BASE + 0x800;
         for (i, v) in [1.5f32, 2.25, 4.0].iter().enumerate() {
             g.set_u32(gains + 4 * i as u32, v.to_bits()).unwrap();
-            g.set_u32(OWNER + OWNER_GAINS + 4 * i as u32, 10.0f32.to_bits()).unwrap();
+            g.set_u32(OWNER + OWNER_GAINS + 4 * i as u32, 10.0f32.to_bits())
+                .unwrap();
         }
         g.set_u8(B + NODE_GAIN_COUNT, 2).unwrap(); // two gains, not three
         unlink_voice(&mut g, B, gains).unwrap();
         assert_eq!(g.f32(OWNER + OWNER_GAINS).unwrap(), 11.5);
         assert_eq!(g.f32(OWNER + OWNER_GAINS + 4).unwrap(), 12.25);
-        assert_eq!(g.f32(OWNER + OWNER_GAINS + 8).unwrap(), 10.0, "the count was two");
+        assert_eq!(
+            g.f32(OWNER + OWNER_GAINS + 8).unwrap(),
+            10.0,
+            "the count was two"
+        );
         assert_eq!(g.u8(OWNER + OWNER_DIRTY).unwrap(), 1);
     }
 
@@ -521,8 +563,13 @@ mod tests {
         g.set_u8(VOICE + VOICE_GAIN_COUNT, gain_count).unwrap();
         g.set_u8(VOICE + VOICE_CHANNELS, channels).unwrap();
         for i in 0..8u32 {
-            g.set_u32(VOICE + VOICE_GAINS + 4 * i, (0.5 * (i as f32 + 1.0)).to_bits()).unwrap();
-            g.set_u32(OWNER + OWNER_GAINS + 4 * i, 100.0f32.to_bits()).unwrap();
+            g.set_u32(
+                VOICE + VOICE_GAINS + 4 * i,
+                (0.5 * (i as f32 + 1.0)).to_bits(),
+            )
+            .unwrap();
+            g.set_u32(OWNER + OWNER_GAINS + 4 * i, 100.0f32.to_bits())
+                .unwrap();
         }
         g
     }
@@ -534,8 +581,16 @@ mod tests {
         assert_eq!(release_voice(&mut g, r3, SP).unwrap(), r3);
         assert_eq!(g.u32(A + LINK_NEXT).unwrap(), C, "unlinked");
         assert!(cleared(&g, VOICE + VOICE_NODE));
-        assert_eq!(g.f32(VOICE + VOICE_GAINS).unwrap(), 0.5, "the gains are not touched");
-        assert_eq!(g.f32(OWNER + OWNER_GAINS).unwrap(), 100.0, "and nothing was folded");
+        assert_eq!(
+            g.f32(VOICE + VOICE_GAINS).unwrap(),
+            0.5,
+            "the gains are not touched"
+        );
+        assert_eq!(
+            g.f32(OWNER + OWNER_GAINS).unwrap(),
+            100.0,
+            "and nothing was folded"
+        );
     }
 
     #[test]
@@ -545,24 +600,46 @@ mod tests {
         let mut g = voice(3, 3);
         g.set_u8(VOICE + VOICE_NODE + NODE_GAIN_COUNT, 3).unwrap();
         let r3 = u64::from(VOICE);
-        assert_eq!(release_voice(&mut g, r3, SP).unwrap(), r3 + u64::from(VOICE_NODE));
+        assert_eq!(
+            release_voice(&mut g, r3, SP).unwrap(),
+            r3 + u64::from(VOICE_NODE)
+        );
         for i in 0..3u32 {
-            assert_eq!(g.f32(OWNER + OWNER_GAINS + 4 * i).unwrap(), 100.0 + 0.5 * (i as f32 + 1.0));
+            assert_eq!(
+                g.f32(OWNER + OWNER_GAINS + 4 * i).unwrap(),
+                100.0 + 0.5 * (i as f32 + 1.0)
+            );
         }
-        assert_eq!(g.f32(OWNER + OWNER_GAINS + 12).unwrap(), 100.0, "only three were folded");
+        assert_eq!(
+            g.f32(OWNER + OWNER_GAINS + 12).unwrap(),
+            100.0,
+            "only three were folded"
+        );
         for i in 0..8u32 {
-            assert_eq!(g.u32(VOICE + VOICE_GAINS + 4 * i).unwrap(), 0, "gain {i} cleared");
+            assert_eq!(
+                g.u32(VOICE + VOICE_GAINS + 4 * i).unwrap(),
+                0,
+                "gain {i} cleared"
+            );
         }
         assert_eq!(g.u32(A + LINK_NEXT).unwrap(), C, "and unlinked");
         let frame = SP - RELEASE_FRAME_BYTES;
-        assert_eq!(g.u32(frame + RELEASE_SOURCES).unwrap(), VOICE + VOICE_GAINS, "sources point at the voice");
-        assert_eq!(g.u32(frame + RELEASE_DESTS + 4).unwrap(), frame + RELEASE_SCRATCH + 4);
+        assert_eq!(
+            g.u32(frame + RELEASE_SOURCES).unwrap(),
+            VOICE + VOICE_GAINS,
+            "sources point at the voice"
+        );
+        assert_eq!(
+            g.u32(frame + RELEASE_DESTS + 4).unwrap(),
+            frame + RELEASE_SCRATCH + 4
+        );
     }
 
     #[test]
     fn repointing_a_link_pushes_the_node_onto_the_source_list() {
         let mut g = voice(0, 0);
-        let (link, source, item, other_head) = (BASE + 0x40, BASE + 0x1400, BASE + 0x1600, BASE + 0x1800);
+        let (link, source, item, other_head) =
+            (BASE + 0x40, BASE + 0x1400, BASE + 0x1600, BASE + 0x1800);
         g.set_u32(link + LINK_TARGET, VOICE).unwrap();
         g.set_u32(link + LINK_SOURCE, source).unwrap();
         let owner = source + SOURCE_OWNER;
@@ -575,16 +652,36 @@ mod tests {
         assert_eq!(repoint_link(&mut g, link, SP).unwrap(), 16);
 
         let node = VOICE + VOICE_NODE;
-        assert_eq!(g.u32(A + LINK_NEXT).unwrap(), C, "first released from the old list");
+        assert_eq!(
+            g.u32(A + LINK_NEXT).unwrap(),
+            C,
+            "first released from the old list"
+        );
         assert_eq!(g.u32(node + NODE_ITEM).unwrap(), item);
         assert_eq!(g.u32(node + NODE_VALUE).unwrap(), 0xABCD);
         assert_eq!(g.u16(node + NODE_SHORT).unwrap(), 0x77);
-        assert_eq!(g.u8(node + NODE_GAIN_COUNT).unwrap(), 6, "the item's channel byte");
+        assert_eq!(
+            g.u8(node + NODE_GAIN_COUNT).unwrap(),
+            6,
+            "the item's channel byte"
+        );
         assert_eq!(g.u32(node + NODE_OWNER).unwrap(), owner);
-        assert_eq!(g.u32(node + LINK_NEXT).unwrap(), other_head, "next is the old head");
+        assert_eq!(
+            g.u32(node + LINK_NEXT).unwrap(),
+            other_head,
+            "next is the old head"
+        );
         assert_eq!(g.u32(node + LINK_PREV).unwrap(), 0);
-        assert_eq!(g.u32(other_head + LINK_PREV).unwrap(), node, "the old head points back");
-        assert_eq!(g.u32(owner + OWNER_HEAD).unwrap(), node, "and the node is the new head");
+        assert_eq!(
+            g.u32(other_head + LINK_PREV).unwrap(),
+            node,
+            "the old head points back"
+        );
+        assert_eq!(
+            g.u32(owner + OWNER_HEAD).unwrap(),
+            node,
+            "and the node is the new head"
+        );
     }
 
     #[test]
@@ -592,16 +689,23 @@ mod tests {
         let handle = BASE + 0x40;
         // Already invalid: the generation comes back, sign-extended, and nothing is written.
         let mut g = listed();
-        g.set_u32(handle + HANDLE_GENERATION, (-9i32) as u32).unwrap();
+        g.set_u32(handle + HANDLE_GENERATION, (-9i32) as u32)
+            .unwrap();
         assert_eq!(unlink_checked(&mut g, handle, B).unwrap() as i64, -9);
         // No owner.
         g.set_u32(handle + HANDLE_GENERATION, 5).unwrap();
         g.set_u32(handle + HANDLE_OWNER, 0).unwrap();
-        assert_eq!(unlink_checked(&mut g, handle, B).unwrap() as i64, ERROR_NO_OWNER);
+        assert_eq!(
+            unlink_checked(&mut g, handle, B).unwrap() as i64,
+            ERROR_NO_OWNER
+        );
         // Stale: the owner's generation at +12 differs, so the handle is invalidated.
         g.set_u32(handle + HANDLE_OWNER, OWNER).unwrap();
         g.set_u32(OWNER + 12, 6).unwrap();
-        assert_eq!(unlink_checked(&mut g, handle, B).unwrap() as i64, ERROR_STALE);
+        assert_eq!(
+            unlink_checked(&mut g, handle, B).unwrap() as i64,
+            ERROR_STALE
+        );
         assert_eq!(g.u32(handle + HANDLE_GENERATION).unwrap() as i32, -3);
         assert_eq!(g.u32(handle + HANDLE_OWNER).unwrap(), 0);
         assert_eq!(g.u32(A + LINK_NEXT).unwrap(), B, "nothing unlinked");
@@ -616,7 +720,11 @@ mod tests {
             g.set_u32(handle + HANDLE_OWNER, OWNER).unwrap();
             g.set_u32(handle + HANDLE_GENERATION, 5).unwrap();
             g.set_u32(OWNER + offset, 5).unwrap();
-            let r = if gen8 { unlink_checked_gen8(&mut g, handle, A) } else { unlink_checked(&mut g, handle, A) };
+            let r = if gen8 {
+                unlink_checked_gen8(&mut g, handle, A)
+            } else {
+                unlink_checked(&mut g, handle, A)
+            };
             assert_eq!(r.unwrap(), 0, "generation at +{offset}");
             assert_eq!(g.u32(OWNER).unwrap(), B, "the head moved on");
             assert_eq!(g.u32(B + LINK_PREV).unwrap(), 0);
@@ -638,7 +746,12 @@ mod tests {
         assert_eq!(remove_handle(&mut g, object).unwrap(), 1);
         assert_eq!(g.u16(owner + HANDLE_COUNT).unwrap(), 3);
         let after: Vec<(u32, u32)> = (0..4u32)
-            .map(|i| (g.u32(array + 8 * i).unwrap(), g.u32(array + 8 * i + 4).unwrap()))
+            .map(|i| {
+                (
+                    g.u32(array + 8 * i).unwrap(),
+                    g.u32(array + 8 * i + 4).unwrap(),
+                )
+            })
             .collect();
         // Entries after the removed one move down; the last slot keeps its old bytes.
         assert_eq!(after, vec![(0xA, 1), (0xC, 3), (0xD, 4), (0xD, 4)]);
@@ -669,7 +782,10 @@ mod retire_tests {
     /// handles, and an owner handle array that is empty so the removal finds nothing.
     fn guest(state: u8) -> Guest {
         let mut g = Guest::single(BASE, 0x1000);
-        g.put(crate::leaves::ZERO_CELL, 0.0f32.to_bits().to_be_bytes().to_vec());
+        g.put(
+            crate::leaves::ZERO_CELL,
+            0.0f32.to_bits().to_be_bytes().to_vec(),
+        );
         g.set_u32(OBJECT + HANDLE_ARRAY_OWNER, OWNER).unwrap();
         g.set_u8(OBJECT + RETIRE_STATE, state).unwrap();
         for k in 0..3 {
@@ -679,7 +795,8 @@ mod retire_tests {
         g.set_u32(OWNER + OWNER_LINKED_HEAD, node).unwrap();
         g.set_u32(node, other).unwrap();
         g.set_u32(other + 4, node).unwrap();
-        g.set_u32(OWNER + OWNER_RETIRED_HEAD, FIRST + RETIRE_NODE).unwrap();
+        g.set_u32(OWNER + OWNER_RETIRED_HEAD, FIRST + RETIRE_NODE)
+            .unwrap();
         g.set_u8(OBJECT + RETIRE_HANDLE_COUNT, 2).unwrap();
         g.set_u32(OBJECT + RETIRE_ARG_SLOT + 4, H0).unwrap();
         g.set_u32(OBJECT + RETIRE_ARG_SLOT + 8, H1).unwrap();
@@ -694,7 +811,10 @@ mod retire_tests {
         retire_object(&mut g, OBJECT, ARG).unwrap();
         assert_eq!(g.f32(OBJECT).unwrap(), 1.5);
         assert_eq!(g.u32(H0 + RETIRE_HANDLE_FIELD).unwrap(), 0x77);
-        assert_eq!(g.u32(OWNER + OWNER_RETIRED_HEAD).unwrap(), FIRST + RETIRE_NODE);
+        assert_eq!(
+            g.u32(OWNER + OWNER_RETIRED_HEAD).unwrap(),
+            FIRST + RETIRE_NODE
+        );
     }
 
     #[test]
@@ -702,8 +822,16 @@ mod retire_tests {
         let mut g = guest(1);
         retire_object(&mut g, OBJECT, ARG).unwrap();
         let node = OBJECT + RETIRE_NODE;
-        assert_eq!(g.u32(OWNER + OWNER_LINKED_HEAD).unwrap(), OTHER + RETIRE_NODE, "the head moved on");
-        assert_eq!(g.u32(OTHER + RETIRE_NODE + 4).unwrap(), 0, "and lost its prev");
+        assert_eq!(
+            g.u32(OWNER + OWNER_LINKED_HEAD).unwrap(),
+            OTHER + RETIRE_NODE,
+            "the head moved on"
+        );
+        assert_eq!(
+            g.u32(OTHER + RETIRE_NODE + 4).unwrap(),
+            0,
+            "and lost its prev"
+        );
         assert_eq!(g.u32(OBJECT + RETIRE_ARG_SLOT).unwrap(), ARG);
         assert_eq!(g.u32(OBJECT + RETIRE_FIELD_60).unwrap(), 0);
         assert_eq!(g.u8(OBJECT + RETIRE_STATE).unwrap(), 2);
@@ -712,7 +840,11 @@ mod retire_tests {
         }
         assert_eq!(g.u32(H0 + RETIRE_HANDLE_FIELD).unwrap(), 0);
         assert_eq!(g.u32(H1 + RETIRE_HANDLE_FIELD).unwrap(), 0);
-        assert_eq!(g.u32(node).unwrap(), FIRST + RETIRE_NODE, "pushed in front of the old first");
+        assert_eq!(
+            g.u32(node).unwrap(),
+            FIRST + RETIRE_NODE,
+            "pushed in front of the old first"
+        );
         assert_eq!(g.u32(node + 4).unwrap(), 0);
         assert_eq!(g.u32(FIRST + RETIRE_NODE + 4).unwrap(), node);
         assert_eq!(g.u32(OWNER + OWNER_RETIRED_HEAD).unwrap(), node);
@@ -722,7 +854,13 @@ mod retire_tests {
     fn an_unlinked_object_leaves_the_first_list_alone() {
         let mut g = guest(0);
         retire_object(&mut g, OBJECT, ARG).unwrap();
-        assert_eq!(g.u32(OWNER + OWNER_LINKED_HEAD).unwrap(), OBJECT + RETIRE_NODE);
-        assert_eq!(g.u32(OWNER + OWNER_RETIRED_HEAD).unwrap(), OBJECT + RETIRE_NODE);
+        assert_eq!(
+            g.u32(OWNER + OWNER_LINKED_HEAD).unwrap(),
+            OBJECT + RETIRE_NODE
+        );
+        assert_eq!(
+            g.u32(OWNER + OWNER_RETIRED_HEAD).unwrap(),
+            OBJECT + RETIRE_NODE
+        );
     }
 }

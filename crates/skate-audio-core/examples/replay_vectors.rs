@@ -17,10 +17,9 @@
 
 use skate_audio_core::mathlib::Trig;
 use skate_audio_core::{
-    Guest, bitstream, buffers, contributions, counter, eval, crossfade, cursors, dsp, filters, gains, leaves, mathlib, mix,
-    player, ring,
-    bus, interleave, layout, mem, meters, output, pitch, routing, voices,
-    scheduler, spatial, stage, system,
+    Guest, bitstream, buffers, bus, contributions, counter, crossfade, cursors, dsp, eval, filters,
+    gains, interleave, layout, leaves, mathlib, mem, meters, mix, output, pitch, player, ring,
+    routing, scheduler, spatial, stage, system, voices,
 };
 
 struct Vector {
@@ -57,7 +56,9 @@ struct Vector {
 }
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap()).collect()
+    (0..s.len() / 2)
+        .map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap())
+        .collect()
 }
 
 fn parse(line: &str) -> Option<Vector> {
@@ -261,7 +262,10 @@ fn main() {
     let mut by_name: std::collections::BTreeMap<String, Tally> = Default::default();
     let mut total = 0u64;
 
-    for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    {
         let Some(v) = parse(line) else { continue };
         total += 1;
         let t = by_name.entry(v.name.clone()).or_default();
@@ -278,7 +282,9 @@ fn main() {
             "BUFPAIR" => buffers::init_buffer_pair(&mut g, v.r3, v.r4, v.r5, v.r6, v.r7)
                 .map(Some)
                 .map_err(|e| e.to_string()),
-            "EVENT_SUBMIT" => player::event_submit(&mut g, v.r3).map(Some).map_err(|e| e.to_string()),
+            "EVENT_SUBMIT" => player::event_submit(&mut g, v.r3)
+                .map(Some)
+                .map_err(|e| e.to_string()),
             "EVENT_PLAY" => {
                 let mut restarted = 0u32;
                 player::event_play(&mut g, v.r3, Some(&mut |_| restarted += 1))
@@ -333,19 +339,22 @@ fn main() {
                     .map_err(|e| e.to_string())
             }
             "sub_82B3C098" => dsp::gain_ramp::gain_ramp_copy(
-                &mut g, v.r3, v.r4, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r4,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             // The ring, mix and per-block DSP ports. Several of these take genuinely 64-bit
             // arguments, so they are fed the wide columns rather than a zero-extended low word.
             "sub_82B3DB90" => ring::copy_from_ring(&mut g, v.w[0], v.w[1], v.w[2], v.w[3], v.w[4])
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
-            "sub_82B3DC48" => {
-                ring::fill_segments(&mut g, v.w[0], v.w[1], v.w[2] as u32, v.w[3])
-                    .map(|r| Some(r as u32))
-                    .map_err(|e| e.to_string())
-            }
+            "sub_82B3DC48" => ring::fill_segments(&mut g, v.w[0], v.w[1], v.w[2] as u32, v.w[3])
+                .map(|r| Some(r as u32))
+                .map_err(|e| e.to_string()),
             "sub_82B3DF90" => ring::fill_tail(&mut g, v.r3, v.r4, v.r5)
                 .map(|_| None)
                 .map_err(|e| e.to_string()),
@@ -361,7 +370,10 @@ fn main() {
             }
             "sub_82B3DD90" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(ring::WINDOW_FRAME), vec![0u8; ring::WINDOW_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(ring::WINDOW_FRAME),
+                    vec![0u8; ring::WINDOW_FRAME as usize],
+                );
                 ring::build_window(&mut g, v.w[0], v.w[1], v.w[2], v.w[3], sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
@@ -376,7 +388,9 @@ fn main() {
                     t.unreplayable += 1;
                     if t.first_gap.is_none() {
                         t.first_gap = Some(format!(
-                            "run {}: needs r8, which this recording predates", v.run));
+                            "run {}: needs r8, which this recording predates",
+                            v.run
+                        ));
                     }
                     continue;
                 }
@@ -397,19 +411,28 @@ fn main() {
             // the guest's sine and cosine, which have no port in either language, and substituting
             // the host's would agree to fifteen digits and disagree in the bits the caller keeps.
             "sub_82B453D8" => spatial::clamp_to_unit_disc(
-                &mut g, v.r3, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B454B8" => {
                 spatial::pan_distance(&mut g, v.r3, v.r4, v.r6, f64::from_bits(v.f[0]))
                     .map(|_| None)
                     .map_err(|e| e.to_string())
             }
             "sub_82B45B60" => spatial::scale_gains(
-                &mut g, v.r3, v.r6, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]),
-                f64::from_bits(v.f[2]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r6,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+                f64::from_bits(v.f[2]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B29AF0" => gains::apply_gain_matrix(&mut g, v.r3, v.r4, v.r5)
                 .map(|_| None)
                 .map_err(|e| e.to_string()),
@@ -429,9 +452,16 @@ fn main() {
             },
             // n is r3, the addend r5, the source r6, and the two outputs r7 and r8.
             "sub_82B3CF58" => dsp::scale_add::scale_add_with_copy(
-                &mut g, v.r3, v.r5, v.r6, v.r7, v.w[5] as u32, f64::from_bits(v.f[0]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r5,
+                v.r6,
+                v.r7,
+                v.w[5] as u32,
+                f64::from_bits(v.f[0]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B3DEA8" => ring::write_into_ring(&mut g, v.w[0], v.w[1], v.w[2], v.w[3])
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
@@ -471,7 +501,10 @@ fn main() {
             // three words out of its 20-byte span, so no seeded byte can reach the result.
             "sub_82B39FA0" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(stage::FRAME_BYTES), vec![0u8; stage::FRAME_BYTES as usize]);
+                g.put(
+                    sp.wrapping_sub(stage::FRAME_BYTES),
+                    vec![0u8; stage::FRAME_BYTES as usize],
+                );
                 stage::run_stage(&mut g, v.r3, v.w[1], v.w[2], v.r7, sp)
                     .map(|_| None)
                     .map_err(|e| e.to_string())
@@ -494,13 +527,24 @@ fn main() {
             }
             // The four ports that call them, now given the real thing instead of `Unported`.
             "sub_82B269C0" => spatial::place_panner(
-                &mut g, &mut mathlib::Image, v.r3, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                &mut mathlib::Image,
+                v.r3,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B45788" => spatial::add_angular(
-                &mut g, &mut mathlib::Image, v.r3, v.r4, v.r6, f64::from_bits(v.f[0]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                &mut mathlib::Image,
+                v.r3,
+                v.r4,
+                v.r6,
+                f64::from_bits(v.f[0]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B27E20" => filters::lowpass_stage(&mut g, &mut mathlib::Image, v.w[0], v.w[1])
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
@@ -545,7 +589,10 @@ fn main() {
             "sub_824531C8" if v.vret1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs v1, which this recording predates", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs v1, which this recording predates",
+                        v.run
+                    ));
                 }
                 continue;
             }
@@ -583,9 +630,14 @@ fn main() {
             // The accumulating gain ramp, the twin of sub_82B3C098 above: same arguments, and its
             // result is the 1,024-byte destination rather than a register.
             "sub_82B44D18" => dsp::gain_ramp::gain_ramp_accumulate(
-                &mut g, v.r3, v.r4, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r4,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             // The ramping gain matrix keeps its per-column deltas in a 432-byte frame below r1,
             // which its window builder leaves undeclared because it is the call's own stack. Seeding
             // it with zeroes is sound **only when there is at least one source row**: pass one
@@ -648,10 +700,11 @@ fn main() {
                 }
                 continue;
             }
-            "sub_82B426D0" => routing::scatter_mix(
-                &mut g, v.r3, v.r4, v.r5, v.r6, v.r7, v.w[5] as u32)
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+            "sub_82B426D0" => {
+                routing::scatter_mix(&mut g, v.r3, v.r4, v.r5, v.r6, v.r7, v.w[5] as u32)
+                    .map(|_| None)
+                    .map_err(|e| e.to_string())
+            }
             // The planar-to-interleaved shuffle. Its cursor argument and its result are both the
             // full 64-bit r3 — the recorded return compares the low word — so it needs the wide
             // columns rather than the truncated one.
@@ -709,7 +762,10 @@ fn main() {
             "sub_82B2C8F0" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where its pointer arrays live", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where its pointer arrays live",
+                        v.run
+                    ));
                 }
                 continue;
             }
@@ -764,20 +820,30 @@ fn main() {
             "sub_82B21D98" | "sub_82B21F58" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the pointer arrays live", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the pointer arrays live",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B21D98" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(output::MIX_FRAME_BYTES), vec![0u8; output::MIX_FRAME_BYTES as usize]);
-                output::mix_and_clamp(&mut g, v.r3, sp).map(|_| None).map_err(|e| e.to_string())
+                g.put(
+                    sp.wrapping_sub(output::MIX_FRAME_BYTES),
+                    vec![0u8; output::MIX_FRAME_BYTES as usize],
+                );
+                output::mix_and_clamp(&mut g, v.r3, sp)
+                    .map(|_| None)
+                    .map_err(|e| e.to_string())
             }
             "sub_82B21F58" => {
                 let sp = v.r1.unwrap_or(0) as u32;
                 let depth = output::PASS_FRAME_BYTES + output::MIX_FRAME_BYTES;
                 g.put(sp.wrapping_sub(depth), vec![0u8; depth as usize]);
-                output::output_pass(&mut g, v.r3, sp).map(|r| Some(r as u32)).map_err(|e| e.to_string())
+                output::output_pass(&mut g, v.r3, sp)
+                    .map(|r| Some(r as u32))
+                    .map_err(|e| e.to_string())
             }
             "sub_82B20E18" if wide_missing => {
                 t.unreplayable += 1;
@@ -813,13 +879,19 @@ fn main() {
             "sub_82B31D90" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the bit reader lives", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the bit reader lives",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B31D90" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(bitstream::HEADER_FRAME_BYTES), vec![0u8; bitstream::HEADER_FRAME_BYTES as usize]);
+                g.put(
+                    sp.wrapping_sub(bitstream::HEADER_FRAME_BYTES),
+                    vec![0u8; bitstream::HEADER_FRAME_BYTES as usize],
+                );
                 bitstream::unpack_stream_header(&mut g, v.r3, v.r4, sp)
                     .map(|_| None)
                     .map_err(|e| e.to_string())
@@ -852,7 +924,9 @@ fn main() {
                 let sp = v.r1.unwrap_or(0) as u32;
                 let depth = voices::REPOINT_FRAME_BYTES + voices::RELEASE_FRAME_BYTES;
                 g.put(sp.wrapping_sub(depth), vec![0u8; depth as usize]);
-                voices::repoint_link(&mut g, v.r3, sp).map(|r| Some(r as u32)).map_err(|e| e.to_string())
+                voices::repoint_link(&mut g, v.r3, sp)
+                    .map(|r| Some(r as u32))
+                    .map_err(|e| e.to_string())
             }
             "sub_828E30B8" => voices::unlink_checked(&mut g, v.r3, v.r4)
                 .map(|r| Some(r as u32))
@@ -864,13 +938,22 @@ fn main() {
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
             "sub_82B43CC0" => filters::build_lowpass_coefficients(
-                &mut g, &mut mathlib::Image, v.r3, f64::from_bits(v.f[0]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                &mut mathlib::Image,
+                v.r3,
+                f64::from_bits(v.f[0]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B43D78" => filters::build_shelf_coefficients(
-                &mut g, &mut mathlib::Image, v.r3, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+                &mut g,
+                &mut mathlib::Image,
+                v.r3,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B26740" => filters::shelf_stage(&mut g, &mut mathlib::Image, v.r3, v.r4)
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
@@ -886,7 +969,9 @@ fn main() {
                 .map_err(|e| e.to_string()),
             // The six-word cascading counter: no arguments, and its whole result is the 64-bit sum in
             // r3, of which the recording keeps the low word. Ported long before it had an arm.
-            "sub_82B1F360" => counter::advance(&mut g).map(|r| Some(r as u32)).map_err(|e| e.to_string()),
+            "sub_82B1F360" => counter::advance(&mut g)
+                .map(|r| Some(r as u32))
+                .map_err(|e| e.to_string()),
             "sub_82B29278" => leaves::set_field_364(&mut g, v.r3, v.r6 as u16)
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
@@ -896,7 +981,12 @@ fn main() {
             // On the bypass path the dispatcher tail-branches into the guest memset, whose r3 is not
             // modelled here, so only the stage path compares a register.
             "sub_82B38B68" => match dsp::allpass::dispatch_stage(
-                &mut g, u64::from(v.r3), u64::from(v.r4), u64::from(v.r5), u64::from(v.r7)) {
+                &mut g,
+                u64::from(v.r3),
+                u64::from(v.r4),
+                u64::from(v.r5),
+                u64::from(v.r7),
+            ) {
                 Ok(dsp::allpass::DispatchOutcome::Ran(r)) => Ok(Some(r.r3 as u32)),
                 Ok(dsp::allpass::DispatchOutcome::Cleared) => Ok(None),
                 Err(e) => Err(e.to_string()),
@@ -908,10 +998,17 @@ fn main() {
                 }
                 continue;
             }
-            "sub_82B46810" => routing::downmix(&mut g, v.r3, v.r4, v.w[4], v.w[5] as u32,
-                f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|_| None)
-                .map_err(|e| e.to_string()),
+            "sub_82B46810" => routing::downmix(
+                &mut g,
+                v.r3,
+                v.r4,
+                v.w[4],
+                v.w[5] as u32,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|_| None)
+            .map_err(|e| e.to_string()),
             "sub_82B2DAC8" => pitch::advance_pitch(&mut g, v.r3, v.r4, v.r6)
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
@@ -938,13 +1035,19 @@ fn main() {
             "sub_82B31838" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where its pointer arrays live", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where its pointer arrays live",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B31838" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(bus::MIX_FRAME_BYTES), vec![0u8; bus::MIX_FRAME_BYTES as usize]);
+                g.put(
+                    sp.wrapping_sub(bus::MIX_FRAME_BYTES),
+                    vec![0u8; bus::MIX_FRAME_BYTES as usize],
+                );
                 bus::mix_source(&mut g, v.r3, v.r4, v.r5, sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
@@ -954,13 +1057,19 @@ fn main() {
             "sub_82B373C8" | "sub_82B376B8" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the meter scratch lives", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the meter scratch lives",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B373C8" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(meters::METER_RED_ZONE), vec![0u8; meters::METER_RED_ZONE as usize]);
+                g.put(
+                    sp.wrapping_sub(meters::METER_RED_ZONE),
+                    vec![0u8; meters::METER_RED_ZONE as usize],
+                );
                 meters::meter_block(&mut g, v.r3, v.r4, sp)
                     .map(|_| None)
                     .map_err(|e| e.to_string())
@@ -983,10 +1092,17 @@ fn main() {
             }
             "sub_82B45C50" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(spatial::LAYOUT_FRAME), vec![0u8; spatial::LAYOUT_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(spatial::LAYOUT_FRAME),
+                    vec![0u8; spatial::LAYOUT_FRAME as usize],
+                );
                 let f = |k: usize| f64::from_bits(v.f[k]);
                 let args = spatial::PannerLayout {
-                    angle: f(0), distance: f(1), radius: f(2), turn: f(3), spreads: [f(4), f(5), f(6)],
+                    angle: f(0),
+                    distance: f(1),
+                    radius: f(2),
+                    turn: f(3),
+                    spreads: [f(4), f(5), f(6)],
                 };
                 spatial::lay_out_panners(&mut g, &mut mathlib::Image, v.r3, v.r4 as i32, args, sp)
                     .map(|_| None)
@@ -1002,18 +1118,34 @@ fn main() {
             }
             "sub_82B460A0" => {
                 let f = |k: usize| f64::from_bits(v.f[k]);
-                let args = spatial::MatrixGains { weight: f(0), focus: f(1), fill: f(2), gain: f(3) };
+                let args = spatial::MatrixGains {
+                    weight: f(0),
+                    focus: f(1),
+                    fill: f(2),
+                    gain: f(3),
+                };
                 let matrix = v.r10.unwrap_or(0) as u32;
-                spatial::fill_mix_matrix(&mut g, &mut mathlib::Image, v.r3, v.r4, v.r5 as i32, matrix, args)
-                    .map(|_| None)
-                    .map_err(|e| e.to_string())
+                spatial::fill_mix_matrix(
+                    &mut g,
+                    &mut mathlib::Image,
+                    v.r3,
+                    v.r4,
+                    v.r5 as i32,
+                    matrix,
+                    args,
+                )
+                .map(|_| None)
+                .map_err(|e| e.to_string())
             }
             // The republish keeps a 496-byte frame whose saved matrix the ramp reads, with the ramp's
             // own frame and the panner layout's below it.
             "sub_82B29BE0" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the saved matrix lives", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the saved matrix lives",
+                        v.run
+                    ));
                 }
                 continue;
             }
@@ -1035,7 +1167,10 @@ fn main() {
             }
             "sub_82B2F2C8" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(leaves::BAND_RED_ZONE), vec![0u8; leaves::BAND_RED_ZONE as usize]);
+                g.put(
+                    sp.wrapping_sub(leaves::BAND_RED_ZONE),
+                    vec![0u8; leaves::BAND_RED_ZONE as usize],
+                );
                 leaves::resample_bands(&mut g, v.r3, v.r4, v.r6, f64::from_bits(v.f[0]), sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
@@ -1044,27 +1179,39 @@ fn main() {
             "sub_82B335A8" | "sub_82B474B8" | "sub_82B50100" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the decoder state lives", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the decoder state lives",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B335A8" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(bitstream::HEADER_FRAME), vec![0u8; bitstream::HEADER_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(bitstream::HEADER_FRAME),
+                    vec![0u8; bitstream::HEADER_FRAME as usize],
+                );
                 bitstream::parse_voice_header(&mut g, v.r3, v.r4, u64::from(v.r5), sp)
                     .map(|_| None)
                     .map_err(|e| e.to_string())
             }
             "sub_82B474B8" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(bitstream::SEEK_FRAME), vec![0u8; bitstream::SEEK_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(bitstream::SEEK_FRAME),
+                    vec![0u8; bitstream::SEEK_FRAME as usize],
+                );
                 bitstream::seek_record(&mut g, v.r3, u64::from(v.r4), u64::from(v.r5), sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
             }
             "sub_82B50100" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(bitstream::PACKET_FRAME), vec![0u8; bitstream::PACKET_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(bitstream::PACKET_FRAME),
+                    vec![0u8; bitstream::PACKET_FRAME as usize],
+                );
                 bitstream::seek_packet(&mut g, v.r3, v.r4, v.r5, u64::from(v.r6), sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
@@ -1072,7 +1219,11 @@ fn main() {
             // The four helpers outside the 216, and the three bodies that could not be ported before
             // them. Their decoders and walkers keep frames below r1, seeded with zeroes.
             "sub_82F52FB8" => {
-                let len = if wide_missing { u64::from(v.r5) } else { v.w[2] };
+                let len = if wide_missing {
+                    u64::from(v.r5)
+                } else {
+                    v.w[2]
+                };
                 mem::memcpy_chunked(&mut g, v.r3, v.r4, len)
                     .map(|_| Some(v.r3))
                     .map_err(|e| e.to_string())
@@ -1111,9 +1262,15 @@ fn main() {
                 let depth = bitstream::PACKET_HEADER_STACK_DEPTH;
                 g.put(sp.wrapping_sub(depth), vec![0u8; depth as usize]);
                 bitstream::decode_packet_header(
-                    &mut g, u64::from(v.r3), u64::from(v.r4), u64::from(v.r5), u64::from(v.r6), sp)
-                    .map(|_| None)
-                    .map_err(|e| e.to_string())
+                    &mut g,
+                    u64::from(v.r3),
+                    u64::from(v.r4),
+                    u64::from(v.r5),
+                    u64::from(v.r6),
+                    sp,
+                )
+                .map(|_| None)
+                .map_err(|e| e.to_string())
             }
             "sub_82B2F590" => {
                 let sp = v.r1.unwrap_or(0) as u32;
@@ -1125,42 +1282,74 @@ fn main() {
             }
             // The two ramp writers: r3 out, r6 first, r7 length, f1 start, f2 end.
             "sub_82B427D8" => dsp::ramps::linear_ramp(
-                &mut g, v.r3, v.r6 as i32, v.r7 as i32, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|r| Some(r as u32))
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r6 as i32,
+                v.r7 as i32,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|r| Some(r as u32))
+            .map_err(|e| e.to_string()),
             "sub_82B42C98" => dsp::ramps::sqrt_ramp(
-                &mut g, v.r3, v.r6 as i32, v.r7 as i32, f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|r| Some(r as u32))
-                .map_err(|e| e.to_string()),
+                &mut g,
+                v.r3,
+                v.r6 as i32,
+                v.r7 as i32,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|r| Some(r as u32))
+            .map_err(|e| e.to_string()),
             // The block resampler keeps its cursor and phase slots in a 224-byte frame.
             "sub_82B2DBA8" if v.r1.is_none() => {
                 t.unreplayable += 1;
                 if t.first_gap.is_none() {
-                    t.first_gap = Some(format!("run {}: needs r1, where the resampler's slots live", v.run));
+                    t.first_gap = Some(format!(
+                        "run {}: needs r1, where the resampler's slots live",
+                        v.run
+                    ));
                 }
                 continue;
             }
             "sub_82B2DBA8" => {
                 let sp = v.r1.unwrap_or(0) as u32;
-                g.put(sp.wrapping_sub(pitch::BLOCK_FRAME), vec![0u8; pitch::BLOCK_FRAME as usize]);
+                g.put(
+                    sp.wrapping_sub(pitch::BLOCK_FRAME),
+                    vec![0u8; pitch::BLOCK_FRAME as usize],
+                );
                 pitch::resample_block(&mut g, v.r3, v.r4, sp)
                     .map(|r| Some(r as u32))
                     .map_err(|e| e.to_string())
             }
             "sub_82B43340" => dsp::ramps::sine_ramp(
-                &mut g, &mut mathlib::Image, v.r3, v.r6 as i32, v.r7 as i32,
-                f64::from_bits(v.f[0]), f64::from_bits(v.f[1]))
-                .map(|r| Some(r as u32))
-                .map_err(|e| e.to_string()),
+                &mut g,
+                &mut mathlib::Image,
+                v.r3,
+                v.r6 as i32,
+                v.r7 as i32,
+                f64::from_bits(v.f[0]),
+                f64::from_bits(v.f[1]),
+            )
+            .map(|r| Some(r as u32))
+            .map_err(|e| e.to_string()),
             "sub_82B238A8" => gains::advance_gain_ramp(&mut g, &mut mathlib::Image, v.r3, v.r4)
                 .map(|r| Some(r as u32))
                 .map_err(|e| e.to_string()),
             // The evaluator's opcode table: every ported slot is `fn(&mut Guest, u32) -> u64` with the
             // operand block in r3, so one arm covers all of them by looking the name up.
-            name if eval::TABLE.iter().any(|slot| slot.name == name && slot.port.is_some()) => {
-                let op = eval::TABLE.iter().find(|slot| slot.name == name).and_then(|slot| slot.port);
+            name if eval::TABLE
+                .iter()
+                .any(|slot| slot.name == name && slot.port.is_some()) =>
+            {
+                let op = eval::TABLE
+                    .iter()
+                    .find(|slot| slot.name == name)
+                    .and_then(|slot| slot.port);
                 match op {
-                    Some(op) => op(&mut g, v.r3).map(|r| Some(r as u32)).map_err(|e| e.to_string()),
+                    Some(op) => op(&mut g, v.r3)
+                        .map(|r| Some(r as u32))
+                        .map_err(|e| e.to_string()),
                     None => Err(format!("{name}: no port in eval::TABLE")),
                 }
             }
@@ -1213,7 +1402,9 @@ fn main() {
                     if let (Some(got), Some(want)) = (float_result, v.ret_f1) {
                         if got != want {
                             bad = Some(format!(
-                                "run {}: f1 returned {got:016X}, expected {want:016X}", v.run));
+                                "run {}: f1 returned {got:016X}, expected {want:016X}",
+                                v.run
+                            ));
                         }
                     }
                 }
@@ -1222,7 +1413,9 @@ fn main() {
                     if let (Some(got), Some(want)) = (vector_result, v.vret1) {
                         if got != want {
                             bad = Some(format!(
-                                "run {}: v1 returned {got:08X?}, expected {want:08X?}", v.run));
+                                "run {}: v1 returned {got:08X?}, expected {want:08X?}",
+                                v.run
+                            ));
                         }
                     }
                 }

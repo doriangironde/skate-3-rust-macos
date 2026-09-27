@@ -18,6 +18,7 @@ pub mod bitstream;
 pub mod buffers;
 pub mod counter;
 pub mod cursors;
+pub mod delay;
 pub mod eval;
 pub mod fp;
 pub mod leaves;
@@ -55,6 +56,18 @@ pub mod dsp;
 #[cfg(target_arch = "x86_64")]
 pub mod vmx;
 
+/// The two-source crossfade and the mix dispatcher that runs it through a stage descriptor.
+///
+/// Gated with the rest: vector work under the guest's flush mode.
+#[cfg(target_arch = "x86_64")]
+pub mod crossfade;
+/// The per-channel filter stages, which stand on [`dsp::biquad`] and [`mathlib::Trig`].
+///
+/// Gated with the rest for the same reason: both bodies normalise a cutoff with `fdivs`/`fmuls` and
+/// clear their history with a rodata single, all under the guest's flush mode held through
+/// [`vmx::Fpscr`], and the kernel they call adds a denormal-avoidance bias for that exact reason.
+#[cfg(target_arch = "x86_64")]
+pub mod filters;
 /// The spatial layer, the gain plumbing under it, and the guest math leaves they call.
 ///
 /// Gated on x86_64 for the same reason [`mix`] and [`ring`] are, and it is again not SIMD: every
@@ -66,13 +79,6 @@ pub mod vmx;
 pub mod gains;
 #[cfg(target_arch = "x86_64")]
 pub mod mathlib;
-/// The per-channel filter stages, which stand on [`dsp::biquad`] and [`mathlib::Trig`].
-///
-/// Gated with the rest for the same reason: both bodies normalise a cutoff with `fdivs`/`fmuls` and
-/// clear their history with a rodata single, all under the guest's flush mode held through
-/// [`vmx::Fpscr`], and the kernel they call adds a denormal-avoidance bias for that exact reason.
-#[cfg(target_arch = "x86_64")]
-pub mod filters;
 #[cfg(target_arch = "x86_64")]
 pub mod spatial;
 /// The one-pole filter stage and the dispatcher that runs it over a descriptor.
@@ -80,11 +86,6 @@ pub mod spatial;
 /// Gated with the rest: the stage is VMX128 work under the guest's flush mode.
 #[cfg(target_arch = "x86_64")]
 pub mod stage;
-/// The two-source crossfade and the mix dispatcher that runs it through a stage descriptor.
-///
-/// Gated with the rest: vector work under the guest's flush mode.
-#[cfg(target_arch = "x86_64")]
-pub mod crossfade;
 
 /// The scatter-mixer, which composes [`dsp::scale`]'s two kernels and [`mem::memset`].
 ///
@@ -151,6 +152,13 @@ pub struct Segment {
 #[derive(Clone, Debug, Default)]
 pub struct Guest {
     segments: Vec<Segment>,
+    /// `(base, end, segment)` sorted by base; rebuilt whenever the layout changes.
+    index: Vec<(u32, u64, usize)>,
+    /// No two segments overlap, so at most one can contain any address and the indexed lookup
+    /// returns exactly what the linear scan would.
+    disjoint: bool,
+    /// The segment of the previous hit; consecutive accesses are almost always to the same one.
+    last: std::cell::Cell<usize>,
 }
 
 /// Out-of-window access, reported rather than panicking silently.
@@ -162,7 +170,10 @@ pub struct Error {
 
 impl Error {
     pub fn new(address: u32, message: impl Into<String>) -> Self {
-        Self { address, message: message.into() }
+        Self {
+            address,
+            message: message.into(),
+        }
     }
 }
 
@@ -179,11 +190,19 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl Guest {
     /// A single span, which is what the unit tests want.
     pub fn single(base: u32, len: usize) -> Self {
-        Self { segments: vec![Segment { base, bytes: vec![0u8; len] }] }
+        Self::from_segments(vec![Segment {
+            base,
+            bytes: vec![0u8; len],
+        }])
     }
 
     pub fn from_segments(segments: Vec<Segment>) -> Self {
-        Self { segments }
+        let mut guest = Self {
+            segments,
+            ..Self::default()
+        };
+        guest.reindex();
+        guest
     }
 
     /// Add a span, or overwrite an existing one with the same base.
@@ -192,13 +211,49 @@ impl Guest {
             Some(s) => s.bytes = bytes,
             None => self.segments.push(Segment { base, bytes }),
         }
+        self.reindex();
     }
 
     pub fn segments(&self) -> &[Segment] {
         &self.segments
     }
 
+    fn reindex(&mut self) {
+        self.index = self
+            .segments
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.base, u64::from(s.base) + s.bytes.len() as u64, i))
+            .collect();
+        self.index.sort_unstable_by_key(|&(base, _, _)| base);
+        self.disjoint = self
+            .index
+            .windows(2)
+            .all(|pair| pair[0].1 <= u64::from(pair[1].0));
+        self.last.set(0);
+    }
+
     fn locate(&self, ea: u32, len: usize) -> Result<(usize, usize)> {
+        if self.disjoint {
+            let fits = |i: usize| {
+                let s = &self.segments[i];
+                ea >= s.base && (ea - s.base) as usize + len <= s.bytes.len()
+            };
+            let last = self.last.get();
+            if last < self.segments.len() && fits(last) {
+                return Ok((last, (ea - self.segments[last].base) as usize));
+            }
+            // The only candidate is the segment with the greatest base not above `ea`.
+            let at = self.index.partition_point(|&(base, _, _)| base <= ea);
+            if at > 0 {
+                let i = self.index[at - 1].2;
+                if fits(i) {
+                    self.last.set(i);
+                    return Ok((i, (ea - self.segments[i].base) as usize));
+                }
+            }
+            return Err(Error::new(ea, "no segment covers this address"));
+        }
         for (i, s) in self.segments.iter().enumerate() {
             if ea >= s.base {
                 let off = (ea - s.base) as usize;
@@ -323,10 +378,14 @@ pub(crate) mod testutil {
 
     /// A player wired to a system with an empty ring, and a source object.
     pub fn wire(g: &mut Guest) {
-        g.set_u32(PLAYER + crate::system::PLAYER_SYSTEM, SYSTEM).unwrap();
-        g.set_u32(SYSTEM + crate::system::SYSTEM_CMD_BUFFER, RING).unwrap();
-        g.set_u32(SYSTEM + crate::system::SYSTEM_CMD_WRITE_OFF, 0).unwrap();
-        g.set_u32(PLAYER + crate::player::PLAYER_SOURCE, SOURCE).unwrap();
+        g.set_u32(PLAYER + crate::system::PLAYER_SYSTEM, SYSTEM)
+            .unwrap();
+        g.set_u32(SYSTEM + crate::system::SYSTEM_CMD_BUFFER, RING)
+            .unwrap();
+        g.set_u32(SYSTEM + crate::system::SYSTEM_CMD_WRITE_OFF, 0)
+            .unwrap();
+        g.set_u32(PLAYER + crate::player::PLAYER_SOURCE, SOURCE)
+            .unwrap();
     }
 }
 
@@ -365,3 +424,36 @@ pub mod classes;
 /// The voice device's open: a voice object over a built module graph, its sends and angles. Unverified;
 /// see the module note.
 pub mod device;
+
+/// Audio-thread command dispatch and snapshot drain (`sub_82B48530`, phase four).
+pub mod commands;
+/// Dac snapshot publication and completed-pass close-out (`sub_82B219E8`).
+pub mod dac;
+/// Decoded resident PCM cursors used by the recovered SndPlayer1 stream fill.
+pub mod pcm;
+/// Resident SndPlayer1 play-command branch (`sub_82B32DC8`).
+pub mod play;
+/// A continuously pumpable worker fixture for exercising the recovered final output graph on a
+/// host device. It is deliberately a probe signal, not a replacement for authored game voices.
+#[cfg(target_arch = "x86_64")]
+pub mod probe;
+/// SndPlayer1 segment-ring stream pump (`sub_82B31EE0`).
+pub mod pump;
+/// The recovered five-phase `rw_system` audio-thread block driver.
+pub mod runtime;
+/// The Dac worker's double-buffer PCM handoff.
+pub mod worker;
+
+/// Single-owner authored bank evaluator, voice graphs, decoded streams and Dac output.
+#[cfg(target_arch = "x86_64")]
+pub mod authored;
+
+/// Retail board rolling: the grain player over `grains.big`, its seek reader and the board math.
+#[cfg(target_arch = "x86_64")]
+pub mod grain;
+
+/// The retail MixMap mixer: controller inputs → every gain/pitch/filter output word.
+///
+/// Gated with the float modules: its evaluation holds the guest flush mode through [`vmx::Fpscr`].
+#[cfg(target_arch = "x86_64")]
+pub mod mixmap;

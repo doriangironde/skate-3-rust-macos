@@ -33,6 +33,7 @@ tracing-log = "0.2"
 skate-core.workspace = true
 skate-data.workspace = true
 skate-audio-formats.workspace = true
+skate-audio-core.workspace = true
 half = "=2.7.1"
 serde_json.workspace = true
 serde.workspace = true

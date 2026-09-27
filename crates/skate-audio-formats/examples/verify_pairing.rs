@@ -21,8 +21,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // shows up later as "unpaired", which looks like a data problem and is not.
     let mut headers: HashMap<String, eaac::SnrRecord> = HashMap::new();
     for e in &eb::Archive::parse(&resident)?.entries {
-        let Some(name) = e.name.as_deref() else { continue };
-        let Some(stem) = eaac::stem(name) else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
+        let Some(stem) = eaac::stem(name) else {
+            continue;
+        };
         let Some(bytes) = resident.get(e.range()) else {
             println!("  {name:38.38} range outside archive");
             continue;
@@ -41,17 +45,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut loops_ok = 0;
     let mut loops_bad = 0;
     for entry in &eb::Archive::parse(&payload)?.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".sns") {
             continue;
         }
-        let Some(stem) = eaac::stem(name) else { continue };
+        let Some(stem) = eaac::stem(name) else {
+            continue;
+        };
         let Some(rec) = headers.get(stem) else {
             println!("  {name:38.38} NO HEADER");
             unpaired += 1;
             continue;
         };
-        let Some(bytes) = payload.get(entry.range()) else { continue };
+        let Some(bytes) = payload.get(entry.range()) else {
+            continue;
+        };
         let blocks = eaac::blocks(bytes)?;
         let summed: u64 = blocks.iter().map(|b| u64::from(b.num_samples)).sum();
         let claimed = u64::from(rec.header.num_samples);
@@ -70,7 +80,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some((first, end)) if (first..end).contains(&u64::from(start)) => loops_ok += 1,
                 Some((first, end)) => {
                     loops_bad += 1;
-                    println!("  {name:38.38} loop start {start} outside its block's samples {first}..{end}");
+                    println!(
+                        "  {name:38.38} loop start {start} outside its block's samples {first}..{end}"
+                    );
                 }
                 None => {
                     loops_bad += 1;

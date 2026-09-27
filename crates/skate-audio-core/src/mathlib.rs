@@ -152,10 +152,16 @@ pub struct Unported;
 
 impl Trig for Unported {
     fn sine(&mut self, _g: &Guest, _x: f64) -> Result<f64> {
-        Err(Error::new(0x82F4_DED0, "sub_82F4DED0 (sine) has no verified port in either language"))
+        Err(Error::new(
+            0x82F4_DED0,
+            "sub_82F4DED0 (sine) has no verified port in either language",
+        ))
     }
     fn cosine(&mut self, _g: &Guest, _x: f64) -> Result<f64> {
-        Err(Error::new(0x82F4_DFB0, "sub_82F4DFB0 (cosine) has no verified port in either language"))
+        Err(Error::new(
+            0x82F4_DFB0,
+            "sub_82F4DFB0 (cosine) has no verified port in either language",
+        ))
     }
 }
 
@@ -228,7 +234,9 @@ fn image_sine(g: &Guest, x: f64) -> Result<f64> {
     let odd = (fp::fctidz(n) & 1) != 0; // fctidz ; stfd ; ld ; clrldi r8,r9,63
     let r = -pi_lo.mul_add(n, -r_hi); // fnmsub f9,f9,f13,f11
     let mut s = trig_poly(g, r)?;
-    if odd { s = fp::neg_double(s); } // fneg f13,f13 (sine)
+    if odd {
+        s = fp::neg_double(s);
+    } // fneg f13,f13 (sine)
     fpscr.disable_flush_mode_unconditional(); // loc_82F4DF80
     let signed_s = s * sign; // fmul f12,f13,f12
     let mut result = x; // the +/-0 path never writes f1
@@ -260,7 +268,9 @@ fn image_cosine(g: &Guest, x: f64) -> Result<f64> {
     let r_hi = -pi_hi.mul_add(m, -ax); // fnmsub f10,f10,f11,f0
     let r = -pi_lo.mul_add(m, -r_hi); // fnmsub f9,f9,f11,f10
     let mut c = trig_poly(g, r)?;
-    if odd { c = fp::neg_double(c); } // fneg f13,f13 (cosine)
+    if odd {
+        c = fp::neg_double(c);
+    } // fneg f13,f13 (cosine)
     fpscr.disable_flush_mode_unconditional(); // loc_82F4E05C
     let zero = lfs(g, TRIG_TABLE + 24)?; // lfs f11,24(r11)
     if ax == zero {
@@ -547,10 +557,20 @@ pub const ATAN_ZERO_SINGLE: u32 = ATAN_POOL + 168;
 pub const ATAN_ONE_SINGLE: u32 = ATAN_POOL + 176;
 /// The rational's numerator coefficients, at `+56`, `+64`, `+72` and `+80`: measured
 /// `-13.688768894191927`, `-20.505855195861653`, `-8.494624035132068`, `-0.8375829936815006`.
-pub const ATAN_NUM: [u32; 4] = [ATAN_POOL + 56, ATAN_POOL + 64, ATAN_POOL + 72, ATAN_POOL + 80];
+pub const ATAN_NUM: [u32; 4] = [
+    ATAN_POOL + 56,
+    ATAN_POOL + 64,
+    ATAN_POOL + 72,
+    ATAN_POOL + 80,
+];
 /// The denominator's, at `+88`, `+96`, `+104` and `+112`: measured `41.06630668257578`,
 /// `86.15734959713025`, `59.57843614259735`, `15.024001160028575`.
-pub const ATAN_DEN: [u32; 4] = [ATAN_POOL + 88, ATAN_POOL + 96, ATAN_POOL + 104, ATAN_POOL + 112];
+pub const ATAN_DEN: [u32; 4] = [
+    ATAN_POOL + 88,
+    ATAN_POOL + 96,
+    ATAN_POOL + 104,
+    ATAN_POOL + 112,
+];
 
 /// `stfd f1,16(r1)` — the spill of `y`, in the **caller's** frame; this leaf allocates none.
 pub const ATAN_SPILL_Y: u32 = 16;
@@ -694,7 +714,10 @@ pub(crate) mod tests {
     /// `probe/harness/out/image/`, `1e18` included.
     pub fn with_pool_segments(g: &mut Guest) {
         g.put(POOL_STEP_DOWN, 1.0f64.to_bits().to_be_bytes().to_vec());
-        g.put(POOL_INTEGRAL_MAGNITUDE, 1e18f64.to_bits().to_be_bytes().to_vec());
+        g.put(
+            POOL_INTEGRAL_MAGNITUDE,
+            1e18f64.to_bits().to_be_bytes().to_vec(),
+        );
     }
 
     /// A guest map holding the rodata cells `mathlib` reads, and nothing else.
@@ -798,7 +821,10 @@ pub(crate) mod tests {
         let g = log_guest();
         for x in [1.5f64, 1.1, 0.75, 0.55, 2.0, 1023.0] {
             let got = log(&g, x).unwrap();
-            assert!((got - x.ln()).abs() <= 4.0 * f64::EPSILON * x.ln().abs().max(1.0), "log({x})");
+            assert!(
+                (got - x.ln()).abs() <= 4.0 * f64::EPSILON * x.ln().abs().max(1.0),
+                "log({x})"
+            );
         }
     }
 
@@ -820,7 +846,10 @@ pub(crate) mod tests {
         // substitute would fail: Rust's ln(-1.0) is a NaN of its own making.
         assert_eq!(log(&g, -1.0).unwrap().to_bits(), 0x7FF8_0000_0000_0000);
         let signalling = f64::from_bits(0x7FF4_0000_0000_0DAD);
-        assert_eq!(log(&g, signalling).unwrap().to_bits(), 0x7FF8_0000_0000_0000);
+        assert_eq!(
+            log(&g, signalling).unwrap().to_bits(),
+            0x7FF8_0000_0000_0000
+        );
     }
 
     #[test]
@@ -841,7 +870,11 @@ pub(crate) mod tests {
             // The image's word, by its bits: 0.4342944819032518, which is log10(e) to the last
             // bit but is a *tabulated* constant here, so it is spelled the way the image holds it.
             let want = log(&g, x).unwrap() * f64::from_bits(0x3FDB_CB7B_1526_E50E);
-            assert_eq!(log10(&g, x).unwrap(), want, "log10({x}) is one plain multiply");
+            assert_eq!(
+                log10(&g, x).unwrap(),
+                want,
+                "log10({x}) is one plain multiply"
+            );
             assert!((log10(&g, x).unwrap() - x.log10()).abs() <= 1e-14 * x.log10().abs().max(1.0));
         }
         assert_eq!(log10(&g, 0.0).unwrap(), f64::NEG_INFINITY);
@@ -857,7 +890,11 @@ pub(crate) mod tests {
         // reporting the correct answer 2.0 and proving nothing.
         g.set_u64(LOG10_OF_E, 2.0f64.to_bits()).unwrap();
         assert_eq!(log10(&g, 100.0).unwrap(), log(&g, 100.0).unwrap() * 2.0);
-        assert_ne!(log10(&g, 100.0).unwrap(), 2.0, "the patched constant has to matter");
+        assert_ne!(
+            log10(&g, 100.0).unwrap(),
+            2.0,
+            "the patched constant has to matter"
+        );
     }
 
     #[test]
@@ -959,13 +996,28 @@ pub(crate) mod tests {
             "atan2(-0, +0) keeps the negative zero"
         );
         // x = -0: the pool's pi, with y's sign.
-        assert_eq!(atan2(&mut g, 0.0, -0.0, ATAN_SP).unwrap(), std::f64::consts::PI);
-        assert_eq!(atan2(&mut g, -0.0, -0.0, ATAN_SP).unwrap(), -std::f64::consts::PI);
+        assert_eq!(
+            atan2(&mut g, 0.0, -0.0, ATAN_SP).unwrap(),
+            std::f64::consts::PI
+        );
+        assert_eq!(
+            atan2(&mut g, -0.0, -0.0, ATAN_SP).unwrap(),
+            -std::f64::consts::PI
+        );
         // x = 0 with y non-zero: pi/2, and `-0.0 >= 0.0` holds so a negative zero x is not
         // reflected either.
-        assert_eq!(atan2(&mut g, 2.0, 0.0, ATAN_SP).unwrap(), std::f64::consts::FRAC_PI_2);
-        assert_eq!(atan2(&mut g, -2.0, 0.0, ATAN_SP).unwrap(), -std::f64::consts::FRAC_PI_2);
-        assert_eq!(atan2(&mut g, 2.0, -0.0, ATAN_SP).unwrap(), std::f64::consts::FRAC_PI_2);
+        assert_eq!(
+            atan2(&mut g, 2.0, 0.0, ATAN_SP).unwrap(),
+            std::f64::consts::FRAC_PI_2
+        );
+        assert_eq!(
+            atan2(&mut g, -2.0, 0.0, ATAN_SP).unwrap(),
+            -std::f64::consts::FRAC_PI_2
+        );
+        assert_eq!(
+            atan2(&mut g, 2.0, -0.0, ATAN_SP).unwrap(),
+            std::f64::consts::FRAC_PI_2
+        );
     }
 
     #[test]
@@ -1012,7 +1064,11 @@ pub(crate) mod tests {
                 let cell = ATAN_OFFSETS + other * 8;
                 let bumped = fp::load_double(&h, cell).unwrap() + 1.0;
                 h.set_u64(cell, bumped.to_bits()).unwrap();
-                assert_eq!(atan2(&mut h, *y, *x, ATAN_SP).unwrap(), before, "octant {code} vs {other}");
+                assert_eq!(
+                    atan2(&mut h, *y, *x, ATAN_SP).unwrap(),
+                    before,
+                    "octant {code} vs {other}"
+                );
             }
         }
     }
@@ -1055,7 +1111,20 @@ pub(crate) mod tests {
     fn it_floors_the_ordinary_range_and_agrees_with_the_library_there() {
         let g = guest();
         for x in [
-            0.5, 1.0, 1.5, 2.75, -0.5, -1.0, -1.5, -2.75, 1e15, -1e15, 1e17, -1e17, 4.9, -4.9,
+            0.5,
+            1.0,
+            1.5,
+            2.75,
+            -0.5,
+            -1.0,
+            -1.5,
+            -2.75,
+            1e15,
+            -1e15,
+            1e17,
+            -1e17,
+            4.9,
+            -4.9,
             0.9999999999999999,
         ] {
             assert_eq!(floor(&g, x).unwrap(), x.floor(), "floor({x})");
@@ -1075,7 +1144,11 @@ pub(crate) mod tests {
 
         let mut patched = guest();
         patched.set_u64(POOL_STEP_DOWN, 10.0f64.to_bits()).unwrap();
-        assert_eq!(floor(&patched, -2.75).unwrap(), -12.0, "the cell is read, not folded in");
+        assert_eq!(
+            floor(&patched, -2.75).unwrap(),
+            -12.0,
+            "the cell is read, not folded in"
+        );
     }
 
     #[test]
@@ -1084,15 +1157,28 @@ pub(crate) mod tests {
         // difference is observable: at 1e17 the magnitude arm is not taken and the fsel chain
         // computes a floor; the answer is the same either way, so the test has to use the cell.
         let g = guest();
-        assert_eq!(g.u64(POOL_INTEGRAL_MAGNITUDE).unwrap(), 0x43AB_C16D_674E_C800);
+        assert_eq!(
+            g.u64(POOL_INTEGRAL_MAGNITUDE).unwrap(),
+            0x43AB_C16D_674E_C800
+        );
         assert_eq!(f64::from_bits(0x43AB_C16D_674E_C800), 1e18);
 
         // Lower the threshold under an input that has a fraction, and the pass-through arm takes
         // over: floor(2.75) stops being 2.0 and becomes 2.75.
         let mut patched = guest();
-        patched.set_u64(POOL_INTEGRAL_MAGNITUDE, 1.0f64.to_bits()).unwrap();
-        assert_eq!(floor(&patched, 2.75).unwrap(), 2.75, "|x| > cell passes through unchanged");
-        assert_eq!(floor(&patched, 0.75).unwrap(), 0.0, "|x| <= cell still floors");
+        patched
+            .set_u64(POOL_INTEGRAL_MAGNITUDE, 1.0f64.to_bits())
+            .unwrap();
+        assert_eq!(
+            floor(&patched, 2.75).unwrap(),
+            2.75,
+            "|x| > cell passes through unchanged"
+        );
+        assert_eq!(
+            floor(&patched, 0.75).unwrap(),
+            0.0,
+            "|x| <= cell still floors"
+        );
     }
 
     #[test]
@@ -1118,10 +1204,19 @@ pub(crate) mod tests {
         assert!(floor(&bare, 1.5).is_err(), "neither cell mapped");
         let mut only_step = Guest::default();
         only_step.put(POOL_STEP_DOWN, 1.0f64.to_bits().to_be_bytes().to_vec());
-        assert!(floor(&only_step, 8.0).is_err(), "the magnitude cell is read even for 8.0");
+        assert!(
+            floor(&only_step, 8.0).is_err(),
+            "the magnitude cell is read even for 8.0"
+        );
         let mut only_mag = Guest::default();
-        only_mag.put(POOL_INTEGRAL_MAGNITUDE, 1e18f64.to_bits().to_be_bytes().to_vec());
-        assert!(floor(&only_mag, 8.0).is_err(), "the step cell is read even with no fraction");
+        only_mag.put(
+            POOL_INTEGRAL_MAGNITUDE,
+            1e18f64.to_bits().to_be_bytes().to_vec(),
+        );
+        assert!(
+            floor(&only_mag, 8.0).is_err(),
+            "the step cell is read even with no fraction"
+        );
     }
 
     #[test]
@@ -1134,7 +1229,10 @@ pub(crate) mod tests {
         assert_eq!(t.cosine(&g, 0.5).unwrap_err().address, 0x82F4_DFB0);
 
         // And the closure adapter passes the argument straight through, in both slots.
-        let mut c = Closures::new(|_g: &Guest, x: f64| Ok(x + 1.0), |_g: &Guest, x: f64| Ok(x + 2.0));
+        let mut c = Closures::new(
+            |_g: &Guest, x: f64| Ok(x + 1.0),
+            |_g: &Guest, x: f64| Ok(x + 2.0),
+        );
         assert_eq!(c.sine(&g, 10.0).unwrap(), 11.0);
         assert_eq!(c.cosine(&g, 10.0).unwrap(), 12.0);
     }

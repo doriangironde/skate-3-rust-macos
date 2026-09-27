@@ -123,7 +123,12 @@ pub fn fade_block(g: &mut Guest, object: u32, pair: u32) -> Result<u64> {
 
 /// `sub_82B34278`: render one block from the current record into the descriptor pair.
 /// Returns 1, or 0 when nothing at all was rendered or discarded and the block size is non-zero.
-pub fn render_block(g: &mut Guest, fill: &mut dyn StreamFill, object: u32, pair: u32) -> Result<u64> {
+pub fn render_block(
+    g: &mut Guest,
+    fill: &mut dyn StreamFill,
+    object: u32,
+    pair: u32,
+) -> Result<u64> {
     if g.u8(object + 472)? != 0 && g.u8(object + 471)? != 0 {
         return fade_block(g, object, pair);
     }
@@ -218,7 +223,11 @@ pub fn render_block(g: &mut Guest, fill: &mut dyn StreamFill, object: u32, pair:
             }
             if delay != 0 {
                 let block = g.u16(object + 460)? as u64;
-                let delay = if (delay as u32) < (block as u32) { delay } else { block };
+                let delay = if (delay as u32) < (block as u32) {
+                    delay
+                } else {
+                    block
+                };
                 let bytes = ((delay as u32) << 2) as u64;
                 let desc = g.u32(pair + 32)?;
                 if g.u8(record + 47)? != 0 {
@@ -263,7 +272,11 @@ pub fn render_block(g: &mut Guest, fill: &mut dyn StreamFill, object: u32, pair:
         }
         let block = g.u16(object + 460)? as u64;
         let rest = available.wrapping_sub(produced);
-        let render = if word(block) < word(rest) { block } else { rest };
+        let render = if word(block) < word(rest) {
+            block
+        } else {
+            rest
+        };
         let desc = g.u32(pair + 32)?;
         if word(produced) != 0 {
             loop {
@@ -449,7 +462,13 @@ mod tests {
         next: f32,
     }
     impl StreamFill for FloatRamp {
-        fn fill(&mut self, g: &mut Guest, _stream: u32, descriptor: u32, frames: u64) -> Result<u64> {
+        fn fill(
+            &mut self,
+            g: &mut Guest,
+            _stream: u32,
+            descriptor: u32,
+            frames: u64,
+        ) -> Result<u64> {
             let data = g.u32(descriptor + 4)?;
             for i in 0..frames as u32 {
                 self.next += 1.0;
@@ -486,14 +505,29 @@ mod tests {
         let block: Vec<f32> = (0..4).map(|i| g.f32(DATA + 4 * i).unwrap()).collect();
         assert_eq!(block, vec![1.0, 2.0, 3.0, 4.0]);
         assert_eq!(g.u32(PAIR + 48).unwrap(), 4);
-        assert_eq!(g.f32(OBJ + TAIL as u32).unwrap(), 4.0, "the last sample, for a later fade");
+        assert_eq!(
+            g.f32(OBJ + TAIL as u32).unwrap(),
+            4.0,
+            "the last sample, for a later fade"
+        );
         assert_eq!(g.u8(OBJ + 471).unwrap(), 1);
         assert_eq!(g.u32(OBJ + 432).unwrap(), 4);
         assert_eq!(g.u32(OBJ + 108).unwrap(), 4, "the slot's delivered count");
         assert_eq!(g.u32(STREAM + 28).unwrap(), 4, "the stream's own position");
-        assert_eq!((g.u32(PAIR + 28).unwrap(), g.u32(PAIR + 32).unwrap()), (DESC_B, DESC_A));
-        assert_eq!(g.u32(OBJ + 420).unwrap(), 0, "the live stream is cleared on the way out");
-        assert_eq!(g.u32(MEM + 0x720 + 32).unwrap(), MEM + 0x900, "the scratch pointer handed back");
+        assert_eq!(
+            (g.u32(PAIR + 28).unwrap(), g.u32(PAIR + 32).unwrap()),
+            (DESC_B, DESC_A)
+        );
+        assert_eq!(
+            g.u32(OBJ + 420).unwrap(),
+            0,
+            "the live stream is cleared on the way out"
+        );
+        assert_eq!(
+            g.u32(MEM + 0x720 + 32).unwrap(),
+            MEM + 0x900,
+            "the scratch pointer handed back"
+        );
     }
 
     #[test]
@@ -502,9 +536,21 @@ mod tests {
         let mut fill = FloatRamp { next: 0.0 };
         assert_eq!(render_block(&mut g, &mut fill, OBJ, PAIR).unwrap(), 1);
         assert_eq!(g.u32(OBJ + 432).unwrap(), 0, "looped to the loop point");
-        assert_eq!(g.u8(OBJ + 108 + 5).unwrap(), 2, "the slot that ran dry is retired");
-        assert_eq!(g.u8(OBJ + 474).unwrap(), 1, "and the consumer stepped past it");
-        assert_eq!(g.u8(OBJ + RING as u32 + 46).unwrap(), 2, "a looping record keeps running");
+        assert_eq!(
+            g.u8(OBJ + 108 + 5).unwrap(),
+            2,
+            "the slot that ran dry is retired"
+        );
+        assert_eq!(
+            g.u8(OBJ + 474).unwrap(),
+            1,
+            "and the consumer stepped past it"
+        );
+        assert_eq!(
+            g.u8(OBJ + RING as u32 + 46).unwrap(),
+            2,
+            "a looping record keeps running"
+        );
     }
 
     #[test]
@@ -519,7 +565,8 @@ mod tests {
     #[test]
     fn a_rate_change_publishes_the_record_format_and_stops() {
         let mut g = guest();
-        g.set_u32(OBJ + RING as u32 + 16, 44100.0f32.to_bits()).unwrap();
+        g.set_u32(OBJ + RING as u32 + 16, 44100.0f32.to_bits())
+            .unwrap();
         assert_eq!(render_block(&mut g, &mut NoFill, OBJ, PAIR).unwrap(), 1);
         assert_eq!(g.f32(OBJ + 456).unwrap(), 44100.0);
         assert_eq!(g.u32(PAIR + 48).unwrap(), 0);
@@ -539,7 +586,11 @@ mod tests {
         assert_eq!(render_block(&mut g, &mut NoFill, OBJ, PAIR).unwrap(), 1);
         assert_eq!(g.u32(PAIR + 48).unwrap(), 4, "clamped to one block");
         assert_eq!(g.u32(DATA).unwrap(), 0, "silence");
-        assert_eq!((g.u32(PAIR + 28).unwrap(), g.u32(PAIR + 32).unwrap()), (DESC_B, DESC_A), "swapped");
+        assert_eq!(
+            (g.u32(PAIR + 28).unwrap(), g.u32(PAIR + 32).unwrap()),
+            (DESC_B, DESC_A),
+            "swapped"
+        );
     }
 
     #[test]
@@ -557,8 +608,14 @@ mod tests {
         g.set_u32(DESC_A + 4, DATA + 0x100).unwrap();
         g.set_u16(DESC_A + 14, 16).unwrap();
         render_block(&mut g, &mut NoFill, OBJ, PAIR).unwrap();
-        let second: Vec<f32> = (0..4).map(|i| g.f32(DATA + 0x100 + 4 * i).unwrap()).collect();
+        let second: Vec<f32> = (0..4)
+            .map(|i| g.f32(DATA + 0x100 + 4 * i).unwrap())
+            .collect();
         assert_eq!(second, vec![0.375, 0.25, 0.125, 0.0]);
-        assert_eq!((g.u8(OBJ + 472).unwrap(), g.u8(OBJ + 471).unwrap()), (0, 0), "fade done clears +471");
+        assert_eq!(
+            (g.u8(OBJ + 472).unwrap(), g.u8(OBJ + 471).unwrap()),
+            (0, 0),
+            "fade done clears +471"
+        );
     }
 }

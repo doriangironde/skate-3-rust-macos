@@ -62,7 +62,10 @@ pub fn memset(g: &mut Guest, dst: u32, byte: u8, len: u64) -> Result<()> {
         return Ok(());
     }
     if len > u32::MAX as u64 {
-        return Err(crate::Error::new(dst, "fill length does not fit a guest span"));
+        return Err(crate::Error::new(
+            dst,
+            "fill length does not fit a guest span",
+        ));
     }
     g.fill(dst, byte, len as u32)
 }
@@ -171,7 +174,11 @@ mod tests {
         for i in 0..16u32 {
             assert_eq!(g.u8(BASE + 0x80 + i).unwrap(), 0x10 + i as u8);
         }
-        assert_eq!(g.u8(BASE + 0x7F).unwrap(), 0xAA, "one byte below the destination");
+        assert_eq!(
+            g.u8(BASE + 0x7F).unwrap(),
+            0xAA,
+            "one byte below the destination"
+        );
         assert_eq!(g.u8(BASE + 0x90).unwrap(), 0xBB, "one byte above it");
     }
 
@@ -196,7 +203,11 @@ mod tests {
         g.set_u32(BASE, 0xDEAD_BEEF).unwrap();
         assert!(memcpy(&mut g, BASE, BASE + 0x100, 0xFFFF_FFFC).is_err());
         assert!(memset(&mut g, BASE, 0, 0xFFFF_FFFC).is_err());
-        assert_eq!(g.u32(BASE).unwrap(), 0xDEAD_BEEF, "a refused call writes nothing");
+        assert_eq!(
+            g.u32(BASE).unwrap(),
+            0xDEAD_BEEF,
+            "a refused call writes nothing"
+        );
         // Past 32 bits is refused before it reaches the map at all.
         assert!(memset(&mut g, BASE, 0, 0x1_0000_0000).is_err());
     }
@@ -237,14 +248,20 @@ mod chunked_copy_tests {
     fn an_aligned_copy_moves_every_byte_and_no_more() {
         let mut g = guest();
         memcpy_chunked(&mut g, BASE + 0x80, BASE, 11).unwrap();
-        assert_eq!(bytes(&g, BASE + 0x80, 12), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0]);
+        assert_eq!(
+            bytes(&g, BASE + 0x80, 12),
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0]
+        );
     }
 
     #[test]
     fn misaligned_ends_take_the_byte_paths() {
         let mut g = guest();
         memcpy_chunked(&mut g, BASE + 0x81, BASE + 2, 13).unwrap();
-        assert_eq!(bytes(&g, BASE + 0x80, 15), [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]);
+        assert_eq!(
+            bytes(&g, BASE + 0x80, 15),
+            [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+        );
     }
 
     #[test]

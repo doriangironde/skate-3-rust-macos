@@ -102,7 +102,10 @@ pub fn supported() -> bool {
 /// would be worse than no answer, which is the same argument `eval::dispatch` makes for refusing to
 /// invent a value for an unported opcode.
 pub fn unsupported() -> Error {
-    Error::new(0, "vmx: this build needs sse4.1 and fma (-C target-cpu=native)")
+    Error::new(
+        0,
+        "vmx: this build needs sse4.1 and fma (-C target-cpu=native)",
+    )
 }
 
 // ------------------------------------------------------------------------------- MXCSR / FPSCR
@@ -185,7 +188,12 @@ impl Fpscr {
         let fpu_csr = entry | EXCEPTION_MASK | FLUSH_ZERO | DENORMALS_ZERO;
         let vmx_csr = VMX_CSR;
         set_mxcsr(fpu_csr);
-        Self { entry, fpu_csr, vmx_csr, vmx_mode: false }
+        Self {
+            entry,
+            fpu_csr,
+            vmx_csr,
+            vmx_mode: false,
+        }
     }
 
     /// `ctx.fpscr.enableFlushModeUnconditional()`.
@@ -419,7 +427,11 @@ pub unsafe fn perm_epi8(a: __m128i, b: __m128i, c: __m128i) -> __m128i {
     unsafe {
         let d = _mm_set1_epi8(0x0F);
         let e = _mm_sub_epi8(d, _mm_and_si128(c, d));
-        _mm_blendv_epi8(_mm_shuffle_epi8(a, e), _mm_shuffle_epi8(b, e), _mm_slli_epi32::<3>(c))
+        _mm_blendv_epi8(
+            _mm_shuffle_epi8(a, e),
+            _mm_shuffle_epi8(b, e),
+            _mm_slli_epi32::<3>(c),
+        )
     }
 }
 
@@ -462,8 +474,10 @@ pub unsafe fn vctuxs(src1: __m128) -> __m128i {
         let high_bit_mask = _mm_cmpge_ps(clamped, half_range);
         let adjusted = _mm_sub_ps(clamped, _mm_and_ps(high_bit_mask, half_range));
         let low_bits = _mm_cvttps_epi32(adjusted);
-        let high_bit =
-            _mm_and_si128(_mm_castps_si128(high_bit_mask), _mm_set1_epi32(0x8000_0000u32 as i32));
+        let high_bit = _mm_and_si128(
+            _mm_castps_si128(high_bit_mask),
+            _mm_set1_epi32(0x8000_0000u32 as i32),
+        );
         let mut result = _mm_or_si128(low_bits, high_bit);
         result = _mm_andnot_si128(_mm_castps_si128(nan_mask), result);
         result = _mm_andnot_si128(_mm_castps_si128(neg_mask), result);
@@ -832,7 +846,10 @@ pub const fn splat_imm(ppc_element: u32) -> i32 {
     (lane | (lane << 2) | (lane << 4) | (lane << 6)) as i32
 }
 
-const _: () = assert!(splat_imm(0) == SPLAT_W0, "vspltw128 element 0 splats host lane 3");
+const _: () = assert!(
+    splat_imm(0) == SPLAT_W0,
+    "vspltw128 element 0 splats host lane 3"
+);
 const _: () = assert!(splat_imm(1) == SPLAT_W1);
 const _: () = assert!(splat_imm(2) == SPLAT_W2);
 const _: () = assert!(splat_imm(3) == SPLAT_W3);
@@ -875,7 +892,10 @@ pub unsafe fn lvx128(g: &Guest, ea: u32) -> Result<__m128i> {
     let block = ea & !0xF;
     let src = g.span(block, 16)?;
     unsafe {
-        Ok(_mm_shuffle_epi8(_mm_loadu_si128(src.as_ptr() as *const __m128i), mask_l(0)))
+        Ok(_mm_shuffle_epi8(
+            _mm_loadu_si128(src.as_ptr() as *const __m128i),
+            mask_l(0),
+        ))
     }
 }
 
@@ -1018,8 +1038,7 @@ pub unsafe fn stvrx128(g: &mut Guest, ea: u32, value: __m128i) -> Result<()> {
 /// 16-byte boundary the reload reads back exactly what was stored, which is the only case the ports
 /// model. With a misaligned frame it would read four bytes somewhere else, so the input is refused
 /// rather than answered with a value that merely looks right.
-pub const SPLAT_FRAME_UNALIGNED: &str =
-    "a vector loop would splat through a stack frame that is not 16-byte aligned; refused rather than modelled";
+pub const SPLAT_FRAME_UNALIGNED: &str = "a vector loop would splat through a stack frame that is not 16-byte aligned; refused rather than modelled";
 
 /// The error for [`SPLAT_FRAME_UNALIGNED`], carrying the offending stack pointer.
 pub fn splat_frame_unaligned(sp: u32) -> crate::Error {
@@ -1064,7 +1083,10 @@ mod tests {
         // which after the load reversal is host lane 3.
         assert_eq!(SPLAT_W0, 0xFF);
         assert_eq!(SPLAT_W3, 0x00);
-        assert_ne!(SPLAT_W0, SPLAT_W3, "if these ever coincide the mapping is not being tested");
+        assert_ne!(
+            SPLAT_W0, SPLAT_W3,
+            "if these ever coincide the mapping is not being tested"
+        );
 
         let v = from_lanes([10, 11, 12, 13]);
         assert!(supported());
@@ -1107,9 +1129,17 @@ mod tests {
         unsafe {
             let r = vmaddfp(from_f32([a; 4]), from_f32([b; 4]), from_f32([-rounded; 4]));
             // The multiply rounds away exactly the bits the addend then cancels: +0, by bits.
-            assert_eq!(lanes_ps(r), [0; 4], "vmaddfp rounds the product before adding");
+            assert_eq!(
+                lanes_ps(r),
+                [0; 4],
+                "vmaddfp rounds the product before adding"
+            );
             // A single-rounding FMA would have kept them. If it agreed, this would prove nothing.
-            assert_ne!(error.to_bits(), 0, "the input must tell the two forms apart");
+            assert_ne!(
+                error.to_bits(),
+                0,
+                "the input must tell the two forms apart"
+            );
         }
     }
 
@@ -1122,7 +1152,11 @@ mod tests {
         unsafe {
             let r = vnmsubfp(from_f32([a; 4]), from_f32([b; 4]), from_f32([rounded; 4]));
             assert_eq!(lanes_ps(r), [0; 4]);
-            assert_ne!((-error).to_bits(), 0, "the input must tell the two forms apart");
+            assert_ne!(
+                (-error).to_bits(),
+                0,
+                "the input must tell the two forms apart"
+            );
             // And the sign really is on the product, not the addend.
             let s = vnmsubfp(from_f32([2.0; 4]), from_f32([3.0; 4]), from_f32([1.0; 4]));
             assert_eq!(lanes_ps(s), [(-5.0f32).to_bits(); 4]);
@@ -1138,12 +1172,22 @@ mod tests {
             let v = from_f32([2.5, -2.5, 1.5, -0.5]);
             assert_eq!(
                 lanes_ps(vrfin(v)),
-                [2.0f32.to_bits(), (-2.0f32).to_bits(), 2.0f32.to_bits(), (-0.0f32).to_bits()],
+                [
+                    2.0f32.to_bits(),
+                    (-2.0f32).to_bits(),
+                    2.0f32.to_bits(),
+                    (-0.0f32).to_bits()
+                ],
                 "round to nearest, ties to even"
             );
             assert_eq!(
                 lanes_ps(vrfiz(v)),
-                [2.0f32.to_bits(), (-2.0f32).to_bits(), 1.0f32.to_bits(), (-0.0f32).to_bits()],
+                [
+                    2.0f32.to_bits(),
+                    (-2.0f32).to_bits(),
+                    1.0f32.to_bits(),
+                    (-0.0f32).to_bits()
+                ],
             );
             assert_eq!(lanes_ps(vrfip(v))[0], 3.0f32.to_bits());
             assert_eq!(lanes_ps(vrfim(v))[0], 2.0f32.to_bits());
@@ -1159,11 +1203,17 @@ mod tests {
         assert!(supported());
         unsafe {
             // Guest word 0 -> host lane 3. Getting this backwards is the whole BE/LE trap.
-            assert_eq!(lanes(lvx128(&g, 0x4000_0000).unwrap()), [0x1003, 0x1002, 0x1001, 0x1000]);
+            assert_eq!(
+                lanes(lvx128(&g, 0x4000_0000).unwrap()),
+                [0x1003, 0x1002, 0x1001, 0x1000]
+            );
             // The low four address bits are discarded, so every address in the block reads the same
             // sixteen bytes.
             for off in 0..16u32 {
-                assert_eq!(lanes(lvx128(&g, 0x4000_0000 + off).unwrap()), [0x1003, 0x1002, 0x1001, 0x1000]);
+                assert_eq!(
+                    lanes(lvx128(&g, 0x4000_0000 + off).unwrap()),
+                    [0x1003, 0x1002, 0x1001, 0x1000]
+                );
             }
         }
     }
@@ -1173,8 +1223,12 @@ mod tests {
         let mut g = guest();
         assert!(supported());
         unsafe {
-            stvx128(&mut g, 0x4000_0020, from_lanes([0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]))
-                .unwrap();
+            stvx128(
+                &mut g,
+                0x4000_0020,
+                from_lanes([0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]),
+            )
+            .unwrap();
             // Host lane 3 lands at the lowest guest address.
             assert_eq!(g.u32(0x4000_0020).unwrap(), 0xDDDD_DDDD);
             assert_eq!(g.u32(0x4000_002C).unwrap(), 0xAAAA_AAAA);
@@ -1199,14 +1253,22 @@ mod tests {
         unsafe {
             stvlx128(&mut g, 0x4000_0005, v).unwrap();
             // 11 bytes at 0x...05: u8[15], u8[14], ... u8[5] == 0x0F, 0x0E, ... 0x05.
-            assert_eq!(g.span(0x4000_0005, 11).unwrap(), &[0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05]);
+            assert_eq!(
+                g.span(0x4000_0005, 11).unwrap(),
+                &[
+                    0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05
+                ]
+            );
             assert_eq!(g.u8(0x4000_0004).unwrap(), 0, "nothing below ea");
             assert_eq!(g.u8(0x4000_0010).unwrap(), 0, "nothing past the block");
 
             let mut h = guest();
             stvrx128(&mut h, 0x4000_0105, v).unwrap();
             // 5 bytes below 0x...05: address 0x04 gets u8[0], 0x03 gets u8[1] ... 0x00 gets u8[4].
-            assert_eq!(h.span(0x4000_0100, 5).unwrap(), &[0x04, 0x03, 0x02, 0x01, 0x00]);
+            assert_eq!(
+                h.span(0x4000_0100, 5).unwrap(),
+                &[0x04, 0x03, 0x02, 0x01, 0x00]
+            );
             assert_eq!(h.u8(0x4000_0105).unwrap(), 0, "nothing at or above ea");
 
             // The two halves of a boundary-straddling vector, together, are one whole vector.
@@ -1215,7 +1277,10 @@ mod tests {
             stvrx128(&mut j, 0x4000_0215, v).unwrap();
             assert_eq!(
                 j.span(0x4000_0205, 16).unwrap(),
-                &[0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00]
+                &[
+                    0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
+                    0x02, 0x01, 0x00
+                ]
             );
         }
     }
@@ -1230,7 +1295,10 @@ mod tests {
             // Aligned stvlx is a whole stvx128.
             let mut h = guest();
             stvx128(&mut h, 0x4000_0010, v).unwrap();
-            assert_eq!(g.span(0x4000_0010, 16).unwrap(), h.span(0x4000_0010, 16).unwrap());
+            assert_eq!(
+                g.span(0x4000_0010, 16).unwrap(),
+                h.span(0x4000_0010, 16).unwrap()
+            );
 
             // Aligned stvrx writes nothing.
             let mut j = guest();
@@ -1251,7 +1319,11 @@ mod tests {
             let l = bytes_of(lvlx128(&g, 0x4000_0005).unwrap());
             assert_eq!(l[15], 5);
             assert_eq!(l[5], 15);
-            assert_eq!(&l[0..5], &[0, 0, 0, 0, 0], "the tail is zero-filled by the 0xFF mask bytes");
+            assert_eq!(
+                &l[0..5],
+                &[0, 0, 0, 0, 0],
+                "the tail is zero-filled by the 0xFF mask bytes"
+            );
 
             // lvrx at +5 takes bytes 0..5, right-justified: register byte 0 is guest byte 4.
             let r = bytes_of(lvrx128(&g, 0x4000_0005).unwrap());
@@ -1271,10 +1343,25 @@ mod tests {
         // An address in the middle of a line clears the whole line, not from the address.
         dcbzl(&mut g, 0x4000_0190).unwrap();
         assert_eq!(g.span(0x4000_0180, 128).unwrap(), &[0u8; 128][..]);
-        assert_eq!(g.u8(0x4000_017F).unwrap(), 0xAB, "below the line is untouched");
-        assert_eq!(g.u8(0x4000_0200).unwrap(), 0xAB, "above the line is untouched");
+        assert_eq!(
+            g.u8(0x4000_017F).unwrap(),
+            0xAB,
+            "below the line is untouched"
+        );
+        assert_eq!(
+            g.u8(0x4000_0200).unwrap(),
+            0xAB,
+            "above the line is untouched"
+        );
         // 128, not 32 and not 64: a smaller clear would leave the tail set.
-        assert_eq!(g.span(0x4000_0180, 128).unwrap().iter().filter(|b| **b == 0).count(), 128);
+        assert_eq!(
+            g.span(0x4000_0180, 128)
+                .unwrap()
+                .iter()
+                .filter(|b| **b == 0)
+                .count(),
+            128
+        );
     }
 
     #[test]
@@ -1291,7 +1378,11 @@ mod tests {
             f.enable_flush_mode_unconditional();
             assert_eq!(f.current(), VMX_CSR);
             assert_eq!(f.current() & ROUND_MASK, ROUND_NEAREST);
-            assert_eq!(f.current() & EXCEPTION_MASK, EXCEPTION_MASK, "no FP traps under guest code");
+            assert_eq!(
+                f.current() & EXCEPTION_MASK,
+                EXCEPTION_MASK,
+                "no FP traps under guest code"
+            );
         }
         assert_eq!(get_mxcsr(), before, "the entry MXCSR is restored on drop");
     }
@@ -1323,17 +1414,30 @@ mod tests {
         // arithmetic rather than whatever the host's rsqrtps approximates.
         assert_eq!(ppc_vrsqrtefp_bits(0x0000_0000), 0x7F80_0000, "+0 -> +inf");
         assert_eq!(ppc_vrsqrtefp_bits(0x8000_0000), 0xFF80_0000, "-0 -> -inf");
-        assert_eq!(ppc_vrsqrtefp_bits(0xBF80_0000), 0x7FC0_0000, "negative -> QNaN");
+        assert_eq!(
+            ppc_vrsqrtefp_bits(0xBF80_0000),
+            0x7FC0_0000,
+            "negative -> QNaN"
+        );
         assert_eq!(ppc_vrsqrtefp_bits(0x7F80_0000), 0, "+inf -> +0");
         let one = f32::from_bits(ppc_vrsqrtefp_bits(1.0f32.to_bits()));
-        assert!((one - 1.0).abs() < 1.0 / 4096.0, "1/sqrt(1) within estimate tolerance, got {one}");
+        assert!(
+            (one - 1.0).abs() < 1.0 / 4096.0,
+            "1/sqrt(1) within estimate tolerance, got {one}"
+        );
         let quarter = f32::from_bits(ppc_vrsqrtefp_bits(4.0f32.to_bits()));
-        assert!((quarter - 0.5).abs() < 1.0 / 4096.0, "1/sqrt(4), got {quarter}");
+        assert!(
+            (quarter - 0.5).abs() < 1.0 / 4096.0,
+            "1/sqrt(4), got {quarter}"
+        );
         // And it is not _mm_rsqrt_ps: the two differ in the low mantissa bits on most inputs.
         assert!(supported());
         let hw = unsafe { lanes_ps(_mm_rsqrt_ps(from_f32([3.0; 4])))[0] };
         let table = ppc_vrsqrtefp_bits(3.0f32.to_bits());
-        assert_ne!(hw, table, "if these agreed, substituting rsqrtps would go unnoticed");
+        assert_ne!(
+            hw, table,
+            "if these agreed, substituting rsqrtps would go unnoticed"
+        );
     }
 
     #[test]
@@ -1345,7 +1449,11 @@ mod tests {
             let a = from_lanes([0xFFFF_0000; 4]);
             let b = from_lanes([0xFF00_FF00; 4]);
             assert_eq!(lanes(vandc(a, b)), [0x00FF_0000; 4]);
-            assert_ne!(lanes(vandc(a, b)), lanes(vandc(b, a)), "asymmetric inputs, on purpose");
+            assert_ne!(
+                lanes(vandc(a, b)),
+                lanes(vandc(b, a)),
+                "asymmetric inputs, on purpose"
+            );
         }
     }
 
@@ -1369,7 +1477,11 @@ mod tests {
             // add. The recomp is the reference, so this wraps.
             let big = from_lanes([0x7FFF_FFFF; 4]);
             let one = from_lanes([1; 4]);
-            assert_eq!(lanes(vaddsws(big, one)), [0x8000_0000; 4], "modular, not saturating");
+            assert_eq!(
+                lanes(vaddsws(big, one)),
+                [0x8000_0000; 4],
+                "modular, not saturating"
+            );
             // vaddshs really is saturating.
             let h = from_lanes([0x7FFF_7FFF; 4]);
             let hone = from_lanes([0x0001_0001; 4]);

@@ -101,7 +101,12 @@ pub fn tick(g: &mut Guest, delta: f64) -> Result<Tick> {
 
 /// One call of `sub_82B1E290`, with `host` running the slots the pure table does not port.
 pub fn tick_with(g: &mut Guest, delta: f64, host: &mut dyn Host) -> Result<Tick> {
-    let mut out = Tick { recounted: false, walked: false, nodes: 0, ops: 0 };
+    let mut out = Tick {
+        recounted: false,
+        walked: false,
+        nodes: 0,
+        ops: 0,
+    };
     let cached = load_single(g, DELTA_CACHE)?; // lfs f0,30172(r11)
 
     let (countdown, period): (u64, u64);
@@ -126,7 +131,9 @@ pub fn tick_with(g: &mut Guest, delta: f64, host: &mut dyn Host) -> Result<Tick>
             if accumulated.to_bits() == before.to_bits() {
                 return Err(Error::new(
                     0x82B1_E2DC,
-                    format!("delta {delta} cannot advance the period count; the original never returns"),
+                    format!(
+                        "delta {delta} cannot advance the period count; the original never returns"
+                    ),
                 ));
             }
         }
@@ -165,13 +172,22 @@ pub fn tick_with(g: &mut Guest, delta: f64, host: &mut dyn Host) -> Result<Tick>
         while opcode != END_OPCODE {
             // lwzx r11,r11,r29 ; mr r3,r31 ; bctrl. `Op` takes the low word of r3.
             let pure = super::TABLE.get(opcode as usize).and_then(|slot| slot.port);
-            let result = match pure {
-                Some(op) => op(g, block as u32)?,
+            let evaluated = match pure {
+                Some(op) => op(g, block as u32),
                 None => match host.op(g, opcode, block as u32) {
-                    Some(result) => result?,
-                    None => dispatch(g, opcode, block as u32)?, // the error naming the slot
+                    Some(result) => result,
+                    None => dispatch(g, opcode, block as u32), // the error naming the slot
                 },
-            } as u32;
+            };
+            let result = evaluated.map_err(|error| {
+                Error::new(
+                    error.address,
+                    format!(
+                        "evaluator opcode {opcode} at record {:#010x}, block {:#010x}: {}",
+                        record as u32, block as u32, error.message
+                    ),
+                )
+            })? as u32;
             out.ops += 1;
             let mut pair = record + RECORD_BODY as u64; // addi r11,r30,4
             let mut index: i32 = 0; // li r8,0
@@ -240,7 +256,17 @@ mod tests {
         put_words(
             g,
             PROGRAM_A,
-            &[0x0302_0000, 0xFFFF_FFFF, 8, 8, 12, 16, 0x0000_0000, 0, 0xFF00_0000],
+            &[
+                0x0302_0000,
+                0xFFFF_FFFF,
+                8,
+                8,
+                12,
+                16,
+                0x0000_0000,
+                0,
+                0xFF00_0000,
+            ],
         );
         g.set_u8(PROGRAM_B, END_OPCODE).unwrap();
         put_words(g, BLOCK_A, &[0xAAAA]);
@@ -264,11 +290,27 @@ mod tests {
         let mut g = guest(1.0, 1.0, 1.0);
         wire_programs(&mut g);
         let t = tick(&mut g, 1.0).unwrap();
-        assert_eq!(t, Tick { recounted: true, walked: true, nodes: 2, ops: 2 });
+        assert_eq!(
+            t,
+            Tick {
+                recounted: true,
+                walked: true,
+                nodes: 2,
+                ops: 2
+            }
+        );
         assert_eq!(g.u32(BLOCK_A).unwrap(), 0, "op 3 takes the word");
         assert_eq!(g.u32(BLOCK_A + 8).unwrap(), 0xAAAA, "the result pair");
-        assert_eq!(g.u32(BLOCK_A + 12).unwrap(), 0xAAAA, "the copy pair runs after it");
-        assert_eq!(g.u32(BLOCK_A + 32).unwrap(), 0, "op 0 ran 16 bytes further on");
+        assert_eq!(
+            g.u32(BLOCK_A + 12).unwrap(),
+            0xAAAA,
+            "the copy pair runs after it"
+        );
+        assert_eq!(
+            g.u32(BLOCK_A + 32).unwrap(),
+            0,
+            "op 0 ran 16 bytes further on"
+        );
         assert_eq!(g.u32(COUNTDOWN).unwrap(), 1, "reloaded from the period");
     }
 
@@ -314,8 +356,14 @@ mod tests {
     fn a_nan_delta_counts_once_and_recounts_every_call() {
         let mut g = guest(1.0, 0.02, 1.0);
         let t = tick(&mut g, f64::NAN).unwrap();
-        assert!(t.recounted && t.walked, "count 1, so the countdown hits zero at once");
+        assert!(
+            t.recounted && t.walked,
+            "count 1, so the countdown hits zero at once"
+        );
         assert_eq!(g.u32(FRAME_COUNT).unwrap(), 1);
-        assert!(tick(&mut g, f64::NAN).unwrap().recounted, "NaN never equals the cache");
+        assert!(
+            tick(&mut g, f64::NAN).unwrap().recounted,
+            "NaN never equals the cache"
+        );
     }
 }

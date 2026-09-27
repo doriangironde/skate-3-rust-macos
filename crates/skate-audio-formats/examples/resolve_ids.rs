@@ -14,7 +14,9 @@ use std::collections::HashSet;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().ok_or("usage: resolve_ids <image dir> <hex id>...")?;
+    let dir = args
+        .next()
+        .ok_or("usage: resolve_ids <image dir> <hex id>...")?;
     let mut wanted = HashSet::new();
     for arg in args {
         if let Some(name) = arg.strip_prefix('=') {
@@ -47,7 +49,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 strings += 1;
                 let id = hash::name_id(s);
                 if wanted.contains(&id) && found.insert((id, s.to_vec())) {
-                    println!("{id:016x} = {:?}  ({})", String::from_utf8_lossy(s), path.display());
+                    println!(
+                        "{id:016x} = {:?}  ({})",
+                        String::from_utf8_lossy(s),
+                        path.display()
+                    );
                 }
             }
         }

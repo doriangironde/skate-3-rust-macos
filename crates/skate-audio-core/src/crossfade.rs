@@ -113,14 +113,23 @@ pub const COUNT_HOME_SLOT: u32 = 20;
 /// `f1`'s and `f2`'s slots.
 pub const ARG_F: u32 = 84;
 
-const _: () = assert!(ARG_F == COUNT_HOME_SLOT + 8 * 8, "the ninth eight-byte slot from 20(r1)");
-const _: () = assert!(ARG_F == stage::ARG_MIXED, "the slot sub_82B399D0 reads its first stack word from");
+const _: () = assert!(
+    ARG_F == COUNT_HOME_SLOT + 8 * 8,
+    "the ninth eight-byte slot from 20(r1)"
+);
+const _: () = assert!(
+    ARG_F == stage::ARG_MIXED,
+    "the slot sub_82B399D0 reads its first stack word from"
+);
 
 /// `stfs f2,-192(r1)` ×4, reloaded by `lvx128 v63` — `gain_c`'s splat. Not written; see the module note.
 pub const GAIN_C_SPLAT: i32 = -192;
 /// `stfs f1,-176(r1)` ×4, reloaded by `lvx128 v0` — `gain_b`'s splat.
 pub const GAIN_B_SPLAT: i32 = -176;
-const _: () = assert!(GAIN_C_SPLAT % 16 == 0 && GAIN_B_SPLAT % 16 == 0, "aligned iff r1 is");
+const _: () = assert!(
+    GAIN_C_SPLAT % 16 == 0 && GAIN_B_SPLAT % 16 == 0,
+    "aligned iff r1 is"
+);
 
 /// `lis r11,-32206 ; lfs f0,-22460(r11)` — the scalar paths' `1.0`, read **live**.
 ///
@@ -545,7 +554,18 @@ pub fn run_mix(g: &mut Guest, gains: u32, count: u64, desc: u32, sp: u32) -> Res
         let a = g.u32(desc.wrapping_add(DESC_A))?; // lwz r6,0(r11)
         g.set_u32(frame.wrapping_add(ARG_F), f)?; // stw r5,84(r1) — the ninth argument
         // bl 0x82b3d0a8 — r8 still holds the selector, which is the kernel's C.
-        crossfade(g, count, a as u64, b as u64, select as u64, d as u64, e as u64, frame, gain0, gain1)?;
+        crossfade(
+            g,
+            count,
+            a as u64,
+            b as u64,
+            select as u64,
+            d as u64,
+            e as u64,
+            frame,
+            gain0,
+            gain1,
+        )?;
     }
     // addi r1,r1,96 ; lwz r12,-8(r1) ; mtlr r12 ; blr
     Ok(())
@@ -650,7 +670,18 @@ mod tests {
     }
 
     fn run(g: &mut Guest, count: u64, at: [u32; 4], e: u32) -> Result<()> {
-        crossfade(g, count, at[0] as u64, at[1] as u64, at[2] as u64, at[3] as u64, e as u64, SP, GB, GC)
+        crossfade(
+            g,
+            count,
+            at[0] as u64,
+            at[1] as u64,
+            at[2] as u64,
+            at[3] as u64,
+            e as u64,
+            SP,
+            GB,
+            GC,
+        )
     }
 
     /// How one element is computed. Lanes 0, 1 and 3 of the four-wide loop and the tail all multiply
@@ -665,7 +696,16 @@ mod tests {
     /// One element's `E` and `F`, written from the formulas in the module note — the vector form in f32
     /// with three roundings for `F`, the scalar forms in the guest's single-rounded double operations.
     #[allow(clippy::too_many_arguments)]
-    fn element(form: Form, one: f64, a: f32, b: f32, c: f32, d: f32, gb: f64, gc: f64) -> (f32, f32) {
+    fn element(
+        form: Form,
+        one: f64,
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        gb: f64,
+        gc: f64,
+    ) -> (f32, f32) {
         if form == Form::Vector {
             let (gb, gc) = (gb as f32, gc as f32);
             let inv = 1.0f32 - d;
@@ -735,14 +775,28 @@ mod tests {
         let (want_e, want_f) = model(&inp, &shape, 1.0, GB, GC);
         assert_eq!(get(&g, E, n), want_e);
         assert_eq!(get(&g, F, n), want_f);
-        assert_eq!(words(&g, E + 4 * n as u32, 4), vec![POISON; 4], "past the E run");
-        assert_eq!(words(&g, F + 4 * n as u32, 4), vec![POISON; 4], "past the F run");
+        assert_eq!(
+            words(&g, E + 4 * n as u32, 4),
+            vec![POISON; 4],
+            "past the E run"
+        );
+        assert_eq!(
+            words(&g, F + 4 * n as u32, 4),
+            vec![POISON; 4],
+            "past the F run"
+        );
 
         // Lane 2's association has to be visible in this data, or this test could not tell a port that
         // wrote all four lanes alike.
-        let uniform: Vec<Form> =
-            shape.iter().map(|&f| if f == Form::Lane2 { Form::Scalar } else { f }).collect();
-        assert_ne!(model(&inp, &uniform, 1.0, GB, GC).0, want_e, "lane 2 must be distinguishable");
+        let uniform: Vec<Form> = shape
+            .iter()
+            .map(|&f| if f == Form::Lane2 { Form::Scalar } else { f })
+            .collect();
+        assert_ne!(
+            model(&inp, &uniform, 1.0, GB, GC).0,
+            want_e,
+            "lane 2 must be distinguishable"
+        );
     }
 
     #[test]
@@ -762,9 +816,20 @@ mod tests {
 
         let (ve, vf) = model(&inp, &forms(n, true), 1.0, GB, GC);
         let (se, sf) = model(&inp, &forms(n, false), 1.0, GB, GC);
-        assert_eq!((get(&v, E, n), get(&v, F, n)), (ve, vf.clone()), "vector path");
-        assert_eq!((get(&s, E, n), get(&s, F, n)), (se, sf.clone()), "scalar path");
-        assert_ne!(vf, sf, "fused and unfused blends have to differ somewhere in this data");
+        assert_eq!(
+            (get(&v, E, n), get(&v, F, n)),
+            (ve, vf.clone()),
+            "vector path"
+        );
+        assert_eq!(
+            (get(&s, E, n), get(&s, F, n)),
+            (se, sf.clone()),
+            "scalar path"
+        );
+        assert_ne!(
+            vf, sf,
+            "fused and unfused blends have to differ somewhere in this data"
+        );
     }
 
     #[test]
@@ -785,11 +850,23 @@ mod tests {
 
             let (want_e, _) = model(&inp, &forms(n, vector), 1.0, GB, GC);
             if vector {
-                assert_eq!(get(&g, E, n), want_e, "B+{bo} C+{co}: written from the floor");
-                assert_eq!(g.u32(E + 64).unwrap(), POISON, "B+{bo} C+{co}: the top is not written");
+                assert_eq!(
+                    get(&g, E, n),
+                    want_e,
+                    "B+{bo} C+{co}: written from the floor"
+                );
+                assert_eq!(
+                    g.u32(E + 64).unwrap(),
+                    POISON,
+                    "B+{bo} C+{co}: the top is not written"
+                );
             } else {
                 assert_eq!(g.u32(E).unwrap(), POISON, "B+{bo} C+{co}: nothing below E");
-                assert_eq!(get(&g, E + 4, n), want_e, "B+{bo} C+{co}: written at E exactly");
+                assert_eq!(
+                    get(&g, E + 4, n),
+                    want_e,
+                    "B+{bo} C+{co}: written at E exactly"
+                );
             }
         }
     }
@@ -811,9 +888,17 @@ mod tests {
         run(&mut g, n as u64, at, E + 12).unwrap();
 
         let (want_e, want_f) = model(&inp, &forms(n, true), 1.0, GB, GC);
-        assert_eq!(get(&g, E, n), want_e, "E from its floor, over A and D from theirs");
+        assert_eq!(
+            get(&g, E, n),
+            want_e,
+            "E from its floor, over A and D from theirs"
+        );
         assert_eq!(get(&g, F, n), want_f, "F from its floor");
-        assert_eq!(words(&g, E + 64, 3), vec![POISON; 3], "the top of E's nominal run");
+        assert_eq!(
+            words(&g, E + 64, 3),
+            vec![POISON; 3],
+            "the top of E's nominal run"
+        );
         assert_eq!(g.u32(F + 64).unwrap(), POISON, "the top of F's nominal run");
     }
 
@@ -839,16 +924,34 @@ mod tests {
             let (want_e, want_f) = model(&inp, &shape, 1.0, GB, GC);
             assert_eq!(get(&g, E, n), want_e, "count {n}: E");
             assert_eq!(get(&g, F, n), want_f, "count {n}: F");
-            assert_eq!(g.u32(E + 4 * n as u32).unwrap(), POISON, "count {n}: nothing past E");
-            assert_eq!(g.u32(F + 4 * n as u32).unwrap(), POISON, "count {n}: nothing past F");
+            assert_eq!(
+                g.u32(E + 4 * n as u32).unwrap(),
+                POISON,
+                "count {n}: nothing past E"
+            );
+            assert_eq!(
+                g.u32(F + 4 * n as u32).unwrap(),
+                POISON,
+                "count {n}: nothing past F"
+            );
 
             // The lane-2 element of the four-wide group has to be distinguishable from the tail form,
             // or a port that handed that group to the one-at-a-time loop would pass.
             let lane2 = shape.iter().position(|&f| f == Form::Lane2).unwrap();
             let as_tail = element(
-                Form::Scalar, 1.0, inp.a[lane2], inp.b[lane2], inp.c[lane2], inp.d[lane2], GB, GC,
+                Form::Scalar,
+                1.0,
+                inp.a[lane2],
+                inp.b[lane2],
+                inp.c[lane2],
+                inp.d[lane2],
+                GB,
+                GC,
             );
-            assert_ne!(as_tail.0, want_e[lane2], "count {n}: element {lane2} must tell the forms apart");
+            assert_ne!(
+                as_tail.0, want_e[lane2],
+                "count {n}: element {lane2} must tell the forms apart"
+            );
         }
     }
 
@@ -857,7 +960,14 @@ mod tests {
         // `cmpw cr6,r27,r3 ; bge` is signed on the low word, so 0 and every negative count leave before
         // the `lfs` of the 1.0 — which is why the cell is removed here: reading it would be an `Err`.
         // -16 is the edge where `done` equals the count rather than exceeding it.
-        for count in [0u64, 0xFFFF_FFFF, 0xFFFF_FFFC, 0xFFFF_FFF0, 0xFFFF_FFEF, 0xDEAD_0000_0000_0000] {
+        for count in [
+            0u64,
+            0xFFFF_FFFF,
+            0xFFFF_FFFC,
+            0xFFFF_FFF0,
+            0xFFFF_FFEF,
+            0xDEAD_0000_0000_0000,
+        ] {
             for at in [ALIGNED, GAME] {
                 let mut g = Guest::single(BASE, 0x4000);
                 g.set_u32(SP + ARG_F, F).unwrap();
@@ -895,7 +1005,10 @@ mod tests {
         assert_eq!(get(&g, B + 4, n), want_e, "E, stored over B");
         assert_eq!(get(&g, F, n), want_f, "F from the reloaded B");
         for j in 0..n {
-            assert_ne!(want_f[j], plain_f[j], "element {j}: the reload has to be visible");
+            assert_ne!(
+                want_f[j], plain_f[j],
+                "element {j}: the reload has to be visible"
+            );
         }
     }
 
@@ -911,10 +1024,19 @@ mod tests {
         run(&mut g, n as u64, [F, B, C, D], E).unwrap();
 
         let (plain_e, want_f) = model(&inp, &forms(n, true), 1.0, GB, GC);
-        let fed_back = Inputs { a: want_f.clone(), b: inp.b.clone(), c: inp.c.clone(), d: inp.d.clone() };
+        let fed_back = Inputs {
+            a: want_f.clone(),
+            b: inp.b.clone(),
+            c: inp.c.clone(),
+            d: inp.d.clone(),
+        };
         let (want_e, _) = model(&fed_back, &forms(n, true), 1.0, GB, GC);
         assert_eq!(get(&g, F, n), want_f);
-        assert_eq!(get(&g, E, n), want_e, "E accumulated onto the blend, not onto the old A");
+        assert_eq!(
+            get(&g, E, n),
+            want_e,
+            "E accumulated onto the blend, not onto the old A"
+        );
         assert_ne!(want_e, plain_e, "the ordering has to be visible");
     }
 
@@ -933,13 +1055,21 @@ mod tests {
         run(&mut s, n as u64, scalar_at, E).unwrap();
         let (want_e, want_f) = model(&inp, &forms(n, false), 2.0, GB, GC);
         assert_eq!((get(&s, E, n), get(&s, F, n)), (want_e.clone(), want_f));
-        assert_ne!(model(&inp, &forms(n, false), 1.0, GB, GC).0, want_e, "the patch has to matter");
+        assert_ne!(
+            model(&inp, &forms(n, false), 1.0, GB, GC).0,
+            want_e,
+            "the patch has to matter"
+        );
 
         let mut v = guest();
         v.put(ONE_CELL, 2.0f32.to_bits().to_be_bytes().to_vec());
         lay(&mut v, &inp, ALIGNED);
         run(&mut v, n as u64, ALIGNED, E).unwrap();
-        assert_eq!(get(&v, E, n), model(&inp, &forms(n, true), 1.0, GB, GC).0, "built, not loaded");
+        assert_eq!(
+            get(&v, E, n),
+            model(&inp, &forms(n, true), 1.0, GB, GC).0,
+            "built, not loaded"
+        );
 
         // Without the cell: sixteen aligned elements never reach the `lfs`; a misaligned call does.
         let mut bare = Guest::single(BASE, 0x4000);
@@ -963,8 +1093,15 @@ mod tests {
 
         run(&mut g, n as u64, GAME, E).unwrap();
 
-        assert_eq!(get(&g, alt, n), model(&inp, &forms(n, false), 1.0, GB, GC).1);
-        assert_eq!(words(&g, F, n), vec![POISON; n], "the default F was never written");
+        assert_eq!(
+            get(&g, alt, n),
+            model(&inp, &forms(n, false), 1.0, GB, GC).1
+        );
+        assert_eq!(
+            words(&g, F, n),
+            vec![POISON; n],
+            "the default F was never written"
+        );
     }
 
     #[test]
@@ -975,23 +1112,43 @@ mod tests {
         // the same r1 is fine.
         let sp = SP + 8;
         let inp = inputs(16, 0x5EED_0007);
-        for (n, at, refused) in [(16usize, ALIGNED, true), (16, GAME, false), (15, ALIGNED, false)] {
+        for (n, at, refused) in [
+            (16usize, ALIGNED, true),
+            (16, GAME, false),
+            (15, ALIGNED, false),
+        ] {
             let mut g = guest();
             g.set_u32(sp + ARG_F, F).unwrap();
             lay(&mut g, &inp, at);
             poison(&mut g, E, 16);
             poison(&mut g, F, 16);
             let got = crossfade(
-                &mut g, n as u64, at[0] as u64, at[1] as u64, at[2] as u64, at[3] as u64, E as u64,
-                sp, GB, GC,
+                &mut g,
+                n as u64,
+                at[0] as u64,
+                at[1] as u64,
+                at[2] as u64,
+                at[3] as u64,
+                E as u64,
+                sp,
+                GB,
+                GC,
             );
             if refused {
                 assert_eq!(got.unwrap_err().message, vmx::SPLAT_FRAME_UNALIGNED);
-                assert_eq!(words(&g, E, 16), vec![POISON; 16], "a refused call writes nothing");
+                assert_eq!(
+                    words(&g, E, 16),
+                    vec![POISON; 16],
+                    "a refused call writes nothing"
+                );
                 assert_eq!(words(&g, F, 16), vec![POISON; 16]);
             } else {
                 got.unwrap();
-                assert_eq!(get(&g, E, n), model(&inp, &forms(n, false), 1.0, GB, GC).0, "count {n}");
+                assert_eq!(
+                    get(&g, E, n),
+                    model(&inp, &forms(n, false), 1.0, GB, GC).0,
+                    "count {n}"
+                );
             }
         }
     }
@@ -1014,21 +1171,41 @@ mod tests {
         let at = [A, B + 4, C + 4, D];
         let mut g = guest();
         lay(&mut g, &inp, at);
-        crossfade(&mut g, n as u64, A as u64, at[1] as u64, at[2] as u64, D as u64, E as u64, SP, GB, gc)
-            .unwrap();
+        crossfade(
+            &mut g,
+            n as u64,
+            A as u64,
+            at[1] as u64,
+            at[2] as u64,
+            D as u64,
+            E as u64,
+            SP,
+            GB,
+            gc,
+        )
+        .unwrap();
         let want = model(&inp, &forms(n, false), 1.0, GB, gc).0;
         assert_eq!(get(&g, E, n), want);
-        assert_ne!(model(&inp, &forms(n, false), 1.0, GB, gc as f32 as f64).0, want, "must be visible");
+        assert_ne!(
+            model(&inp, &forms(n, false), 1.0, GB, gc as f32 as f64).0,
+            want,
+            "must be visible"
+        );
     }
-
-
 
     // ------------------------------------------------------------------ sub_82B3D4F8
 
     /// The two gains and a descriptor with `select` at `+8`.
     fn dispatcher(g: &mut Guest, b: u32, select: u32) {
         put(g, GAINS + GAIN0, &[GB as f32, GC as f32]);
-        for (slot, value) in [(DESC_A, A), (DESC_B, b), (DESC_C, select), (DESC_D, D), (DESC_E, E), (DESC_F, F)] {
+        for (slot, value) in [
+            (DESC_A, A),
+            (DESC_B, b),
+            (DESC_C, select),
+            (DESC_D, D),
+            (DESC_E, E),
+            (DESC_F, F),
+        ] {
             g.set_u32(DESC + slot, value).unwrap();
         }
     }
@@ -1051,7 +1228,11 @@ mod tests {
 
         assert_eq!(words(&g, E, n + 4), words(&want, E, n + 4));
         assert_eq!(words(&g, F, n + 4), words(&want, F, n + 4));
-        assert_ne!(words(&g, E, n), vec![POISON; n], "the kernel has to have run");
+        assert_ne!(
+            words(&g, E, n),
+            vec![POISON; n],
+            "the kernel has to have run"
+        );
     }
 
     #[test]
@@ -1067,7 +1248,18 @@ mod tests {
         let mut want = g.clone();
         want.set_u32(FRAME + ARG_F, F).unwrap();
         let direct = |h: &mut Guest, gb: f64, gc: f64| {
-            crossfade(h, n as u64, A as u64, GAME[1] as u64, GAME[2] as u64, D as u64, E as u64, FRAME, gb, gc)
+            crossfade(
+                h,
+                n as u64,
+                A as u64,
+                GAME[1] as u64,
+                GAME[2] as u64,
+                D as u64,
+                E as u64,
+                FRAME,
+                gb,
+                gc,
+            )
         };
         let mut swapped = want.clone();
         direct(&mut want, GB, GC).unwrap();
@@ -1077,7 +1269,11 @@ mod tests {
 
         assert_eq!(words(&g, E, n + 4), words(&want, E, n + 4));
         assert_eq!(words(&g, F, n + 4), words(&want, F, n + 4));
-        assert_ne!(words(&want, E, n), words(&swapped, E, n), "swapped gains have to be visible");
+        assert_ne!(
+            words(&want, E, n),
+            words(&swapped, E, n),
+            "swapped gains have to be visible"
+        );
     }
 
     #[test]
@@ -1092,7 +1288,11 @@ mod tests {
 
             run_mix(&mut g, GAINS, 16, DESC, SP).unwrap();
 
-            assert_eq!(g.u32(FRAME).unwrap(), SP, "selector {select:#x}: the back chain");
+            assert_eq!(
+                g.u32(FRAME).unwrap(),
+                SP,
+                "selector {select:#x}: the back chain"
+            );
             let slot = g.u32(FRAME + ARG_F).unwrap();
             if select == 0 {
                 assert_eq!(slot, POISON, "the one-gain path stores no ninth argument");
@@ -1112,7 +1312,11 @@ mod tests {
             g.put(0x5000_0000, (GB as f32).to_bits().to_be_bytes().to_vec());
             lay(&mut g, &inputs(16, 2), GAME);
             dispatcher(&mut g, GAME[1], select);
-            assert_eq!(run_mix(&mut g, gains, 16, DESC, SP).is_ok(), ok, "selector {select:#x}");
+            assert_eq!(
+                run_mix(&mut g, gains, 16, DESC, SP).is_ok(),
+                ok,
+                "selector {select:#x}"
+            );
         }
     }
 }

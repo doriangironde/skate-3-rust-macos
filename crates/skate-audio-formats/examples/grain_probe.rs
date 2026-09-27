@@ -17,7 +17,9 @@ fn distinct(window: &[u8]) -> usize {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_DIR.to_string());
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| DEFAULT_DIR.to_string());
     let data = std::fs::read(format!("{dir}/grains.big"))?;
     let archive = eb::Archive::parse(&data)?;
     let mut agree = 0;
@@ -44,6 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => println!("{name:30.30} head {head:#05x}  no EAAC header there: {e}"),
         }
     }
-    println!("{agree} of {} members: the first word locates an EAAC stream whose duration is the float at +4", archive.entries.len());
+    println!(
+        "{agree} of {} members: the first word locates an EAAC stream whose duration is the float at +4",
+        archive.entries.len()
+    );
     Ok(())
 }

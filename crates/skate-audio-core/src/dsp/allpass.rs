@@ -58,7 +58,7 @@
 use core::arch::x86_64::*;
 
 use crate::vmx::{self, Fpscr};
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// The window arithmetic's guard: the harness's 32 KB budget refuses anything past about 2,700
 /// samples long before this, since the kernel writes 12 bytes per sample.
@@ -148,7 +148,10 @@ pub fn allpass_stage(
 
     if quads <= 0 {
         // ble 0x82b38b60 -- and the `subf` that sets r3 is below this, so r3 is untouched.
-        return Ok(AllpassResult { r3: n as i64 as u64, clobbers: None });
+        return Ok(AllpassResult {
+            r3: n as i64 as u64,
+            clobbers: None,
+        });
     }
 
     // subf r3,r6,r9 -- a 64-bit subtract of the two full-width registers.
@@ -157,7 +160,12 @@ pub fn allpass_stage(
     // addi r11,r11,-1 ; rlwinm r11,r11,30,2,31 ; addi r5,r11,1 -- ceil(quads / 4).
     let iterations = (((quads as u32) - 1) >> 2) + 1;
 
-    let mut last = AllpassClobbers { v2: [0; 4], v29: [0; 4], v30: [0; 4], v31: [0; 4] };
+    let mut last = AllpassClobbers {
+        v2: [0; 4],
+        v29: [0; 4],
+        v30: [0; 4],
+        v31: [0; 4],
+    };
 
     for k in 0..iterations {
         let u = k * GROUP_BYTES; // every cursor advances by 64 per iteration
@@ -228,7 +236,10 @@ pub fn allpass_stage(
         }
     }
 
-    Ok(AllpassResult { r3, clobbers: Some(last) })
+    Ok(AllpassResult {
+        r3,
+        clobbers: Some(last),
+    })
 }
 
 // ------------------------------------------------------------------- the stage dispatcher above it
@@ -322,9 +333,11 @@ mod tests {
         let mut g = Guest::single(BASE, 0x6000);
         for i in 0..64u32 {
             g.set_u32(C + i * 4, (1.0 + i as f32).to_bits()).unwrap();
-            g.set_u32(T + i * 4, (0.25 * (i as f32 + 1.0)).to_bits()).unwrap();
+            g.set_u32(T + i * 4, (0.25 * (i as f32 + 1.0)).to_bits())
+                .unwrap();
             g.set_u32(D + i * 4, POISON).unwrap();
-            g.set_u32(ACC + i * 4, (100.0 + i as f32).to_bits()).unwrap();
+            g.set_u32(ACC + i * 4, (100.0 + i as f32).to_bits())
+                .unwrap();
         }
         g
     }
@@ -346,12 +359,18 @@ mod tests {
     #[test]
     fn it_computes_the_allpass_pair_and_accumulates_at_gain() {
         let mut g = guest();
-        let out = allpass_stage(&mut g, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
+        let out =
+            allpass_stage(&mut g, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
 
-        assert_eq!(out.r3, u64::from(ACC) - u64::from(C), "r3 is the 64-bit acc - c delta");
+        assert_eq!(
+            out.r3,
+            u64::from(ACC) - u64::from(C),
+            "r3 is the 64-bit acc - c delta"
+        );
         assert!(out.clobbers.is_some(), "the loop ran, so v2/v29-v31 moved");
         for i in 0..16u32 {
-            let (d_want, acc_want) = model(1.0 + i as f32, 0.25 * (i as f32 + 1.0), 100.0 + i as f32);
+            let (d_want, acc_want) =
+                model(1.0 + i as f32, 0.25 * (i as f32 + 1.0), 100.0 + i as f32);
             assert_eq!(at(&g, D, i), d_want, "d[{i}]");
             assert_eq!(at(&g, ACC, i), acc_want, "acc[{i}]");
         }
@@ -365,9 +384,31 @@ mod tests {
         // r10 != 0 accumulates onto what is there; r10 == 0 clears first, so the same call gives
         // just the stage's own output.
         let mut primed = guest();
-        allpass_stage(&mut primed, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
+        allpass_stage(
+            &mut primed,
+            16,
+            u64::from(C),
+            T,
+            D,
+            u64::from(ACC),
+            1,
+            A,
+            GAIN,
+        )
+        .unwrap();
         let mut cleared = guest();
-        allpass_stage(&mut cleared, 16, u64::from(C), T, D, u64::from(ACC), 0, A, GAIN).unwrap();
+        allpass_stage(
+            &mut cleared,
+            16,
+            u64::from(C),
+            T,
+            D,
+            u64::from(ACC),
+            0,
+            A,
+            GAIN,
+        )
+        .unwrap();
 
         for i in 0..16u32 {
             let (_, with_prior) = model(1.0 + i as f32, 0.25 * (i as f32 + 1.0), 100.0 + i as f32);
@@ -375,7 +416,11 @@ mod tests {
             assert_eq!(at(&primed, ACC, i), with_prior, "primed [{i}]");
             assert_eq!(at(&cleared, ACC, i), from_zero, "cleared [{i}]");
         }
-        assert_ne!(at(&primed, ACC, 0), at(&cleared, ACC, 0), "the flag has to matter");
+        assert_ne!(
+            at(&primed, ACC, 0),
+            at(&cleared, ACC, 0),
+            "the flag has to matter"
+        );
     }
 
     #[test]
@@ -389,7 +434,11 @@ mod tests {
         }
         allpass_stage(&mut g, 16, u64::from(C), T, D, u64::from(acc), 0, A, GAIN).unwrap();
         for i in 0..4u32 {
-            assert_eq!(g.u32(ACC + i * 4).unwrap(), 0, "word {i} below the pointer was cleared");
+            assert_eq!(
+                g.u32(ACC + i * 4).unwrap(),
+                0,
+                "word {i} below the pointer was cleared"
+            );
         }
     }
 
@@ -399,7 +448,18 @@ mod tests {
         // four consecutive floats per lane. The taps then come from T+4 onwards, and the answer
         // differs from the aligned call at every sample.
         let mut g = guest();
-        allpass_stage(&mut g, 16, u64::from(C), T + 4, D, u64::from(ACC), 1, A, GAIN).unwrap();
+        allpass_stage(
+            &mut g,
+            16,
+            u64::from(C),
+            T + 4,
+            D,
+            u64::from(ACC),
+            1,
+            A,
+            GAIN,
+        )
+        .unwrap();
         for i in 0..16u32 {
             let tap = 0.25 * (i as f32 + 2.0); // one float further along
             let (d_want, acc_want) = model(1.0 + i as f32, tap, 100.0 + i as f32);
@@ -419,7 +479,11 @@ mod tests {
             let (d_want, _) = model(1.0 + i as f32, 0.25 * (i as f32 + 1.0), 100.0 + i as f32);
             assert_eq!(at(&g, D, i), d_want, "d[{i}] is written even past n");
         }
-        assert_eq!(g.u32(D + 32 * 4).unwrap(), POISON, "and it stops at the next multiple of 16");
+        assert_eq!(
+            g.u32(D + 32 * 4).unwrap(),
+            POISON,
+            "and it stops at the next multiple of 16"
+        );
     }
 
     #[test]
@@ -428,7 +492,10 @@ mod tests {
             let mut g = guest();
             let out =
                 allpass_stage(&mut g, n, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
-            assert_eq!(out.r3, n as u64, "n = {n}: the subf is below the ble, so r3 is untouched");
+            assert_eq!(
+                out.r3, n as u64,
+                "n = {n}: the subf is below the ble, so r3 is untouched"
+            );
             assert!(out.clobbers.is_none(), "n = {n}: no iteration, no clobbers");
             assert_eq!(g.u32(D).unwrap(), POISON, "n = {n}: nothing written");
         }
@@ -437,7 +504,8 @@ mod tests {
     #[test]
     fn the_clobbers_are_the_last_groups_the_loop_touched() {
         let mut g = guest();
-        let out = allpass_stage(&mut g, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
+        let out =
+            allpass_stage(&mut g, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
         let c = out.clobbers.unwrap();
         // v29 is the last `c` group: samples 12..15, and the register holds them lane-reversed the
         // way every vector load in this crate does.
@@ -454,7 +522,11 @@ mod tests {
             let tap = 0.25 * (i as f32 + 1.0);
             a * (c - a * tap) + tap
         };
-        assert_eq!(f32::from_bits(c.v30[3]), expected_y(8), "v30 lane 3 is y for sample 8");
+        assert_eq!(
+            f32::from_bits(c.v30[3]),
+            expected_y(8),
+            "v30 lane 3 is y for sample 8"
+        );
     }
 
     // ------------------------------------------------------------------------- the dispatcher
@@ -468,8 +540,10 @@ mod tests {
         g.set_u32(STAGE + STAGE_BYPASS, bypass).unwrap();
         g.set_u32(STAGE + STAGE_OUT, D).unwrap();
         g.set_u32(STAGE + STAGE_ACCUMULATOR, ACC).unwrap();
-        g.set_u32(COEFFS + COEFF_TAP_GAIN, (A as f32).to_bits()).unwrap();
-        g.set_u32(COEFFS + COEFF_STAGE_GAIN, (GAIN as f32).to_bits()).unwrap();
+        g.set_u32(COEFFS + COEFF_TAP_GAIN, (A as f32).to_bits())
+            .unwrap();
+        g.set_u32(COEFFS + COEFF_STAGE_GAIN, (GAIN as f32).to_bits())
+            .unwrap();
     }
 
     #[test]
@@ -478,14 +552,23 @@ mod tests {
         descriptor(&mut g, 0);
         let mut h = g.clone();
         let out = dispatch_stage(&mut g, u64::from(COEFFS), 16, 1, u64::from(STAGE)).unwrap();
-        let direct = allpass_stage(&mut h, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
+        let direct =
+            allpass_stage(&mut h, 16, u64::from(C), T, D, u64::from(ACC), 1, A, GAIN).unwrap();
         match out {
             DispatchOutcome::Ran(r) => assert_eq!(r.r3, direct.r3),
             DispatchOutcome::Cleared => panic!("a zero bypass word must run the stage"),
         }
         for i in 0..16u32 {
-            assert_eq!(g.u32(D + 4 * i).unwrap(), h.u32(D + 4 * i).unwrap(), "d[{i}]");
-            assert_eq!(g.u32(ACC + 4 * i).unwrap(), h.u32(ACC + 4 * i).unwrap(), "acc[{i}]");
+            assert_eq!(
+                g.u32(D + 4 * i).unwrap(),
+                h.u32(D + 4 * i).unwrap(),
+                "d[{i}]"
+            );
+            assert_eq!(
+                g.u32(ACC + 4 * i).unwrap(),
+                h.u32(ACC + 4 * i).unwrap(),
+                "acc[{i}]"
+            );
         }
     }
 
@@ -499,6 +582,10 @@ mod tests {
             assert_eq!(g.u32(ACC + 4 * i).unwrap(), 0, "acc[{i}] cleared");
         }
         assert_eq!(at(&g, ACC, 12), 112.0, "twelve words, not thirteen");
-        assert_eq!(g.u32(D).unwrap(), POISON, "and the stage's output is untouched");
+        assert_eq!(
+            g.u32(D).unwrap(),
+            POISON,
+            "and the stage's output is untouched"
+        );
     }
 }

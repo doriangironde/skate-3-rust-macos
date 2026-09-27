@@ -50,7 +50,17 @@ pub fn parse_bed(member: &str) -> Option<Bed> {
 const DISTRICTS: &[(&str, &[&str])] = &[
     ("dt", &["downtown", "dt"]),
     ("univ", &["university", "univ", "campus"]),
-    ("indu", &["industrial", "indu", "factory", "shipyard", "quarry", "drydock"]),
+    (
+        "indu",
+        &[
+            "industrial",
+            "indu",
+            "factory",
+            "shipyard",
+            "quarry",
+            "drydock",
+        ],
+    ),
     ("reclaimed", &["reclaimed"]),
     ("spillway", &["spillway"]),
     ("skate", &["school", "plaza"]),
@@ -106,11 +116,18 @@ mod tests {
     use super::*;
 
     fn beds() -> Vec<Bed> {
-        ["08_univ_mt_low.snr", "09_univ_campus.snr", "04_dt_main.snr", "06_dt_open.snr",
-         "13_indu_quarry.snr", "16_spillway.snr", "23_Press_start_screen.snr"]
-            .iter()
-            .filter_map(|m| parse_bed(m))
-            .collect()
+        [
+            "08_univ_mt_low.snr",
+            "09_univ_campus.snr",
+            "04_dt_main.snr",
+            "06_dt_open.snr",
+            "13_indu_quarry.snr",
+            "16_spillway.snr",
+            "23_Press_start_screen.snr",
+        ]
+        .iter()
+        .filter_map(|m| parse_bed(m))
+        .collect()
     }
 
     #[test]
@@ -136,11 +153,20 @@ mod tests {
     fn a_qualifier_word_breaks_the_tie_within_a_district() {
         let beds = beds();
         // "campus" is a university word AND a qualifier, so it beats the other university bed.
-        assert_eq!(pick("University Campus", &beds).unwrap().member, "09_univ_campus.snr");
+        assert_eq!(
+            pick("University Campus", &beds).unwrap().member,
+            "09_univ_campus.snr"
+        );
         // Without it, the district still matches and the lowest index wins, stably.
-        assert_eq!(pick("University", &beds).unwrap().member, "08_univ_mt_low.snr");
+        assert_eq!(
+            pick("University", &beds).unwrap().member,
+            "08_univ_mt_low.snr"
+        );
         // A named qualifier still outranks the general-sounding preference below.
-        assert_eq!(pick("Downtown open", &beds).unwrap().member, "06_dt_open.snr");
+        assert_eq!(
+            pick("Downtown open", &beds).unwrap().member,
+            "06_dt_open.snr"
+        );
     }
 
     #[test]
@@ -148,7 +174,9 @@ mod tests {
         // "01_dt_apt" sorts first, but an apartment interior is a poor stand-in for all of
         // downtown; "04_dt_main" is the one a district-wide request should get.
         let beds: Vec<Bed> = ["01_dt_apt.snr", "04_dt_main.snr", "06_dt_open.snr"]
-            .iter().filter_map(|m| parse_bed(m)).collect();
+            .iter()
+            .filter_map(|m| parse_bed(m))
+            .collect();
         assert_eq!(pick("Downtown", &beds).unwrap().member, "04_dt_main.snr");
     }
 

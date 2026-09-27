@@ -19,7 +19,10 @@ use crate::{Guest, Result};
 /// here, so the halfword *at* the mirror is entry 256 and the table's used extent is 514 bytes.
 pub const SINE_MIRROR: u32 = 512;
 
-const _: () = assert!(crate::eval::SINE_TABLE_BYTES == SINE_MIRROR as usize + 2, "the mirror entry");
+const _: () = assert!(
+    crate::eval::SINE_TABLE_BYTES == SINE_MIRROR as usize + 2,
+    "the mirror entry"
+);
 
 /// `extsw ; std ; lfd ; fcfid ; frsp` on a value already narrowed to `i32`.
 #[inline]
@@ -32,8 +35,11 @@ fn int_to_single(value: i32) -> f64 {
 /// A NaN is not "less than" zero, so it takes the *add* side, exactly as `cr6.lt` would.
 #[inline]
 fn round_to_word(value: f64, half: f64, zero: f64) -> u32 {
-    let adjusted =
-        if value < zero { fp::sub_single(value, half) } else { fp::add_single(value, half) };
+    let adjusted = if value < zero {
+        fp::sub_single(value, half)
+    } else {
+        fp::add_single(value, half)
+    };
     fp::fctiwz_low_word(adjusted)
 }
 
@@ -119,17 +125,19 @@ pub fn op_oscillator(g: &mut Guest, osc: u32) -> Result<u64> {
             _ => -(g.u16(SINE_TABLE.wrapping_add(SINE_MIRROR).wrapping_sub(offset))? as i32),
         };
         let sample_f = int_to_single(sample);
-        fp::mul_single(fp::mul_single(sample_f, amplitude), fp::load_single(g, SINE_NORM)?)
+        fp::mul_single(
+            fp::mul_single(sample_f, amplitude),
+            fp::load_single(g, SINE_NORM)?,
+        )
     } else if waveform == 1 {
-        if phase < half {
-            zero
-        } else {
-            amplitude
-        }
+        if phase < half { zero } else { amplitude }
     } else if waveform == 2 {
         fp::mul_single(phase, amplitude)
     } else if phase < half {
-        fp::mul_single(fp::mul_single(phase, amplitude), fp::load_single(g, TRIANGLE_GAIN)?)
+        fp::mul_single(
+            fp::mul_single(phase, amplitude),
+            fp::load_single(g, TRIANGLE_GAIN)?,
+        )
     } else {
         // `wrap`, not `half`: the register still holds the 1.0 cell loaded at entry, which is why
         // the original reads that address twice.
@@ -227,8 +235,7 @@ pub fn op_envelope(g: &mut Guest, env: u32) -> Result<u64> {
                     fp::store_single(g, env + 12, fp::add_single(step, value))?;
                 } else {
                     let next = (index + 1) & 0xFF;
-                    let reached =
-                        fp::load_single(g, env + SEGMENTS + index * STRIDE + TARGET)?;
+                    let reached = fp::load_single(g, env + SEGMENTS + index * STRIDE + TARGET)?;
                     g.set_u8(env + 3, next as u8)?;
                     fp::store_single(g, env + 12, reached)?;
                     if next < count {
@@ -261,8 +268,11 @@ pub fn op_envelope(g: &mut Guest, env: u32) -> Result<u64> {
     let negative = value < zero;
     g.set_u8(env + 2, (mode_again & 0xFF) as u8)?;
     let half = fp::load_single(g, HALF_SINGLE)?;
-    let rounded =
-        if negative { fp::sub_single(value, half) } else { fp::add_single(value, half) };
+    let rounded = if negative {
+        fp::sub_single(value, half)
+    } else {
+        fp::add_single(value, half)
+    };
     Ok(fp::fctiwz_low_word(rounded) as u64)
 }
 
@@ -380,8 +390,8 @@ pub fn op_curve(g: &mut Guest, cursor: u32) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::testutil::*;
     use crate::eval::SINE_TABLE_BYTES;
+    use crate::eval::testutil::*;
 
     /// The quarter-sine table as the image holds it, built from the formula the dump was shown to
     /// satisfy for all 257 entries.
@@ -401,7 +411,10 @@ mod tests {
         put_rodata(g);
         g.put(ONE_SINGLE, 1.0f32.to_bits().to_be_bytes().to_vec());
         g.put(PHASE_TO_UNITS, 1024.0f32.to_bits().to_be_bytes().to_vec());
-        g.put(SINE_NORM, (1.0f32 / 65536.0).to_bits().to_be_bytes().to_vec());
+        g.put(
+            SINE_NORM,
+            (1.0f32 / 65536.0).to_bits().to_be_bytes().to_vec(),
+        );
         g.put(TRIANGLE_GAIN, 2.0f32.to_bits().to_be_bytes().to_vec());
         g.put(SINE_TABLE, sine_table_bytes());
         g.set_u32(TICK_SCALE_GLOBAL, 1.0f32.to_bits()).unwrap();
@@ -461,8 +474,7 @@ mod tests {
             let mut g = block_guest();
             oscillator(&mut g, 0, phase, 1024, amplitude);
             let got = op_oscillator(&mut g, BLOCK).unwrap() as u32 as i32 as f64;
-            let want =
-                amplitude as f64 * (2.0 * std::f64::consts::PI * phase as f64).sin();
+            let want = amplitude as f64 * (2.0 * std::f64::consts::PI * phase as f64).sin();
             assert!(
                 (got - want).abs() <= tolerance,
                 "phase {phase}: got {got}, sine says {want}, tolerance {tolerance}"
@@ -476,21 +488,33 @@ mod tests {
         for (phase, expect) in [(0.0f32, 0u64), (0.4999, 0), (0.5, 1000), (0.9, 1000)] {
             let mut g = block_guest();
             oscillator(&mut g, 1, phase, 1024, 1000);
-            assert_eq!(op_oscillator(&mut g, BLOCK).unwrap(), expect, "pulse at {phase}");
+            assert_eq!(
+                op_oscillator(&mut g, BLOCK).unwrap(),
+                expect,
+                "pulse at {phase}"
+            );
         }
 
         // Ramp: phase * amplitude, rounded half away from zero.
         for (phase, expect) in [(0.0f32, 0u64), (0.25, 250), (0.5, 500), (0.999, 999)] {
             let mut g = block_guest();
             oscillator(&mut g, 2, phase, 1024, 1000);
-            assert_eq!(op_oscillator(&mut g, BLOCK).unwrap(), expect, "ramp at {phase}");
+            assert_eq!(
+                op_oscillator(&mut g, BLOCK).unwrap(),
+                expect,
+                "ramp at {phase}"
+            );
         }
 
         // Triangle: up at twice the ramp's slope, then down. Waveform 3 and 7 take the same path.
         for waveform in [3u8, 7, 255] {
-            for (phase, expect) in
-                [(0.0f32, 0u64), (0.25, 500), (0.5, 1000), (0.75, 500), (0.9, 200)]
-            {
+            for (phase, expect) in [
+                (0.0f32, 0u64),
+                (0.25, 500),
+                (0.5, 1000),
+                (0.75, 500),
+                (0.9, 200),
+            ] {
                 let mut g = block_guest();
                 oscillator(&mut g, waveform, phase, 1024, 1000);
                 assert_eq!(
@@ -508,7 +532,11 @@ mod tests {
             let mut g = block_guest();
             oscillator(&mut g, waveform, 0.5, 4, 1000);
             op_oscillator(&mut g, BLOCK).unwrap();
-            assert_eq!(g.f32(BLOCK + 4).unwrap(), 0.75, "waveform {waveform} advanced by 1/4");
+            assert_eq!(
+                g.f32(BLOCK + 4).unwrap(),
+                0.75,
+                "waveform {waveform} advanced by 1/4"
+            );
         }
     }
 
@@ -518,7 +546,11 @@ mod tests {
         // 2.25 needs two subtractions of 1.0 to come back inside, and the sample must be taken
         // from 0.25, not from 2.25.
         oscillator(&mut g, 0, 2.25, 1024, 65536);
-        assert_eq!(op_oscillator(&mut g, BLOCK).unwrap(), 65535, "sampled at the wrapped phase");
+        assert_eq!(
+            op_oscillator(&mut g, BLOCK).unwrap(),
+            65535,
+            "sampled at the wrapped phase"
+        );
         assert_eq!(g.f32(BLOCK + 4).unwrap(), 0.25 + 1.0 / 1024.0);
 
         // Exactly at the wrap: the compare is `<`, so 1.0 wraps to 0.0 rather than staying.
@@ -561,7 +593,11 @@ mod tests {
         assert_eq!(g.u8(BLOCK + 3).unwrap(), 0);
         assert_eq!(g.f32(BLOCK + 4).unwrap(), 4.0, "the timer was armed");
         assert_eq!(g.f32(BLOCK + 8).unwrap(), 25.0, "the step");
-        assert_eq!(g.u8(BLOCK + 2).unwrap(), 1, "the mode byte was latched, so no second start");
+        assert_eq!(
+            g.u8(BLOCK + 2).unwrap(),
+            1,
+            "the mode byte was latched, so no second start"
+        );
 
         // Four runs: the timer counts down and the value climbs by a step each time.
         for (call, expect) in [(1, 25u64), (2, 50), (3, 75)].iter() {
@@ -595,11 +631,19 @@ mod tests {
         g.set_u32(BLOCK + 0x60, 2).unwrap();
         op_envelope(&mut g, BLOCK).unwrap();
         assert_eq!(g.f32(BLOCK + 12).unwrap(), held, "mode 2 holds");
-        assert_eq!(g.f32(BLOCK + 4).unwrap(), 3.0, "and does not count down either");
+        assert_eq!(
+            g.f32(BLOCK + 4).unwrap(),
+            3.0,
+            "and does not count down either"
+        );
 
         g.set_u32(BLOCK + 0x60, 9).unwrap();
         assert_eq!(op_envelope(&mut g, BLOCK).unwrap(), 0);
-        assert_eq!(g.f32(BLOCK + 12).unwrap(), 0.0, "an unknown mode clears the value");
+        assert_eq!(
+            g.f32(BLOCK + 12).unwrap(),
+            0.0,
+            "an unknown mode clears the value"
+        );
     }
 
     #[test]
@@ -612,7 +656,11 @@ mod tests {
         g.set_u16(BLOCK + 18, 0x0102).unwrap();
         g.set_u32(BLOCK + 0x60, 3).unwrap();
         op_envelope(&mut g, BLOCK).unwrap();
-        assert_eq!(g.u8(BLOCK + 3).unwrap(), 2, "the low byte chose the segment");
+        assert_eq!(
+            g.u8(BLOCK + 3).unwrap(),
+            2,
+            "the low byte chose the segment"
+        );
         assert_eq!(g.f32(BLOCK + 4).unwrap(), 4.0);
         assert_eq!(g.f32(BLOCK + 8).unwrap(), 7.5, "(30 - 0) / 4");
 
@@ -623,7 +671,11 @@ mod tests {
         g.set_u16(BLOCK + 18, 0xFF02).unwrap(); // -254 as a signed halfword
         g.set_u32(BLOCK + 0x60, 3).unwrap();
         op_envelope(&mut g, BLOCK).unwrap();
-        assert_eq!(g.u8(BLOCK + 3).unwrap(), 0, "no jump; it ran segment 0 instead");
+        assert_eq!(
+            g.u8(BLOCK + 3).unwrap(),
+            0,
+            "no jump; it ran segment 0 instead"
+        );
     }
 
     #[test]
@@ -642,7 +694,11 @@ mod tests {
         g.set_u32(BLOCK + 24, 4.0f32.to_bits()).unwrap();
 
         op_envelope(&mut g, BLOCK).unwrap();
-        assert_eq!(g.f32(BLOCK + 12).unwrap(), 260.0, "the start stored the initial value");
+        assert_eq!(
+            g.f32(BLOCK + 12).unwrap(),
+            260.0,
+            "the start stored the initial value"
+        );
         assert_eq!(
             g.u8(BLOCK + 2).unwrap(),
             0x00,
@@ -686,7 +742,11 @@ mod tests {
                     expect as u32 as u64,
                     "kind {kind} at {pos}"
                 );
-                assert_eq!(g.u32(BLOCK + 4).unwrap(), pos as u32, "the position was cached");
+                assert_eq!(
+                    g.u32(BLOCK + 4).unwrap(),
+                    pos as u32,
+                    "the position was cached"
+                );
             }
             // Out of range clamps to the ends rather than reading past the array.
             g.set_u32(BLOCK + 12, 5).unwrap();
@@ -759,7 +819,11 @@ mod tests {
         let c = curve(&mut g, 0, 0.5, 0, 20, &[0, 100, 200]);
         g.set_u32(c + 16 + 4 * 3, 1000).unwrap();
         g.set_u32(BLOCK + 12, 5).unwrap();
-        assert_eq!(op_curve(&mut g, BLOCK).unwrap(), 200, "the upper neighbour clamped to 2");
+        assert_eq!(
+            op_curve(&mut g, BLOCK).unwrap(),
+            200,
+            "the upper neighbour clamped to 2"
+        );
     }
 
     #[test]
@@ -769,7 +833,11 @@ mod tests {
         let mut g = block_guest();
         curve(&mut g, 0, 2.0, 0, 4, &[0, 100, 200, 300, 400]);
         g.set_u32(BLOCK + 12, 1).unwrap();
-        assert_eq!(op_curve(&mut g, BLOCK).unwrap(), 200, "interpolated, not nearest");
+        assert_eq!(
+            op_curve(&mut g, BLOCK).unwrap(),
+            200,
+            "interpolated, not nearest"
+        );
 
         // And a scale below 1.0 does too, which the interpolation tests already cover; asserted
         // here as the pair, so a test that tightened `==` into `>=` or `<=` fails either way.
@@ -786,7 +854,11 @@ mod tests {
         curve(&mut g, 1, 0.5, 0, 4, &[-128, 0, 127]);
         for (pos, want) in [(0i32, -128i32), (1, -64), (2, 0), (3, 64), (4, 127)] {
             g.set_u32(BLOCK + 12, pos as u32).unwrap();
-            assert_eq!(op_curve(&mut g, BLOCK).unwrap(), want as u32 as u64, "byte curve at {pos}");
+            assert_eq!(
+                op_curve(&mut g, BLOCK).unwrap(),
+                want as u32 as u64,
+                "byte curve at {pos}"
+            );
         }
 
         // And a -32768 halfword the same.

@@ -11,7 +11,7 @@
 //! | `sub_824A3140`, the device's `vtable+0` | [`open_voice_graph`] |
 //! | `sub_824A2908`, a voice object's initial fields | [`init_voice_object`] |
 //! | `sub_82491108`, a bus by index | [`bus_for`] |
-//! | `sub_824916E8`'s entry, before it builds the bus | [`DeviceHost::create_bus`] takes over |
+//! | `sub_824916E8`, the authored property setup for an existing bus graph | [`DeviceHost::configure_bus`] takes over |
 //! | the module `vtable+4` entries it calls | [`configure`] |
 //! | `sub_82B31370`, `Send`'s | [`send_configure`] |
 //! | `sub_82B23798`, `GainFader`'s | [`fader_configure`] |
@@ -33,8 +33,14 @@
 //! scratch spills at `+80` are not written.
 
 use crate::bitstream::unpack_stream_header;
-use crate::classes::{self, BUS_ROOT, DEFAULT_BUS, REGISTERED, SEND_SLOT, TAG_INTEGER, TAG_POINTER, TAG_SINGLE, TAG_STRING};
-use crate::fp::{add_single, fcfid, fctiwz_low_word, frsp, load_single, mul_single, store_single, sub_single};
+use crate::classes::{
+    self, BUS_ROOT, DEFAULT_BUS, REGISTERED, SEND_SLOT, TAG_INTEGER, TAG_POINTER, TAG_SINGLE,
+    TAG_STRING,
+};
+use crate::fp::{
+    add_single, fcfid, fctiwz_low_word, fmadd_single, frsp, load_single, mul_single, store_single,
+    sub_single, word_to_single,
+};
 use crate::mathlib::Trig;
 use crate::modules::{self, HALF, ONE, PAN_FRONT, PAN_SIDE, SYSTEM, ZERO};
 use crate::patch::Heap;
@@ -70,8 +76,52 @@ pub const PLAYER_NAME: u32 = 0x8224_E914;
 /// `lis 16709 ; ori 19795`: "AEMS".
 pub const AEMS: u32 = 0x4145_4D53;
 
+/// `sub_82490CA0`'s eight fixed effect-bus graphs.
+pub const BUS_GRAPH_COUNT: u32 = 8;
+/// Every effect bus uses `Sub0 → DCl0 → PI20 → PI20 → Sen0`.
+pub const BUS_GRAPH_MODULES: u32 = 5;
+/// The title's scheduler order for every effect bus.
+pub const BUS_GRAPH_ORDER: u8 = 253;
+/// The manager's module-table cells start at this offset.
+pub const BUS_MODULE_TABLES: u32 = 1084;
+/// The manager's player cells start at this offset.
+pub const BUS_PLAYERS: u32 = 1116;
+/// The manager's lazy authored-profile flags start at this offset.
+pub const BUS_CREATED_FLAGS: u32 = 1148;
+
+/// `sub_82490270`'s two final-output players.
+pub const OUTPUT_GRAPH_COUNT: u32 = 2;
+/// `Sub0 → Del0 → PI20 → Sen0 → Gai0 → Pn21 → Sen0`.
+pub const OUTPUT_GRAPH_MODULES: u32 = 7;
+/// The final mixer runs before the effect buses (whose order is 253).
+pub const OUTPUT_GRAPH_ORDER: u8 = 150;
+/// Final-player/module-table cells in the bus manager.
+pub const OUTPUT_PLAYERS: u32 = 108;
+pub const OUTPUT_MODULE_TABLES: u32 = 116;
+
+/// Guest class descriptors used by `sub_82490CA0`.
+pub const SUBMIX_DESCRIPTOR: u32 = 0x82FD_2CAC;
+pub const CLIP_DESCRIPTOR: u32 = 0x82FC_E1C4;
+pub const PEAK_DESCRIPTOR: u32 = 0x82FD_1788;
+pub const SEND_DESCRIPTOR: u32 = 0x82FD_28C0;
+pub const DELAY_DESCRIPTOR: u32 = 0x82FC_E0E0;
+
+/// Four-character class ids that the title looks up in the system registry.
+pub const SUBMIX_ID: u32 = 0x5375_6230; // "Sub0"
+pub const CLIP_ID: u32 = 0x4443_6C30; // "DCl0"
+pub const PEAK_ID: u32 = 0x5049_3230; // "PI20"
+pub const DELAY_ID: u32 = 0x4465_6C30; // "Del0"
+pub const GAIN_ID: u32 = 0x4761_6930; // "Gai0"
+pub const PAN_ID: u32 = 0x506E_3231; // "Pn21"
+/// `lis -32219 ; addi -9124`: the final-mixer `Sub0` name.
+pub const OUTPUT_SUBMIX_NAME: u32 = 0x8224_DC5C;
+/// `lis -32243 ; lfs 400`: the fixed delay argument the final mixer gives `Del0`.
+pub const OUTPUT_DELAY_SECONDS: u32 = 0x820D_0190;
+
 /// Command handlers the open and the configure entries enqueue.
 pub const COMMAND_PLAYER_FLOAT: u32 = 0x82B4_9268; // leaves::publish_float, verified
+/// `sub_82B49238`: the eight-byte deferred player teardown command.
+pub const COMMAND_PLAYER_STOP: u32 = 0x82B4_9238;
 pub const COMMAND_STAMP: u32 = 0x82B4_63A8; // leaves::stamp_slot, verified
 pub const COMMAND_SEND_BUS: u32 = 0x82B3_1680; // voices::repoint_link, verified
 pub const COMMAND_SEND_NAME: u32 = 0x82B3_1720;
@@ -98,30 +148,320 @@ const _: () = {
     const fn lis(hi: i32, lo: i32) -> u32 {
         (((hi & 0xFFFF) << 16) as u32).wrapping_add(lo as u32)
     }
-    assert!(VOICE_VTABLE == lis(-32208, -17240) && BUS_MANAGER == lis(-31987, -532) && ROUTING_ROOT == lis(-31987, -572));
-    assert!(RODATA == lis(-32208, -31232) && PERCENT == lis(-32243, 29160) && PLAYER_NAME == lis(-32219, -5868));
+    assert!(
+        VOICE_VTABLE == lis(-32208, -17240)
+            && BUS_MANAGER == lis(-31987, -532)
+            && ROUTING_ROOT == lis(-31987, -572)
+    );
+    assert!(
+        RODATA == lis(-32208, -31232)
+            && PERCENT == lis(-32243, 29160)
+            && PLAYER_NAME == lis(-32219, -5868)
+    );
     assert!(AEMS == (16709 << 16) | 19795);
+    assert!(SUBMIX_ID == (21365 << 16) | 25136);
+    assert!(CLIP_ID == (17475 << 16) | 27696);
+    assert!(PEAK_ID == (20553 << 16) | 12848);
     assert!(COMMAND_PLAYER_FLOAT == lis(-32075, -28056) && COMMAND_STAMP == lis(-32076, 25512));
-    assert!(COMMAND_SEND_BUS == lis(-32077, 5760) && COMMAND_SEND_NAME == lis(-32077, 5920) && COMMAND_SEND_2 == lis(-32077, 5600));
+    assert!(
+        COMMAND_SEND_BUS == lis(-32077, 5760)
+            && COMMAND_SEND_NAME == lis(-32077, 5920)
+            && COMMAND_SEND_2 == lis(-32077, 5600)
+    );
     assert!(COMMAND_PLAY == lis(-32077, 11720) && COMMAND_FADER == lis(-32078, 14376));
     assert!(PAN_SLOT == 0x8308_2904 && GAIN_SLOT == 0x8308_28F8 && RESAMPLE_SLOT == 0x8308_2914);
 };
 
 /// What the open cannot do itself.
 pub trait DeviceHost {
-    /// `sub_824916E8` from `0x82491748` on: build bus `index` of `manager`, whose created flag
-    /// ([`bus_for`] sets it) is already 1. It reads tuning records by hashed id and makes indirect
-    /// calls, so it is the host's.
-    fn create_bus(&mut self, g: &mut Guest, manager: u32, index: u32) -> Result<()>;
+    /// `sub_824916E8` configures bus `index` of `manager`, whose created flag ([`bus_for`] sets
+    /// it) is already 1. The graph itself was allocated earlier by the manager constructor and
+    /// is held through the cell at `manager + (index + 271) * 4`; this function only posts its
+    /// authored module properties. It reads tuning records by hashed id and makes indirect calls,
+    /// so it remains a host boundary.
+    fn configure_bus(&mut self, g: &mut Guest, manager: u32, index: u32) -> Result<()>;
 }
 
-/// A host with no buses to build.
+/// The three authored property triplets `sub_824916E8` applies to one pre-built bus graph.
+///
+/// Each row belongs to the module at the corresponding offset in [`stamp_bus_properties`]. The
+/// resource lookup and random interpolation that produce these values remain with the concrete
+/// bus-profile host; this type carries the resolved, single-precision results into the recovered
+/// graph mutation without changing their order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BusProperties {
+    pub first: [f32; 3],
+    pub second: [f32; 3],
+    pub output: f32,
+}
+
+/// Apply the resolved authored properties to the pre-built bus player (`sub_824916E8`, from
+/// `0x82491978` through `0x82491DA4`).
+///
+/// The bus table entry is the player’s module-pointer table (`player + 80`). The title stamps ids
+/// 0, 1, and 2 into children 2 and 3, then stamps id 0 into child 1. [`post_property`] also
+/// preserves the immediate module callback boundary; a nonzero callback remains an explicit
+/// unsupported error instead of being skipped and leaving a plausible-looking but unconfigured
+/// bus.
+pub fn stamp_bus_properties(
+    g: &mut Guest,
+    manager: u32,
+    index: u32,
+    properties: BusProperties,
+) -> Result<()> {
+    let modules = g.u32(manager.wrapping_add(index.wrapping_add(271).wrapping_mul(4)))?;
+    for (module_offset, values) in [(8, properties.first), (12, properties.second)] {
+        let module = g.u32(modules.wrapping_add(module_offset))?;
+        for (id, value) in values.into_iter().enumerate() {
+            post_property(g, module, id as u32, f64::from(value))?;
+        }
+    }
+    let output = g.u32(modules.wrapping_add(4))?;
+    post_property(g, output, 0, f64::from(properties.output))
+}
+/// The `lfs 16808(0x82060000)` scale in `sub_82491DF0`.
+pub const BUS_RANDOM_SCALE: f64 = 0.10000000149011612;
+
+/// `sub_82491DF0`: choose one of eleven single-precision points from `low` through `high`.
+///
+/// The title forms the draw’s remainder with a reciprocal-multiply divide by 11 rather than a
+/// hardware divide, then uses `fmuls` and `fmadds`. Keeping that sequence matters at the last bit:
+/// the inputs came from `lfs` and the result is later posted through `stfs`.
+pub fn interpolate_bus_property(draw: u32, low: f64, high: f64) -> f64 {
+    let reciprocal = ((u64::from(draw) * 0xBA2E_8BA3) >> 32) as u32;
+    let quotient = reciprocal.rotate_left(29) & 0x1FFF_FFFF;
+    let remainder = draw.wrapping_sub(quotient.wrapping_mul(11));
+    let difference = sub_single(high, low);
+    let scaled = mul_single(word_to_single(remainder), difference);
+    fmadd_single(scaled, BUS_RANDOM_SCALE, low)
+}
+/// A host without authored bus-graph configuration.
 pub struct NoBuses;
 
 impl DeviceHost for NoBuses {
-    fn create_bus(&mut self, _g: &mut Guest, _manager: u32, _index: u32) -> Result<()> {
-        Err(Error::new(0x8249_16E8, "bus creation is not ported"))
+    fn configure_bus(&mut self, _g: &mut Guest, _manager: u32, _index: u32) -> Result<()> {
+        Err(Error::new(
+            0x8249_16E8,
+            "authored bus graph configuration is not ported",
+        ))
     }
+}
+
+/// The four registered module classes that form each effect bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BusClasses {
+    pub submix: u32,
+    pub clip: u32,
+    pub peak: u32,
+    pub send: u32,
+}
+
+/// The classes resolved by `sub_82490270` for the two final-output graphs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputClasses {
+    pub submix: u32,
+    pub delay: u32,
+    pub peak: u32,
+    pub send: u32,
+    pub gain: u32,
+    pub pan: u32,
+}
+
+/// Build the title's two final-output graphs from resolved module classes.
+///
+/// `scratch` needs 116 writable bytes. It holds two constructor argument records, the seven
+/// 12-byte descriptors, and a separate tagged routing block. The graph pair is structurally
+/// independent but deliberately shares the descriptor records, exactly as `sub_82490270` does
+/// between its two `sub_82B48C48` calls.
+pub fn init_output_players_with_classes<H: Heap + ?Sized, T: Trig + ?Sized>(
+    g: &mut Guest,
+    heap: &mut H,
+    trig: &mut T,
+    manager: u32,
+    system: u32,
+    classes: OutputClasses,
+    scratch: u32,
+) -> Result<()> {
+    let submix_arg = scratch;
+    let delay_arg = scratch.wrapping_add(8);
+    let descriptors = scratch.wrapping_add(16);
+    let route = scratch.wrapping_add(100);
+    // The source gives Sub0 a tagged name block, and Del0 a tagged single. Constructors read the
+    // payload at +4; preserving the tags keeps these guest records valid for later inspection.
+    g.set_u32(submix_arg, TAG_STRING)?;
+    g.set_u32(submix_arg.wrapping_add(4), OUTPUT_SUBMIX_NAME)?;
+    g.set_u32(delay_arg, TAG_SINGLE)?;
+    g.set_u32(delay_arg.wrapping_add(4), g.u32(OUTPUT_DELAY_SECONDS)?)?;
+    let layout = [
+        (submix_arg, classes.submix, 1u8),
+        (delay_arg, classes.delay, 1),
+        (0, classes.peak, 1),
+        (0, classes.send, 1),
+        (0, classes.gain, 1),
+        (0, classes.pan, 6),
+        (0, classes.send, 6),
+    ];
+    for (index, (arg, class, channels)) in layout.into_iter().enumerate() {
+        let at = descriptors.wrapping_add(index as u32 * 12);
+        g.set_u32(at, arg)?;
+        g.set_u32(at.wrapping_add(4), class)?;
+        g.set_u8(at.wrapping_add(8), channels)?;
+    }
+
+    for index in 0..OUTPUT_GRAPH_COUNT {
+        let player = modules::build_graph(
+            g,
+            heap,
+            trig,
+            system,
+            OUTPUT_GRAPH_ORDER,
+            OUTPUT_GRAPH_MODULES,
+            descriptors,
+        )?;
+        if player == 0 {
+            return Err(Error::new(
+                0x8249_0270,
+                "final output graph allocation failed",
+            ));
+        }
+        let table = player.wrapping_add(80);
+        g.set_u32(manager.wrapping_add(OUTPUT_PLAYERS + index * 4), player)?;
+        g.set_u32(
+            manager.wrapping_add(OUTPUT_MODULE_TABLES + index * 4),
+            table,
+        )?;
+
+        // The first send receives the manager's intermediate target (`[[manager + 52]]`); the
+        // sixth receives the default output target (`[[BUS_ROOT + 44]]`). The source prepares
+        // class defaults before each call, then overwrites this tagged pointer payload.
+        let intermediate_holder = g.u32(manager.wrapping_add(52))?;
+        let intermediate = g.u32(intermediate_holder)?;
+        g.set_u32(route, TAG_POINTER)?;
+        g.set_u32(route.wrapping_add(4), intermediate)?;
+        configure(g, g.u32(table.wrapping_add(12))?, 0, route)?;
+        let root = g.u32(BUS_ROOT)?;
+        let default_holder = g.u32(root.wrapping_add(44))?;
+        g.set_u32(route, TAG_POINTER)?;
+        g.set_u32(route.wrapping_add(4), g.u32(default_holder)?)?;
+        configure(g, g.u32(table.wrapping_add(24))?, 0, route)?;
+    }
+    Ok(())
+}
+
+/// `sub_82490270`: register its module descriptors, resolve classes, and build both final-output
+/// players. Registry locking is retained by the concrete runtime owner, as it is for
+/// [`init_bus_players`].
+pub fn init_output_players<H: Heap + ?Sized, T: Trig + ?Sized>(
+    g: &mut Guest,
+    heap: &mut H,
+    trig: &mut T,
+    manager: u32,
+    scratch: u32,
+) -> Result<()> {
+    let root = g.u32(BUS_ROOT)?;
+    let system = g.u32(root.wrapping_add(8))?;
+    let registry = g.u32(root.wrapping_add(12))?;
+    let classes = OutputClasses {
+        submix: classes::find_class(g, registry, SUBMIX_ID)?,
+        delay: classes::register_class(g, registry, DELAY_DESCRIPTOR)?,
+        peak: classes::register_class(g, registry, PEAK_DESCRIPTOR)?,
+        send: classes::register_class(g, registry, SEND_DESCRIPTOR)?,
+        gain: classes::find_class(g, registry, GAIN_ID)?,
+        pan: classes::find_class(g, registry, PAN_ID)?,
+    };
+    init_output_players_with_classes(g, heap, trig, manager, system, classes, scratch)
+}
+
+/// Build the eight fixed effect-bus players from already resolved classes.
+///
+/// This is the graph-building body of `sub_82490CA0`. `scratch` is 72 bytes of writable guest
+/// memory: the five 12-byte descriptors occupy its first 60 bytes and the `Sen0` default block
+/// occupies `scratch + 64`. The caller supplies resolved classes so this structural portion can
+/// be exercised without a loaded retail class registry.
+pub fn init_bus_players_with_classes<H: Heap + ?Sized, T: Trig + ?Sized>(
+    g: &mut Guest,
+    heap: &mut H,
+    trig: &mut T,
+    manager: u32,
+    system: u32,
+    classes: BusClasses,
+    scratch: u32,
+) -> Result<()> {
+    let descriptors = [
+        (classes.submix, 6u8),
+        (classes.clip, 6),
+        (classes.peak, 6),
+        (classes.peak, 6),
+        (classes.send, 6),
+    ];
+    for (i, (class, channels)) in descriptors.into_iter().enumerate() {
+        let at = scratch.wrapping_add(i as u32 * 12);
+        g.set_u32(at, 0)?;
+        g.set_u32(at.wrapping_add(4), class)?;
+        g.set_u8(at.wrapping_add(8), channels)?;
+    }
+
+    let default_block = scratch.wrapping_add(64);
+
+    for index in 0..BUS_GRAPH_COUNT {
+        let player = modules::build_graph(
+            g,
+            heap,
+            trig,
+            system,
+            BUS_GRAPH_ORDER,
+            BUS_GRAPH_MODULES,
+            scratch,
+        )?;
+        if player == 0 {
+            return Err(Error::new(
+                0x8249_0E50,
+                "effect-bus graph allocation failed",
+            ));
+        }
+        let module_table = player.wrapping_add(80);
+        g.set_u32(manager.wrapping_add(BUS_PLAYERS + 4 * index), player)?;
+        g.set_u32(
+            manager.wrapping_add(BUS_MODULE_TABLES + 4 * index),
+            module_table,
+        )?;
+        // The title cooks/copies Send parameter zero, then replaces its whole tagged value with
+        // the manager's current default output bus before calling the Send configure entry.
+        classes::class_defaults(g, classes.send, 0, default_block)?;
+        let root = g.u32(BUS_ROOT)?;
+        let default_holder = g.u32(root.wrapping_add(44))?;
+        g.set_u32(default_block, TAG_POINTER)?;
+        g.set_u32(default_block.wrapping_add(4), g.u32(default_holder)?)?;
+        let send = g.u32(module_table.wrapping_add(16))?;
+        configure(g, send, 0, default_block)?;
+        g.set_u8(manager.wrapping_add(BUS_CREATED_FLAGS + index), 0)?;
+    }
+    Ok(())
+}
+
+/// `sub_82490CA0`: register its `DCl0` descriptor, resolve the pre-registered bus classes, and
+/// build the manager's eight fixed effect buses.
+///
+/// The title serializes this work around the system registry lock. That outer lock remains the
+/// concrete runtime owner's responsibility; this function is the enclosed guest-memory mutation.
+pub fn init_bus_players<H: Heap + ?Sized, T: Trig + ?Sized>(
+    g: &mut Guest,
+    heap: &mut H,
+    trig: &mut T,
+    manager: u32,
+    scratch: u32,
+) -> Result<()> {
+    let root = g.u32(BUS_ROOT)?;
+    let system = g.u32(root.wrapping_add(8))?;
+    let registry = g.u32(root.wrapping_add(12))?;
+    let clip = classes::register_class(g, registry, CLIP_DESCRIPTOR)?;
+    let bus_classes = BusClasses {
+        submix: classes::find_class(g, registry, SUBMIX_ID)?,
+        clip,
+        peak: classes::find_class(g, registry, PEAK_ID)?,
+        send: classes::find_class(g, registry, classes::SEND_ID)?,
+    };
+    init_bus_players_with_classes(g, heap, trig, manager, system, bus_classes, scratch)
 }
 
 /// `sub_824A2908`.
@@ -156,19 +496,26 @@ pub fn init_voice_object(g: &mut Guest, voice: u32) -> Result<()> {
 }
 
 /// `sub_82491108`: bus `index` of `manager` (8 is the default bus behind [`BUS_ROOT`]), creating
-/// it first when `create` is set and it has not been.
-pub fn bus_for<D: DeviceHost + ?Sized>(g: &mut Guest, host: &mut D, manager: u32, index: u32, create: u8) -> Result<u32> {
+/// it first when `create` is set and it has not been configured.
+pub fn bus_for<D: DeviceHost + ?Sized>(
+    g: &mut Guest,
+    host: &mut D,
+    manager: u32,
+    index: u32,
+    create: u8,
+) -> Result<u32> {
     if index as i32 == 8 {
         let root = g.u32(BUS_ROOT)?;
         let table = g.u32(root.wrapping_add(44))?;
         return g.u32(table);
     }
     if create != 0 {
-        // sub_824916E8's entry: nothing for bus 8 or a bus already made; otherwise mark it made.
+        // `sub_824916E8` returns early for bus 8 or a previously configured bus. Its graph was
+        // allocated by the manager constructor, so this path only stamps its authored settings.
         let flag = index.wrapping_add(manager).wrapping_add(1148);
         if g.u8(flag)? == 0 {
             g.set_u8(flag, 1)?;
-            host.create_bus(g, manager, index)?;
+            host.configure_bus(g, manager, index)?;
         }
     }
     let cell = g.u32(manager.wrapping_add(index.wrapping_add(271).wrapping_mul(4)))?;
@@ -198,7 +545,7 @@ pub fn configure(g: &mut Guest, module: u32, id: u32, block: u32) -> Result<()> 
 
 /// The open's property post: a 16-byte [`COMMAND_STAMP`] record `{module, id, value}`, then the
 /// module's `+4` callback, which the builder leaves 0 and this does not port.
-fn post_property(g: &mut Guest, module: u32, id: u32, value: f64) -> Result<()> {
+pub fn post_property(g: &mut Guest, module: u32, id: u32, value: f64) -> Result<()> {
     let system = g.u32(module.wrapping_add(8))?;
     let at = enqueue(g, system, 16)?;
     store_single(g, at.wrapping_add(12), value)?;
@@ -207,7 +554,10 @@ fn post_property(g: &mut Guest, module: u32, id: u32, value: f64) -> Result<()> 
     g.set_u32(at, COMMAND_STAMP)?;
     let callback = g.u32(module.wrapping_add(4))?;
     if callback != 0 {
-        return Err(Error::new(callback, "a module property callback is not ported"));
+        return Err(Error::new(
+            callback,
+            "a module property callback is not ported",
+        ));
     }
     Ok(())
 }
@@ -277,7 +627,11 @@ pub fn fader_configure(g: &mut Guest, module: u32, block: u32) -> Result<()> {
     store_single(g, at.wrapping_add(20), b)?;
     let value = load_single(g, block.wrapping_add(28))?;
     let half = load_single(g, HALF)?;
-    let rounded = if value < zero { sub_single(value, half) } else { add_single(value, half) };
+    let rounded = if value < zero {
+        sub_single(value, half)
+    } else {
+        add_single(value, half)
+    };
     g.set_u32(at.wrapping_add(24), fctiwz_low_word(rounded))
 }
 
@@ -290,7 +644,12 @@ pub fn sndplayer_configure(g: &mut Guest, module: u32, id: u32, block: u32) -> R
     match id {
         0 => return Ok(()),
         5 => {}
-        _ => return Err(Error::new(CONFIGURE_SNDPLAYER, "SndPlayer1 configure: only ids 0 and 5 are ported")),
+        _ => {
+            return Err(Error::new(
+                CONFIGURE_SNDPLAYER,
+                "SndPlayer1 configure: only ids 0 and 5 are ported",
+            ));
+        }
     }
     let system = g.u32(module.wrapping_add(8))?;
     let counter = g.u32(module.wrapping_add(440))?;
@@ -306,7 +665,11 @@ pub fn sndplayer_configure(g: &mut Guest, module: u32, id: u32, block: u32) -> R
         store_single(g, counter, one)?;
     }
     let name = g.u32(block.wrapping_add(28))?;
-    let length = if name == 0 { 1 } else { strlen(g, name)?.wrapping_add(1) }; // r11
+    let length = if name == 0 {
+        1
+    } else {
+        strlen(g, name)?.wrapping_add(1)
+    }; // r11
     let size = length.wrapping_add(59) & 0xFFFF_FFFC;
     let at = enqueue(g, system, size)?;
     g.set_u32(at, COMMAND_PLAY)?;
@@ -338,7 +701,11 @@ pub fn sndplayer_configure(g: &mut Guest, module: u32, id: u32, block: u32) -> R
     let value = load_single(g, counter)?;
     g.set_u32(block.wrapping_add(64), TAG_SINGLE)?;
     store_single(g, block.wrapping_add(68), value)?;
-    let rounded = if gain < zero { sub_single(gain, half) } else { add_single(gain, half) };
+    let rounded = if gain < zero {
+        sub_single(gain, half)
+    } else {
+        add_single(gain, half)
+    };
     g.set_u8(at.wrapping_add(46), fctiwz_low_word(rounded) as u8)
 }
 
@@ -425,9 +792,17 @@ pub fn open_voice_graph<H: Heap + ?Sized, T: Trig + ?Sized, D: DeviceHost + ?Siz
                 let mut buses = false;
                 if v > 2048 {
                     if v == 4096 || v == 8192 || v == 16384 {
-                        let first = if index < count && list != 0 { g.u32(list.wrapping_add(offset).wrapping_add(8))? } else { 0 };
+                        let first = if index < count && list != 0 {
+                            g.u32(list.wrapping_add(offset).wrapping_add(8))?
+                        } else {
+                            0
+                        };
                         let (next_index, next_offset) = (index + 1, offset + 12);
-                        let second = if next_index < count && list != 0 { g.u32(list.wrapping_add(next_offset).wrapping_add(8))? } else { 0 };
+                        let second = if next_index < count && list != 0 {
+                            g.u32(list.wrapping_add(next_offset).wrapping_add(8))?
+                        } else {
+                            0
+                        };
                         index = next_index + 1;
                         offset = next_offset + 12;
                         if first == 1 {
@@ -521,10 +896,21 @@ pub fn open_voice_graph<H: Heap + ?Sized, T: Trig + ?Sized, D: DeviceHost + ?Siz
     for k in [0, 8, 16] {
         g.set_u32(block.wrapping_add(k), TAG_SINGLE)?;
     }
-    let player = modules::build_graph(g, heap, trig, system, 0, output_index + 1, frame.wrapping_add(208))?;
+    let player = modules::build_graph(
+        g,
+        heap,
+        trig,
+        system,
+        0,
+        output_index + 1,
+        frame.wrapping_add(208),
+    )?;
     g.set_u32(voice + 4, player)?;
     if player == 0 {
-        return Err(Error::new(VOICE_RELEASE, "the graph was not built, and the voice's release is not ported"));
+        return Err(Error::new(
+            VOICE_RELEASE,
+            "the graph was not built, and the voice's release is not ported",
+        ));
     }
 
     g.set_u32(player + 20, PLAYER_NAME)?;
@@ -617,7 +1003,11 @@ pub fn open_voice_graph<H: Heap + ?Sized, T: Trig + ?Sized, D: DeviceHost + ?Siz
         } else {
             let value = angle(g, g.u32(frame.wrapping_add(100))?)?;
             let device = g.u32(frame.wrapping_add(644))?;
-            store_single(g, device.wrapping_add(mode.wrapping_add(1).wrapping_mul(4)), value)?;
+            store_single(
+                g,
+                device.wrapping_add(mode.wrapping_add(1).wrapping_mul(4)),
+                value,
+            )?;
         }
         g.set_u8(voice + 69, 0)?;
     }
@@ -625,9 +1015,17 @@ pub fn open_voice_graph<H: Heap + ?Sized, T: Trig + ?Sized, D: DeviceHost + ?Siz
     // The output send: the voice's bus, or the default.
     let output_bus = g.u32(voice + 92)?;
     let send_class = g.u32(SEND_SLOT)?;
-    let route = if output_bus == 0 { frame.wrapping_add(144) } else { frame.wrapping_add(120) };
+    let route = if output_bus == 0 {
+        frame.wrapping_add(144)
+    } else {
+        frame.wrapping_add(120)
+    };
     classes::class_defaults(g, send_class, 0, route)?;
-    let bus = if output_bus == 0 { g.u32(DEFAULT_BUS)? } else { g.u32(voice + 92)? };
+    let bus = if output_bus == 0 {
+        g.u32(DEFAULT_BUS)?
+    } else {
+        g.u32(voice + 92)?
+    };
     g.set_u32(route, TAG_POINTER)?;
     g.set_u32(route + 4, bus)?;
     let output = g.u32(modules_at + 4 * output_index)?;
@@ -649,7 +1047,13 @@ mod tests {
 
     fn guest() -> Guest {
         let mut g = Guest::single(MEM, 0x2000);
-        for (at, v) in [(ONE, 1.0f32), (ZERO, 0.0), (HALF, 0.5), (modules::MINUS_ONE, -1.0), (PLAY_LIMIT, 4194304.0)] {
+        for (at, v) in [
+            (ONE, 1.0f32),
+            (ZERO, 0.0),
+            (HALF, 0.5),
+            (modules::MINUS_ONE, -1.0),
+            (PLAY_LIMIT, 4194304.0),
+        ] {
             g.put(at, v.to_bits().to_be_bytes().to_vec());
         }
         g.put(ZERO_DOUBLE, 0u64.to_be_bytes().to_vec());
@@ -661,9 +1065,20 @@ mod tests {
 
     struct Recorder(Vec<u32>);
     impl DeviceHost for Recorder {
-        fn create_bus(&mut self, g: &mut Guest, manager: u32, index: u32) -> Result<()> {
+        fn configure_bus(&mut self, _g: &mut Guest, _manager: u32, index: u32) -> Result<()> {
             self.0.push(index);
-            g.set_u32(manager + (index + 271) * 4, MEM + 0x1F00)
+            Ok(())
+        }
+    }
+
+    struct TestTrig;
+    impl Trig for TestTrig {
+        fn sine(&mut self, _g: &Guest, value: f64) -> Result<f64> {
+            Ok(value.sin())
+        }
+
+        fn cosine(&mut self, _g: &Guest, value: f64) -> Result<f64> {
+            Ok(value.cos())
         }
     }
 
@@ -674,44 +1089,396 @@ mod tests {
         init_voice_object(&mut g, MEM + 0x200).unwrap();
         let v = MEM + 0x200;
         assert_eq!(g.u32(v).unwrap(), VOICE_VTABLE);
-        assert_eq!([g.f32(v + 36).unwrap(), g.f32(v + 44).unwrap(), g.f32(v + 52).unwrap()], [1.0, 1.0, -1.0]);
-        assert_eq!((g.u8(v + 68).unwrap(), g.u8(v + 69).unwrap(), g.u32(v + 96).unwrap()), (0, 1, 1));
-        assert_eq!(g.u32(v + 100).unwrap(), 0xEEEE_EEEE, "104 bytes and no more");
+        assert_eq!(
+            [
+                g.f32(v + 36).unwrap(),
+                g.f32(v + 44).unwrap(),
+                g.f32(v + 52).unwrap()
+            ],
+            [1.0, 1.0, -1.0]
+        );
+        assert_eq!(
+            (
+                g.u8(v + 68).unwrap(),
+                g.u8(v + 69).unwrap(),
+                g.u32(v + 96).unwrap()
+            ),
+            (0, 1, 1)
+        );
+        assert_eq!(
+            g.u32(v + 100).unwrap(),
+            0xEEEE_EEEE,
+            "104 bytes and no more"
+        );
     }
 
     #[test]
-    fn a_bus_is_created_once_and_bus_8_is_the_default() {
+    fn an_existing_bus_is_configured_once_and_bus_8_is_the_default() {
         let mut g = guest();
         g.put(BUS_ROOT, (MEM + 0x1E00).to_be_bytes().to_vec());
         g.set_u32(MEM + 0x1E00 + 44, MEM + 0x1E40).unwrap();
         g.set_u32(MEM + 0x1E40, 0xDEF0_0008).unwrap();
         g.set_u32(MEM + 0x1F00, 0xB0B0_0002).unwrap();
+        g.set_u32(MANAGER + (2 + 271) * 4, MEM + 0x1F00).unwrap();
         let mut host = Recorder(Vec::new());
-        assert_eq!(bus_for(&mut g, &mut host, MANAGER, 8, 1).unwrap(), 0xDEF0_0008);
-        assert_eq!(bus_for(&mut g, &mut host, MANAGER, 2, 1).unwrap(), 0xB0B0_0002);
-        assert_eq!(bus_for(&mut g, &mut host, MANAGER, 2, 1).unwrap(), 0xB0B0_0002);
-        assert_eq!(host.0, [2], "created on first use only");
+        assert_eq!(
+            bus_for(&mut g, &mut host, MANAGER, 8, 1).unwrap(),
+            0xDEF0_0008
+        );
+        assert_eq!(
+            bus_for(&mut g, &mut host, MANAGER, 2, 1).unwrap(),
+            0xB0B0_0002
+        );
+        assert_eq!(
+            bus_for(&mut g, &mut host, MANAGER, 2, 1).unwrap(),
+            0xB0B0_0002
+        );
+        assert_eq!(host.0, [2], "configured on first use only");
         assert_eq!(g.u8(MANAGER + 1148 + 2).unwrap(), 1);
     }
 
+    #[test]
+    fn bus_property_interpolation_uses_the_title_modulo_eleven_draw() {
+        for draw in [0, 1, 10, 11, 12, u32::MAX, 0x8765_4321] {
+            let reciprocal = ((u64::from(draw) * 0xBA2E_8BA3) >> 32) as u32;
+            let quotient = reciprocal.rotate_left(29) & 0x1FFF_FFFF;
+            assert_eq!(draw.wrapping_sub(quotient.wrapping_mul(11)), draw % 11);
+        }
+        assert_eq!(interpolate_bus_property(0, -2.0, 8.0), -2.0);
+        assert_eq!(interpolate_bus_property(10, -2.0, 8.0), 8.0);
+        assert_eq!(interpolate_bus_property(11, -2.0, 8.0), -2.0);
+    }
+    #[test]
+    fn bus_property_stamps_follow_the_recovered_module_and_id_order() {
+        let mut g = guest();
+        let modules = MEM + 0x1500;
+        let first = MEM + 0x1600;
+        let second = MEM + 0x1640;
+        let output = MEM + 0x1680;
+        let index = 2;
+        g.set_u32(MANAGER + (index + 271) * 4, modules).unwrap();
+        g.set_u32(modules + 8, first).unwrap();
+        g.set_u32(modules + 12, second).unwrap();
+        g.set_u32(modules + 4, output).unwrap();
+        for module in [first, second, output] {
+            g.set_u32(module + 8, SYS).unwrap();
+        }
+
+        stamp_bus_properties(
+            &mut g,
+            MANAGER,
+            index,
+            BusProperties {
+                first: [0.25, 0.5, 0.75],
+                second: [-1.0, -0.5, 0.0],
+                output: 1.0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(g.u32(SYS + 204).unwrap(), 7 * 16);
+        let expected = [
+            (first, 0, 0.25),
+            (first, 1, 0.5),
+            (first, 2, 0.75),
+            (second, 0, -1.0),
+            (second, 1, -0.5),
+            (second, 2, 0.0),
+            (output, 0, 1.0),
+        ];
+        for (record, (module, id, value)) in expected.into_iter().enumerate() {
+            let at = RING + record as u32 * 16;
+            assert_eq!(g.u32(at).unwrap(), COMMAND_STAMP);
+            assert_eq!(g.u32(at + 4).unwrap(), module);
+            assert_eq!(g.u32(at + 8).unwrap(), id);
+            assert_eq!(g.f32(at + 12).unwrap(), value);
+        }
+    }
+
+    fn bus_class(g: &mut Guest, at: u32, rows: u32, size: u32, construct: u32, id: u32) {
+        g.set_u32(at + 4, size).unwrap();
+        g.set_u32(at + 8, construct).unwrap();
+        g.set_u32(at + 12, 0).unwrap();
+        g.set_u32(at + 20, rows).unwrap();
+        g.set_u32(at + 24, rows + 32).unwrap();
+        g.set_u32(rows + 32, 1).unwrap();
+        g.set_u32(at + 36, id).unwrap();
+        g.set_u8(at + 40, 0).unwrap();
+        g.set_u8(at + 41, 0).unwrap();
+        g.set_u8(at + 42, 0).unwrap();
+        g.set_u8(at + 43, 1).unwrap();
+        g.set_u64(rows + 8, 0x7FF7_FFF4_0000_0000).unwrap();
+    }
+
+    #[test]
+    fn manager_builds_eight_six_channel_effect_bus_graphs() {
+        let mut g = Guest::single(MEM, 0x20_000);
+        for (at, value) in [
+            (ONE, 1.0f32),
+            (ZERO, 0.0),
+            (modules::HUNDRED, 100.0),
+            (modules::EIGHT_HUNDRED, 800.0),
+            (modules::PEAK_COST, 1500.0),
+        ] {
+            g.put(at, value.to_bits().to_be_bytes().to_vec());
+        }
+        g.put(SYSTEM, SYS.to_be_bytes().to_vec());
+        g.set_u32(SYS + 48, RING).unwrap();
+        g.set_u32(SYS + 256, 0).unwrap();
+        g.put(BUS_ROOT, (MEM + 0x2000).to_be_bytes().to_vec());
+        g.set_u32(MEM + 0x2000 + 44, MEM + 0x2040).unwrap();
+        g.set_u32(MEM + 0x2040, 0xDEAD_BEEF).unwrap();
+        g.put(modules::SEND_VTABLE, vec![0; 8]);
+        g.set_u32(modules::SEND_VTABLE + 4, CONFIGURE_SEND).unwrap();
+
+        let submix = MEM + 0x2400;
+        let clip = MEM + 0x2480;
+        let peak = MEM + 0x2500;
+        let send = MEM + 0x2580;
+        bus_class(
+            &mut g,
+            submix,
+            MEM + 0x2600,
+            modules::SUBMIX_SIZE,
+            modules::SUBMIX_CONSTRUCT,
+            SUBMIX_ID,
+        );
+        bus_class(
+            &mut g,
+            clip,
+            MEM + 0x2640,
+            modules::CLIP_SIZE,
+            modules::CLIP_CONSTRUCT,
+            CLIP_ID,
+        );
+        bus_class(
+            &mut g,
+            peak,
+            MEM + 0x2680,
+            modules::PEAK_SIZE,
+            modules::PEAK_CONSTRUCT,
+            PEAK_ID,
+        );
+        bus_class(
+            &mut g,
+            send,
+            MEM + 0x26C0,
+            modules::SEND_SIZE,
+            modules::SEND_CONSTRUCT,
+            classes::SEND_ID,
+        );
+
+        let mut heap = crate::patch::BumpHeap {
+            next: MEM + 0x4000,
+            end: MEM + 0x20_000,
+        };
+        init_bus_players_with_classes(
+            &mut g,
+            &mut heap,
+            &mut TestTrig,
+            MANAGER,
+            SYS,
+            BusClasses {
+                submix,
+                clip,
+                peak,
+                send,
+            },
+            MEM + 0x2800,
+        )
+        .unwrap();
+
+        for index in 0..BUS_GRAPH_COUNT {
+            let player = g.u32(MANAGER + BUS_PLAYERS + 4 * index).unwrap();
+            let table = g.u32(MANAGER + BUS_MODULE_TABLES + 4 * index).unwrap();
+            assert_eq!(table, player + 80);
+            assert_eq!(g.u8(player + 68).unwrap(), BUS_GRAPH_MODULES as u8);
+            assert_eq!(g.u8(player + 73).unwrap(), BUS_GRAPH_ORDER);
+            assert_eq!(g.u8(MANAGER + BUS_CREATED_FLAGS + index).unwrap(), 0);
+            assert_eq!(
+                (0..BUS_GRAPH_MODULES)
+                    .map(|slot| g.u32(table + 4 * slot).unwrap())
+                    .map(|module| (g.u32(module + 20).unwrap(), g.u8(module + 42).unwrap()))
+                    .collect::<Vec<_>>(),
+                vec![(submix, 6), (clip, 6), (peak, 6), (peak, 6), (send, 6)]
+            );
+            let command = RING + 32 * index;
+            assert_eq!(g.u32(command).unwrap(), modules::SUBMIX_INSTALL_COMMAND);
+            assert_eq!(g.u32(command + 8).unwrap(), modules::INSTALL_COMMAND);
+            assert_eq!(g.u32(command + 16).unwrap(), COMMAND_SEND_BUS);
+            assert_eq!(g.u32(command + 20).unwrap(), g.u32(table + 16).unwrap());
+            assert_eq!(g.u64(command + 24).unwrap(), 0x7FF7_FFF4_DEAD_BEEF);
+        }
+        assert_eq!(g.u32(SYS + 204).unwrap(), BUS_GRAPH_COUNT * 32);
+    }
+
+    #[test]
+    fn manager_builds_the_two_retail_final_output_graphs() {
+        let mut g = Guest::single(MEM, 0x20_000);
+        for (at, value) in [
+            (ONE, 1.0f32),
+            (ZERO, 0.0),
+            (HALF, 0.5),
+            (modules::TWO, 2.0),
+            (modules::MINUS_ONE, -1.0),
+            (modules::HUNDRED, 100.0),
+            (modules::EIGHT_HUNDRED, 800.0),
+            (modules::PEAK_COST, 1500.0),
+            (modules::DEFAULT_RATE, 48_000.0),
+            (modules::PAN_FRONT, 30.0),
+            (modules::PAN_SIDE, 110.0),
+            (modules::PAN_REAR, 150.0),
+            (modules::PAN_FRONT_STEREO, 90.0),
+            (modules::DEGREES_TO_RADIANS, std::f32::consts::PI / 180.0),
+        ] {
+            g.put(at, value.to_bits().to_be_bytes().to_vec());
+        }
+        g.put(
+            OUTPUT_DELAY_SECONDS,
+            0.015f32.to_bits().to_be_bytes().to_vec(),
+        );
+        g.put(OUTPUT_SUBMIX_NAME, b"final-output\0".to_vec());
+        g.put(SYSTEM, SYS.to_be_bytes().to_vec());
+        g.set_u32(SYS + 48, RING).unwrap();
+        g.set_u32(SYS + 256, 0).unwrap();
+        g.put(BUS_ROOT, (MEM + 0x2000).to_be_bytes().to_vec());
+        g.set_u32(MEM + 0x2000 + 44, MEM + 0x2040).unwrap();
+        g.set_u32(MEM + 0x2040, 0xDEAD_BEEF).unwrap();
+        g.set_u32(MANAGER + 52, MEM + 0x2080).unwrap();
+        g.set_u32(MEM + 0x2080, 0xABCD_EF01).unwrap();
+        g.put(modules::SEND_VTABLE, vec![0; 8]);
+        g.set_u32(modules::SEND_VTABLE + 4, CONFIGURE_SEND).unwrap();
+
+        let submix = MEM + 0x2400;
+        let delay = MEM + 0x2480;
+        let peak = MEM + 0x2500;
+        let send = MEM + 0x2580;
+        let gain = MEM + 0x2600;
+        let pan = MEM + 0x2680;
+        for (at, rows, size, construct, id) in [
+            (
+                submix,
+                MEM + 0x2700,
+                modules::SUBMIX_SIZE,
+                modules::SUBMIX_CONSTRUCT,
+                SUBMIX_ID,
+            ),
+            (
+                delay,
+                MEM + 0x2740,
+                modules::DELAY_SIZE,
+                modules::DELAY_CONSTRUCT,
+                DELAY_ID,
+            ),
+            (
+                peak,
+                MEM + 0x2780,
+                modules::PEAK_SIZE,
+                modules::PEAK_CONSTRUCT,
+                PEAK_ID,
+            ),
+            (
+                send,
+                MEM + 0x27C0,
+                modules::SEND_SIZE,
+                modules::SEND_CONSTRUCT,
+                classes::SEND_ID,
+            ),
+            (
+                gain,
+                MEM + 0x2800,
+                modules::GAIN_SIZE,
+                modules::GAIN_CONSTRUCT,
+                GAIN_ID,
+            ),
+            (
+                pan,
+                MEM + 0x2840,
+                modules::PAN_SIZE,
+                modules::PAN_CONSTRUCT,
+                PAN_ID,
+            ),
+        ] {
+            bus_class(&mut g, at, rows, size, construct, id);
+        }
+        let mut heap = crate::patch::BumpHeap {
+            next: MEM + 0x4000,
+            end: MEM + 0x20_000,
+        };
+        init_output_players_with_classes(
+            &mut g,
+            &mut heap,
+            &mut TestTrig,
+            MANAGER,
+            SYS,
+            OutputClasses {
+                submix,
+                delay,
+                peak,
+                send,
+                gain,
+                pan,
+            },
+            MEM + 0x2900,
+        )
+        .unwrap();
+
+        for index in 0..OUTPUT_GRAPH_COUNT {
+            let player = g.u32(MANAGER + OUTPUT_PLAYERS + index * 4).unwrap();
+            let table = g.u32(MANAGER + OUTPUT_MODULE_TABLES + index * 4).unwrap();
+            assert_eq!(table, player + 80);
+            assert_eq!(g.u8(player + 68).unwrap(), OUTPUT_GRAPH_MODULES as u8);
+            assert_eq!(g.u8(player + 73).unwrap(), OUTPUT_GRAPH_ORDER);
+            assert_eq!(
+                (0..OUTPUT_GRAPH_MODULES)
+                    .map(|slot| g.u32(table + 4 * slot).unwrap())
+                    .map(|module| (g.u32(module + 20).unwrap(), g.u8(module + 42).unwrap()))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (submix, 1),
+                    (delay, 1),
+                    (peak, 1),
+                    (send, 1),
+                    (gain, 1),
+                    (pan, 6),
+                    (send, 6),
+                ]
+            );
+            let delay_module = g.u32(table + 4).unwrap();
+            assert_eq!(g.u32(delay_module + 112).unwrap(), 720);
+            let first_route = RING + (index * 48 + 16);
+            let final_route = first_route + 16;
+            assert_eq!(g.u64(first_route + 8).unwrap(), 0x7FF7_FFF4_ABCD_EF01);
+            assert_eq!(g.u64(final_route + 8).unwrap(), 0x7FF7_FFF4_DEAD_BEEF);
+        }
+    }
     #[test]
     fn send_routes_by_id() {
         let mut g = guest();
         g.set_u32(VTABLE + 4, CONFIGURE_SEND).unwrap();
         g.set_u64(BLOCK, 0x7FF7_FFF4_1234_5678).unwrap();
         configure(&mut g, MODULE, 0, BLOCK).unwrap();
-        assert_eq!([g.u32(RING).unwrap(), g.u32(RING + 4).unwrap()], [COMMAND_SEND_BUS, MODULE]);
+        assert_eq!(
+            [g.u32(RING).unwrap(), g.u32(RING + 4).unwrap()],
+            [COMMAND_SEND_BUS, MODULE]
+        );
         assert_eq!(g.u64(RING + 8).unwrap(), 0x7FF7_FFF4_1234_5678);
         // A name: 5 bytes + 16, rounded down to 4.
         g.set_span(MEM + 0xB00, b"verb\0").unwrap();
         g.set_u32(BLOCK + 4, MEM + 0xB00).unwrap();
         send_configure(&mut g, MODULE, 1, BLOCK).unwrap();
-        assert_eq!([g.u32(RING + 16).unwrap(), g.u32(RING + 24).unwrap()], [COMMAND_SEND_NAME, 20]);
+        assert_eq!(
+            [g.u32(RING + 16).unwrap(), g.u32(RING + 24).unwrap()],
+            [COMMAND_SEND_NAME, 20]
+        );
         assert_eq!(g.span(RING + 28, 5).unwrap(), b"verb\0");
         assert_eq!(g.u32(SYS + 204).unwrap(), 36);
         g.set_u32(MODULE + 72, 0xAB).unwrap();
         send_configure(&mut g, MODULE, 3, BLOCK).unwrap();
-        assert_eq!([g.u32(BLOCK).unwrap(), g.u32(BLOCK + 4).unwrap()], [TAG_POINTER, 0xAB]);
+        assert_eq!(
+            [g.u32(BLOCK).unwrap(), g.u32(BLOCK + 4).unwrap()],
+            [TAG_POINTER, 0xAB]
+        );
     }
 
     #[test]
@@ -735,11 +1502,31 @@ mod tests {
         assert_eq!(g.u32(plays).unwrap(), 1);
         let size = (5 + 59) & !3;
         assert_eq!(g.u32(SYS + 204).unwrap(), size);
-        assert_eq!([g.u32(RING).unwrap(), g.u32(RING + 4).unwrap(), g.u16(RING + 44).unwrap() as u32], [COMMAND_PLAY, MODULE, size]);
-        assert_eq!([g.u64(RING + 8).unwrap(), g.u64(RING + 24).unwrap()], [0x1111_0000, 0x1111_0002]);
-        assert_eq!([g.u32(RING + 32).unwrap(), g.u32(RING + 40).unwrap(), g.u8(RING + 46).unwrap() as u32], [0x5000_1234, AEMS, 1]);
+        assert_eq!(
+            [
+                g.u32(RING).unwrap(),
+                g.u32(RING + 4).unwrap(),
+                g.u16(RING + 44).unwrap() as u32
+            ],
+            [COMMAND_PLAY, MODULE, size]
+        );
+        assert_eq!(
+            [g.u64(RING + 8).unwrap(), g.u64(RING + 24).unwrap()],
+            [0x1111_0000, 0x1111_0002]
+        );
+        assert_eq!(
+            [
+                g.u32(RING + 32).unwrap(),
+                g.u32(RING + 40).unwrap(),
+                g.u8(RING + 46).unwrap() as u32
+            ],
+            [0x5000_1234, AEMS, 1]
+        );
         assert_eq!(g.span(RING + 56, 5).unwrap(), b"step\0");
-        assert_eq!((g.u32(BLOCK + 64).unwrap(), g.f32(BLOCK + 68).unwrap()), (TAG_SINGLE, 1.0));
+        assert_eq!(
+            (g.u32(BLOCK + 64).unwrap(), g.f32(BLOCK + 68).unwrap()),
+            (TAG_SINGLE, 1.0)
+        );
         assert!(sndplayer_configure(&mut g, MODULE, 2, BLOCK).is_err());
         sndplayer_configure(&mut g, MODULE, 0, BLOCK).unwrap();
     }
@@ -753,9 +1540,15 @@ mod tests {
         g.set_u32(BLOCK + 20, 0.75f32.to_bits()).unwrap();
         g.set_u32(BLOCK + 28, (-2.5f32).to_bits()).unwrap();
         configure(&mut g, MODULE, 9, BLOCK).unwrap();
-        assert_eq!([g.u32(RING).unwrap(), g.u32(SYS + 204).unwrap()], [COMMAND_FADER, 32]);
+        assert_eq!(
+            [g.u32(RING).unwrap(), g.u32(SYS + 204).unwrap()],
+            [COMMAND_FADER, 32]
+        );
         assert_eq!(g.u64(RING + 8).unwrap(), 2.5f64.to_bits());
-        assert_eq!([g.f32(RING + 16).unwrap(), g.f32(RING + 20).unwrap()], [0.25, 0.75]);
+        assert_eq!(
+            [g.f32(RING + 16).unwrap(), g.f32(RING + 20).unwrap()],
+            [0.25, 0.75]
+        );
         assert_eq!(g.u32(RING + 24).unwrap() as i32, -3, "half away from zero");
     }
 

@@ -178,7 +178,11 @@ mod tests {
         let mut g = block_guest();
         g.set_u32(BLOCK + 20, 0x8000_0014).unwrap();
         g.set_u32(BLOCK + 24, 0x0000_0018).unwrap();
-        assert_eq!(op_word_20(&mut g, BLOCK).unwrap(), 0x8000_0014, "zero-extended, not sign-extended");
+        assert_eq!(
+            op_word_20(&mut g, BLOCK).unwrap(),
+            0x8000_0014,
+            "zero-extended, not sign-extended"
+        );
         assert_eq!(op_word_24(&mut g, BLOCK).unwrap(), 0x18);
         assert_eq!(g.u32(BLOCK + 20).unwrap(), 0x8000_0014, "no store");
     }
@@ -189,10 +193,18 @@ mod tests {
         g.set_u32(BLOCK + 16, 0xDEAD_BEEF).unwrap();
         assert_eq!(op_take_word_16(&mut g, BLOCK).unwrap(), 0xDEAD_BEEF);
         assert_eq!(g.u32(BLOCK + 16).unwrap(), 0, "cleared in place");
-        assert_eq!(op_take_word_16(&mut g, BLOCK).unwrap(), 0, "idempotent after the first");
+        assert_eq!(
+            op_take_word_16(&mut g, BLOCK).unwrap(),
+            0,
+            "idempotent after the first"
+        );
 
         g.set_u32(BLOCK, 0x8000_0001).unwrap();
-        assert_eq!(op_take_word_0(&mut g, BLOCK).unwrap(), 0x8000_0001, "zero-extended, not signed");
+        assert_eq!(
+            op_take_word_0(&mut g, BLOCK).unwrap(),
+            0x8000_0001,
+            "zero-extended, not signed"
+        );
         assert_eq!(g.u32(BLOCK).unwrap(), 0);
 
         g.set_u8(BLOCK + 25, 0xFF).unwrap();
@@ -208,7 +220,11 @@ mod tests {
         let mut g = block_guest();
         // The count is the top byte of the word at +0, not the word itself.
         put_words(&mut g, &[count_word(3), 0, 0, 0, 0xFFFF_FFFF]);
-        assert_eq!(op_any_nonzero(&mut g, BLOCK).unwrap(), 0, "the fourth entry is out of range");
+        assert_eq!(
+            op_any_nonzero(&mut g, BLOCK).unwrap(),
+            0,
+            "the fourth entry is out of range"
+        );
 
         put_words(&mut g, &[count_word(4), 0, 0, 0, 0xFFFF_FFFF]);
         assert_eq!(op_any_nonzero(&mut g, BLOCK).unwrap(), 1);
@@ -237,7 +253,11 @@ mod tests {
         g.set_u32(BLOCK + 0x44, 1).unwrap();
         g.set_u32(BLOCK + 0x48, 1).unwrap();
 
-        assert_eq!(op_select_first_flag(&mut g, BLOCK).unwrap(), 0x2222, "entry 1 wins");
+        assert_eq!(
+            op_select_first_flag(&mut g, BLOCK).unwrap(),
+            0x2222,
+            "entry 1 wins"
+        );
         assert_eq!(g.u32(BLOCK + 4).unwrap(), 0x2222, "published into +4");
 
         // No flag set: nothing is published and the stale value comes back.
@@ -265,12 +285,20 @@ mod tests {
         g.set_u32(BLOCK + 4, 0).unwrap();
         assert_eq!(op_stack_top(&mut g, BLOCK).unwrap(), 0, "empty");
         g.set_u32(BLOCK + 4, (-1i32) as u32).unwrap();
-        assert_eq!(op_stack_top(&mut g, BLOCK).unwrap(), 0, "a negative depth is empty too");
+        assert_eq!(
+            op_stack_top(&mut g, BLOCK).unwrap(),
+            0,
+            "a negative depth is empty too"
+        );
 
         g.set_u32(BLOCK + 4, 1).unwrap();
         assert_eq!(op_stack_top(&mut g, BLOCK).unwrap(), 0x101);
         g.set_u32(BLOCK + 4, 4).unwrap();
-        assert_eq!(op_stack_top(&mut g, BLOCK).unwrap(), 0x104, "depth == capacity is in range");
+        assert_eq!(
+            op_stack_top(&mut g, BLOCK).unwrap(),
+            0x104,
+            "depth == capacity is in range"
+        );
         g.set_u32(BLOCK + 4, 5).unwrap();
         assert_eq!(op_stack_top(&mut g, BLOCK).unwrap(), 0, "past the capacity");
     }
@@ -288,8 +316,16 @@ mod tests {
 
         assert_eq!(op_stack_push(&mut g, BLOCK).unwrap(), 0x1234_5678);
         assert_eq!(g.u32(BLOCK + 28).unwrap(), 0, "slot 5 was cleared");
-        assert_eq!(g.u32(BLOCK + 20).unwrap(), 0xC0FF_EE00, "slot 3 took the value");
-        assert_eq!(g.u16(BLOCK + 2).unwrap(), 3, "the depth was recorded as the new slot");
+        assert_eq!(
+            g.u32(BLOCK + 20).unwrap(),
+            0xC0FF_EE00,
+            "slot 3 took the value"
+        );
+        assert_eq!(
+            g.u16(BLOCK + 2).unwrap(),
+            3,
+            "the depth was recorded as the new slot"
+        );
     }
 
     #[test]
@@ -305,9 +341,17 @@ mod tests {
         g.set_u32(BLOCK + 12, 0x1234_5678).unwrap();
 
         assert_eq!(op_stack_push(&mut g, BLOCK).unwrap(), 0x1234_5678);
-        assert_eq!(g.u32(BLOCK + 4).unwrap(), 0, "the depth was the slot that got cleared");
+        assert_eq!(
+            g.u32(BLOCK + 4).unwrap(),
+            0,
+            "the depth was the slot that got cleared"
+        );
         assert_eq!(g.u32(BLOCK + 20).unwrap(), 0, "so no push happened");
-        assert_eq!(g.u16(BLOCK + 2).unwrap(), (-1i16) as u16, "and nothing was recorded");
+        assert_eq!(
+            g.u16(BLOCK + 2).unwrap(),
+            (-1i16) as u16,
+            "and nothing was recorded"
+        );
     }
 
     #[test]
@@ -321,7 +365,11 @@ mod tests {
         g.set_u32(BLOCK + 8, 0xC0FF_EE00).unwrap();
         g.set_u32(BLOCK + 12, 0x1234_5678).unwrap();
 
-        assert_eq!(op_stack_push(&mut g, BLOCK).unwrap(), 0xC0FF_EE00, "the reload sees the push");
+        assert_eq!(
+            op_stack_push(&mut g, BLOCK).unwrap(),
+            0xC0FF_EE00,
+            "the reload sees the push"
+        );
         assert_eq!(g.u32(BLOCK + 12).unwrap(), 0xC0FF_EE00);
     }
 }

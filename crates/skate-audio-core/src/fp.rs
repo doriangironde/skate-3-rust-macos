@@ -282,7 +282,11 @@ mod tests {
     fn naive_cast_agrees_except_on_nan() {
         // The one case that forces the branch-for-branch form.
         assert_eq!(fctiwz_low_word(f64::NAN), 0x8000_0000);
-        assert_eq!((f64::NAN as i32) as u32, 0, "the naive cast, which would diverge");
+        assert_eq!(
+            (f64::NAN as i32) as u32,
+            0,
+            "the naive cast, which would diverge"
+        );
 
         // Both ends of the range, where saturation happens to reproduce the hardware.
         assert_eq!(fctiwz_low_word(f64::INFINITY), i32::MAX as u32);
@@ -311,7 +315,10 @@ mod tests {
         // The frsp matters past 2^24. 16_777_217 is not representable as f32 and rounds to
         // even; a version that skipped the narrowing would return the exact integer.
         assert_eq!(word_to_single(16_777_217), 16_777_216.0);
-        assert_ne!(16_777_217i32 as f64, 16_777_216.0, "the un-narrowed value differs");
+        assert_ne!(
+            16_777_217i32 as f64, 16_777_216.0,
+            "the un-narrowed value differs"
+        );
     }
 
     #[test]
@@ -344,8 +351,16 @@ mod tests {
         let c = ((a * b) as f32) as f64; // == 1.0
         let fused = nmsub_single(a, b, c);
         assert_ne!(fused, 0.0, "the fusion has to reach the subtraction");
-        assert_eq!(fused, ((c - a * b) as f32) as f64, "and it is c - a*b, not a*b - c");
-        assert_eq!(sub_single(c, mul_single(a, b)), 0.0, "the unfused form, which cancels");
+        assert_eq!(
+            fused,
+            ((c - a * b) as f32) as f64,
+            "and it is c - a*b, not a*b - c"
+        );
+        assert_eq!(
+            sub_single(c, mul_single(a, b)),
+            0.0,
+            "the unfused form, which cancels"
+        );
         // The scope of that, stated rather than left to be assumed. The realistic mistranscription
         // is the line above — two `.s` roundings — and this test catches it. What it does *not*
         // catch is a transcription that keeps the intermediate in **double**: `((c - a*b) as f32)`,
@@ -379,7 +394,11 @@ mod tests {
         // The one input that forces the branch-for-branch form, and the reason is the lifted test
         // being `>` rather than `>=`: 2^63 itself falls through to cvttsd2si's indefinite.
         assert_eq!(fctidz(TWO_POW_63), i64::MIN);
-        assert_eq!(TWO_POW_63 as i64, i64::MAX, "the naive cast, which would diverge");
+        assert_eq!(
+            TWO_POW_63 as i64,
+            i64::MAX,
+            "the naive cast, which would diverge"
+        );
         // One ulp above takes the other arm.
         assert_eq!(fctidz(TWO_POW_63 * 1.0000001), i64::MAX);
         assert_eq!(fctidz(f64::INFINITY), i64::MAX);
@@ -414,7 +433,11 @@ mod tests {
         // more than 24 bits the two agree here, and the shape is what is being pinned.
         assert_eq!(sqrt_single(4.0), 2.0);
         assert_eq!(sqrt_single(2.0), (2.0f64.sqrt() as f32) as f64);
-        assert_ne!(sqrt_single(2.0), 2.0f64.sqrt(), "the narrowing has to be visible");
+        assert_ne!(
+            sqrt_single(2.0),
+            2.0f64.sqrt(),
+            "the narrowing has to be visible"
+        );
         assert!(sqrt_single(-1.0).is_nan());
 
         // frsp keeps the value in a double; it is not `single_to_bits`, which yields the word.
@@ -430,8 +453,16 @@ mod tests {
         let a = (1.0f32 + f32::EPSILON) as f64;
         let b = (1.0f32 - f32::EPSILON) as f64;
         let c = ((a * b) as f32) as f64; // == 1.0
-        assert_ne!(fmsub_single(a, b, c), 0.0, "the fusion has to reach the subtraction");
-        assert_eq!(sub_single(mul_single(a, b), c), 0.0, "the unfused form, which cancels");
+        assert_ne!(
+            fmsub_single(a, b, c),
+            0.0,
+            "the fusion has to reach the subtraction"
+        );
+        assert_eq!(
+            sub_single(mul_single(a, b), c),
+            0.0,
+            "the unfused form, which cancels"
+        );
         // Sign: fmsub is a*b - c, and fnmsub is its negation.
         assert_eq!(fmsub_single(2.0, 3.0, 10.0), -4.0);
         assert_eq!(nmsub_single(2.0, 3.0, 10.0), 4.0);

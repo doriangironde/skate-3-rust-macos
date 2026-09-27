@@ -27,7 +27,10 @@ struct Report {
 
 impl Report {
     fn new() -> Self {
-        Self { checks: 0, failures: Vec::new() }
+        Self {
+            checks: 0,
+            failures: Vec::new(),
+        }
     }
     fn check(&mut self, ok: bool, what: impl FnOnce() -> String) {
         self.checks += 1;
@@ -71,11 +74,19 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
     println!(
         "  djb2 member hash    {hashed}/{} entries{}",
         archive.entries.len(),
-        if hashed == 0 { "  (this archive keys its table some other way)" } else { "" }
+        if hashed == 0 {
+            "  (this archive keys its table some other way)"
+        } else {
+            ""
+        }
     );
     if hashed != 0 {
         r.check(hashed == archive.entries.len(), || {
-            format!("{}: only {hashed} of {} names hash to the table key", path.display(), archive.entries.len())
+            format!(
+                "{}: only {hashed} of {} names hash to the table key",
+                path.display(),
+                archive.entries.len()
+            )
         });
     }
 
@@ -99,12 +110,19 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
             },
             "csi" => match banks::Csi::parse(body) {
                 Ok(p) => {
-                    r.check(p.pool_offset <= body.len(), || format!("{name}: pool past the end"));
+                    r.check(p.pool_offset <= body.len(), || {
+                        format!("{name}: pool past the end")
+                    });
                     // The record tables must end exactly where the string pool starts.
                     let first = p.symbols.iter().map(|s| s.name.len()).sum::<usize>();
-                    r.check(first > 0 || p.symbols.is_empty(), || format!("{name}: empty names"));
+                    r.check(first > 0 || p.symbols.is_empty(), || {
+                        format!("{name}: empty names")
+                    });
                     if let Some(prev) = projects.insert(p.project_id, p) {
-                        r.failures.push(format!("{name}: project id {:#06x} is not unique", prev.project_id));
+                        r.failures.push(format!(
+                            "{name}: project id {:#06x} is not unique",
+                            prev.project_id
+                        ));
                     }
                 }
                 Err(err) => r.failures.push(format!("{name}: {err}")),
@@ -138,12 +156,21 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
     for (_, b) in &abks {
         for e in &b.exports {
             exports += 1;
-            by_name.entry(e.name.as_str()).or_default().insert(e.name_id);
+            by_name
+                .entry(e.name.as_str())
+                .or_default()
+                .insert(e.name_id);
         }
     }
     let ambiguous: Vec<_> = by_name.iter().filter(|(_, ids)| ids.len() > 1).collect();
-    r.check(ambiguous.is_empty(), || format!("{} names carry more than one id", ambiguous.len()));
-    println!("  export names        {exports} records, {} distinct names, {} ambiguous", by_name.len(), ambiguous.len());
+    r.check(ambiguous.is_empty(), || {
+        format!("{} names carry more than one id", ambiguous.len())
+    });
+    println!(
+        "  export names        {exports} records, {} distinct names, {} ambiguous",
+        by_name.len(),
+        ambiguous.len()
+    );
 
     // -- the cross-file check: .abk export -> .csi symbol table ---------------
     let (mut agree, mut absent, mut unshipped) = (0usize, 0usize, 0usize);
@@ -155,19 +182,29 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
                     Some(n) if n == e.name => agree += 1,
                     Some(n) => {
                         absent += 1;
-                        r.failures.push(format!("{file}: id {:#06x} is {n:?} in the project, {:?} in the bank", e.name_id, e.name));
+                        r.failures.push(format!(
+                            "{file}: id {:#06x} is {n:?} in the project, {:?} in the bank",
+                            e.name_id, e.name
+                        ));
                     }
                     None => {
                         absent += 1;
-                        r.failures.push(format!("{file}: project {:#06x} has no id {:#06x}", e.project_id, e.name_id));
+                        r.failures.push(format!(
+                            "{file}: project {:#06x} has no id {:#06x}",
+                            e.project_id, e.name_id
+                        ));
                     }
                 },
             }
             r.checks += 1;
         }
     }
-    println!("  abk -> csi names    {agree} agree, {absent} disagree, {unshipped} in projects not shipped here");
-    r.check(absent == 0, || format!("{absent} export names disagree with their project"));
+    println!(
+        "  abk -> csi names    {agree} agree, {absent} disagree, {unshipped} in projects not shipped here"
+    );
+    r.check(absent == 0, || {
+        format!("{absent} export names disagree with their project")
+    });
 
     // -- the second cross-file check: .ems sound ids -> member names ----------
     let mut ids: BTreeMap<u64, usize> = BTreeMap::new();
@@ -181,11 +218,16 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
     let mut names: BTreeMap<u64, &str> = BTreeMap::new();
     for e in &archive.entries {
         if let Some(n) = &e.name {
-            names.entry(hash::name_id(stem(n).as_bytes())).or_insert(stem(n));
+            names
+                .entry(hash::name_id(stem(n).as_bytes()))
+                .or_insert(stem(n));
             names.entry(hash::name_id(n.as_bytes())).or_insert(n);
         }
     }
-    let resolved: Vec<_> = ids.iter().filter_map(|(id, n)| names.get(id).map(|s| (*s, *n))).collect();
+    let resolved: Vec<_> = ids
+        .iter()
+        .filter_map(|(id, n)| names.get(id).map(|s| (*s, *n)))
+        .collect();
     let covered: usize = resolved.iter().map(|(_, n)| n).sum();
     println!(
         "  ems -> member names {}/{} distinct sound ids resolve, covering {covered}/{records} emitter records",
@@ -208,7 +250,9 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
         .filter(|id| names.contains_key(&(id.rotate_left(32))))
         .count();
     println!("  control (halves swapped) resolves {swapped}, want 0");
-    r.check(swapped == 0, || format!("the byte-swapped reading also resolves {swapped} ids"));
+    r.check(swapped == 0, || {
+        format!("the byte-swapped reading also resolves {swapped} ids")
+    });
     println!();
     Ok(())
 }
@@ -216,10 +260,17 @@ fn verify(path: &std::path::Path, r: &mut Report) -> Result<(), Box<dyn std::err
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let paths: Vec<std::path::PathBuf> = if args.is_empty() {
-        ["audiofiles.big", "grains.big", "wheels.big", "post.big", "ambience.big", "ambienceresident.big"]
-            .iter()
-            .map(|n| std::path::Path::new(DEFAULT_DIR).join(n))
-            .collect()
+        [
+            "audiofiles.big",
+            "grains.big",
+            "wheels.big",
+            "post.big",
+            "ambience.big",
+            "ambienceresident.big",
+        ]
+        .iter()
+        .map(|n| std::path::Path::new(DEFAULT_DIR).join(n))
+        .collect()
     } else {
         args.iter().map(std::path::PathBuf::from).collect()
     };

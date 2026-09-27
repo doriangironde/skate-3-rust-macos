@@ -1,7 +1,5 @@
 # skate-audio-core
 
-Pinned source copy: `audiofork/skate-3-rust-engine` commit `cc41fb980c4bc3505e17ae97f6385347006318e8`. Imported for **offline development only**; the missing command drain, play command, stream pump, PCM graph output, and release extractor are not implemented. This crate is not connected to game startup or playback. Do not treat its existing unit tests as proof of audible gameplay audio.
-
 The Skate 3 audio graph in Rust, translated from native C++ that was **first proved equal to
 the original recompiled code**. Every function here is a transcription of a body the shadow
 harness compared against the running game, so a divergence points at the translation rather

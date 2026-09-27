@@ -16,14 +16,18 @@
 use skate_audio_formats::{banks, eb};
 
 fn be32(b: &[u8], at: usize) -> Option<u32> {
-    b.get(at..at + 4).map(|s| u32::from_be_bytes(s.try_into().unwrap()))
+    b.get(at..at + 4)
+        .map(|s| u32::from_be_bytes(s.try_into().unwrap()))
 }
 fn be16(b: &[u8], at: usize) -> Option<u16> {
-    b.get(at..at + 2).map(|s| u16::from_be_bytes(s.try_into().unwrap()))
+    b.get(at..at + 2)
+        .map(|s| u16::from_be_bytes(s.try_into().unwrap()))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: verify_patch_records <archive>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: verify_patch_records <archive>")?;
     let data = std::fs::read(&path)?;
     let (mut banks_seen, mut records, mut failures) = (0, 0, 0);
     let (mut exports_ok, mut exports_total) = (0, 0);
@@ -32,12 +36,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut adjacent = 0;
     let mut kinds = std::collections::BTreeMap::<(bool, u8), usize>::new();
     for e in &eb::Archive::parse(&data)?.entries {
-        let Some(name) = e.name.as_deref() else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".abk") {
             continue;
         }
-        let Some(b) = data.get(e.range()) else { continue };
-        let Ok(abk) = banks::Abk::parse(b) else { continue };
+        let Some(b) = data.get(e.range()) else {
+            continue;
+        };
+        let Ok(abk) = banks::Abk::parse(b) else {
+            continue;
+        };
         banks_seen += 1;
         let count = be16(b, 0x0A).unwrap_or(0) as usize;
         let mut at = be32(b, 0x1C).unwrap_or(0) as usize;
@@ -47,19 +57,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  FAIL {name}: {why}");
         };
         for r in 0..count {
-            let (Some(live), Some(cap), Some(next), Some(tpl), Some(size)) =
-                (be16(b, at + 28), be16(b, at + 30), be32(b, at + 40), be32(b, at + 44), be32(b, at + 48))
-            else {
+            let (Some(live), Some(cap), Some(next), Some(tpl), Some(size)) = (
+                be16(b, at + 28),
+                be16(b, at + 30),
+                be32(b, at + 40),
+                be32(b, at + 44),
+                be32(b, at + 48),
+            ) else {
                 fail(format!("record {r} at {at:#x} runs off the bank"));
                 break;
             };
             records += 1;
             *capacities.entry(cap).or_default() += 1;
             if live != 0 {
-                fail(format!("record {r} at {at:#x} has {live} live instances on disk"));
+                fail(format!(
+                    "record {r} at {at:#x} has {live} live instances on disk"
+                ));
             }
             if (tpl as usize) + (size as usize) > abk.sample_bank_offset {
-                fail(format!("record {r} template {tpl:#x}+{size:#x} leaves the first section"));
+                fail(format!(
+                    "record {r} template {tpl:#x}+{size:#x} leaves the first section"
+                ));
             }
             slots.push(at + 4);
             let entries = b[at + 36] as usize + b[at + 39] as usize;
@@ -75,7 +93,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             at = end;
         }
         for slot in &slots {
-            let n = abk.exports.iter().filter(|x| x.target as usize == *slot).count();
+            let n = abk
+                .exports
+                .iter()
+                .filter(|x| x.target as usize == *slot)
+                .count();
             *per_slot.entry(n).or_default() += 1;
         }
         for x in &abk.exports {

@@ -10,7 +10,9 @@ use skate_audio_formats::{eaac, eb};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("usage: verify_speech <speech.big>")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("usage: verify_speech <speech.big>")?;
     let data = std::fs::read(&path)?;
     let top = eb::Archive::parse(&data)?;
 
@@ -25,9 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut subs: HashMap<String, Vec<eaac::SubSound>> = HashMap::new();
     for e in &nested.entries {
-        let Some(stem) = e.name.as_deref().and_then(eaac::stem) else { continue };
+        let Some(stem) = e.name.as_deref().and_then(eaac::stem) else {
+            continue;
+        };
         let range = sth_base + e.range().start..sth_base + e.range().end;
-        let Some(bytes) = data.get(range) else { continue };
+        let Some(bytes) = data.get(range) else {
+            continue;
+        };
         match eaac::sub_sounds(bytes) {
             Ok(v) => {
                 subs.insert(stem.to_owned(), v);
@@ -39,16 +45,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (mut ok, mut bad, mut missing, mut total_subs) = (0, 0, 0, 0);
     for entry in &top.entries {
-        let Some(name) = entry.name.as_deref() else { continue };
+        let Some(name) = entry.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".dat") {
             continue;
         }
-        let Some(stem) = eaac::stem(name) else { continue };
+        let Some(stem) = eaac::stem(name) else {
+            continue;
+        };
         let Some(list) = subs.get(stem) else {
             missing += 1;
             continue;
         };
-        let Some(payload) = data.get(entry.range()) else { continue };
+        let Some(payload) = data.get(entry.range()) else {
+            continue;
+        };
         for (i, sub) in list.iter().enumerate() {
             total_subs += 1;
             let Some(tail) = payload.get(sub.data_offset as usize..) else {

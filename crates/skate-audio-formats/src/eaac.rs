@@ -26,7 +26,7 @@
 //! boundary of the paired `.sns` whose block holds the loop start (`examples/verify_pairing.rs`).
 //! Those 16 bytes were read as "8 unknown trailing bytes" until then.
 
-use crate::{be32, Error, Result};
+use crate::{Error, Result, be32};
 
 /// Codec identifier from the stream header. Only [`Codec::Xma`] occurs on the disc.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +77,11 @@ impl Header {
         let h2 = be32(data, at + 4)?;
         let stream_type = (h2 >> 30) as u8 & 0x3;
         let looping = (h2 >> 29) & 1 != 0;
-        let loop_start = if looping { Some(be32(data, at + 8)?) } else { None };
+        let loop_start = if looping {
+            Some(be32(data, at + 8)?)
+        } else {
+            None
+        };
         let loop_offset = if looping && stream_type == Self::STREAMED {
             Some(be32(data, at + 12)?)
         } else {
@@ -108,17 +112,26 @@ impl Header {
     /// rates are 36000/44100/48000, and channel counts are 1, 2 or 6.
     fn check_plausible(&self, at: usize) -> Result<()> {
         if !matches!(self.sample_rate, 8_000..=48_000) {
-            return Err(Error::new(at, format!("implausible sample rate {}", self.sample_rate)));
+            return Err(Error::new(
+                at,
+                format!("implausible sample rate {}", self.sample_rate),
+            ));
         }
         if self.channels() > 8 {
-            return Err(Error::new(at, format!("implausible channel count {}", self.channels())));
+            return Err(Error::new(
+                at,
+                format!("implausible channel count {}", self.channels()),
+            ));
         }
         if self.num_samples == 0 {
             return Err(Error::new(at, "zero samples"));
         }
         if let Some(start) = self.loop_start {
             if start >= self.num_samples {
-                return Err(Error::new(at + 8, format!("loop start {start} is past {} samples", self.num_samples)));
+                return Err(Error::new(
+                    at + 8,
+                    format!("loop start {start} is past {} samples", self.num_samples),
+                ));
             }
         }
         Ok(())
@@ -168,7 +181,10 @@ impl Block {
         let word = be32(data, at)?;
         let size = word & 0x00FF_FFFF;
         if (size as usize) <= Self::HEADER_SIZE {
-            return Err(Error::new(at, format!("block size {size} does not advance")));
+            return Err(Error::new(
+                at,
+                format!("block size {size} does not advance"),
+            ));
         }
         if at + size as usize > data.len() {
             return Err(Error::new(at, format!("block size {size} runs past end")));
@@ -254,13 +270,22 @@ pub fn split_block(payload: &[u8], contexts: usize) -> Result<Vec<Chunk<'_>>> {
     for i in 0..contexts {
         let field = be32(payload, at)?;
         let len = chunk_length(field).ok_or_else(|| {
-            Error::new(at, format!("chunk {i}: field {field} is not a valid length"))
+            Error::new(
+                at,
+                format!("chunk {i}: field {field} is not a valid length"),
+            )
         })? as usize;
         let start = at + 4;
-        let end = start.checked_add(len).filter(|e| *e <= payload.len()).ok_or_else(|| {
-            Error::new(at, format!("chunk {i}: length {len} runs past the payload"))
-        })?;
-        out.push(Chunk { field, data: &payload[start..end] });
+        let end = start
+            .checked_add(len)
+            .filter(|e| *e <= payload.len())
+            .ok_or_else(|| {
+                Error::new(at, format!("chunk {i}: length {len} runs past the payload"))
+            })?;
+        out.push(Chunk {
+            field,
+            data: &payload[start..end],
+        });
         at = end;
     }
     // Allow trailing alignment padding on a stream's final block, but nothing larger.
@@ -269,7 +294,10 @@ pub fn split_block(payload: &[u8], contexts: usize) -> Result<Vec<Chunk<'_>>> {
     if slack > MAX_PAD {
         return Err(Error::new(
             at,
-            format!("chunks accounted for {at} of {} payload bytes", payload.len()),
+            format!(
+                "chunks accounted for {at} of {} payload bytes",
+                payload.len()
+            ),
         ));
     }
     Ok(out)
@@ -308,10 +336,16 @@ impl SnrRecord {
         if data.len() < Self::MIN_SIZE {
             return Err(Error::new(
                 0,
-                format!("`.snr` record is {} bytes, want at least {}", data.len(), Self::MIN_SIZE),
+                format!(
+                    "`.snr` record is {} bytes, want at least {}",
+                    data.len(),
+                    Self::MIN_SIZE
+                ),
             ));
         }
-        Ok(Self { header: Header::parse(data, 0)? })
+        Ok(Self {
+            header: Header::parse(data, 0)?,
+        })
     }
 }
 
@@ -340,7 +374,10 @@ pub fn sub_sounds(data: &[u8]) -> Result<Vec<SubSound>> {
     if data.len() % SubSound::SIZE != 0 {
         return Err(Error::new(
             0,
-            format!("`.sth` member is {} bytes, not a multiple of 12", data.len()),
+            format!(
+                "`.sth` member is {} bytes, not a multiple of 12",
+                data.len()
+            ),
         ));
     }
     let mut out = Vec::with_capacity(data.len() / SubSound::SIZE);
@@ -430,8 +467,8 @@ mod tests {
     fn parses_a_real_ambience_snr_record() {
         // ambienceresident.big / 08_univ_mt_low.snr, verbatim.
         let raw = [
-            0x03, 0x10, 0xBB, 0x80, 0x60, 0x6C, 0x13, 0xFF,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x03, 0x10, 0xBB, 0x80, 0x60, 0x6C, 0x13, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let r = SnrRecord::parse(&raw).unwrap();
         assert_eq!(r.header.codec, Codec::Xma);
@@ -441,7 +478,10 @@ mod tests {
         assert_eq!(r.header.num_samples, 7_083_007);
         assert!((r.header.duration_secs() - 147.56).abs() < 0.01);
         assert_eq!(r.header.stream_type, Header::STREAMED);
-        assert_eq!((r.header.loop_start, r.header.loop_offset), (Some(0), Some(0)));
+        assert_eq!(
+            (r.header.loop_start, r.header.loop_offset),
+            (Some(0), Some(0))
+        );
         assert_eq!(r.header.size(), 16);
     }
 
@@ -462,8 +502,8 @@ mod tests {
         // ambienceresident.big / 19_reclaimed_b_fix.snr, verbatim: the one record whose loop
         // words are not both zero. Loop start sample 321, in the block at byte 0x280 of its .sns.
         let raw = [
-            0x03, 0x10, 0xBB, 0x80, 0x60, 0x55, 0x86, 0xD5,
-            0x00, 0x00, 0x01, 0x41, 0x00, 0x00, 0x02, 0x80,
+            0x03, 0x10, 0xBB, 0x80, 0x60, 0x55, 0x86, 0xD5, 0x00, 0x00, 0x01, 0x41, 0x00, 0x00,
+            0x02, 0x80,
         ];
         let h = SnrRecord::parse(&raw).unwrap().header;
         assert_eq!(h.stream_type, Header::STREAMED);
@@ -474,7 +514,9 @@ mod tests {
 
     #[test]
     fn a_looping_streamed_header_needs_its_fourth_word() {
-        let raw = [0x03, 0x10, 0xBB, 0x80, 0x60, 0x55, 0x86, 0xD5, 0x00, 0x00, 0x01, 0x41];
+        let raw = [
+            0x03, 0x10, 0xBB, 0x80, 0x60, 0x55, 0x86, 0xD5, 0x00, 0x00, 0x01, 0x41,
+        ];
         assert!(Header::parse(&raw, 0).is_err());
     }
 
@@ -494,8 +536,8 @@ mod tests {
     fn parses_a_real_sth_member() {
         // announcersth.big / 489_35_BantLeadPro_Ratt.sth, first two of five records.
         let raw = [
-            0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x8C, 0xA0, 0x40, 0x03, 0x05, 0x6B,
-            0x00, 0x00, 0x8C, 0x80, 0x03, 0x00, 0x8C, 0xA0, 0x40, 0x02, 0xD8, 0xF1,
+            0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x8C, 0xA0, 0x40, 0x03, 0x05, 0x6B, 0x00, 0x00,
+            0x8C, 0x80, 0x03, 0x00, 0x8C, 0xA0, 0x40, 0x02, 0xD8, 0xF1,
         ];
         let subs = sub_sounds(&raw).unwrap();
         assert_eq!(subs.len(), 2);
@@ -528,7 +570,7 @@ mod tests {
     fn rejects_a_field_that_is_not_a_length() {
         assert_eq!(chunk_length(18), None); // zero length
         assert_eq!(chunk_length(21), None); // still zero after the shift
-        assert_eq!(chunk_length(3), None);  // underflows the bias
+        assert_eq!(chunk_length(3), None); // underflows the bias
     }
 
     #[test]
@@ -541,7 +583,10 @@ mod tests {
         }
         let chunks = split_block(&payload, 3).unwrap();
         assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks.iter().map(|c| c.data.len()).collect::<Vec<_>>(), lens);
+        assert_eq!(
+            chunks.iter().map(|c| c.data.len()).collect::<Vec<_>>(),
+            lens
+        );
     }
 
     #[test]

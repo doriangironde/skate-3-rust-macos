@@ -12,7 +12,7 @@
 //! not a finding: nothing in the binary names them.
 
 use crate::vmx::Fpscr;
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// `lbz r10,42(r3)` — the layout byte.
 pub const LAYOUT: u32 = 42;
@@ -115,8 +115,13 @@ mod tests {
         }
         for group in 0..GROUPS {
             for k in 0..8u32 {
-                let v = if group == 0 { ((k + 1) * (k + 1)) as f32 } else { (100 * group + k) as f32 };
-                g.set_u32(OBJECT + group_source(group) + 4 * k, v.to_bits()).unwrap();
+                let v = if group == 0 {
+                    ((k + 1) * (k + 1)) as f32
+                } else {
+                    (100 * group + k) as f32
+                };
+                g.set_u32(OBJECT + group_source(group) + 4 * k, v.to_bits())
+                    .unwrap();
             }
         }
         g.set_u8(OBJECT + LAYOUT, layout).unwrap();
@@ -133,7 +138,11 @@ mod tests {
             let mut g = object(layout);
             expand_layout(&mut g, OBJECT).unwrap();
             for at in (48..240).step_by(4) {
-                assert_eq!(g.u32(OBJECT + at).unwrap(), POISON, "layout {layout}, +{at}");
+                assert_eq!(
+                    g.u32(OBJECT + at).unwrap(),
+                    POISON,
+                    "layout {layout}, +{at}"
+                );
             }
         }
     }
@@ -143,10 +152,22 @@ mod tests {
         let mut g = object(2);
         expand_layout(&mut g, OBJECT).unwrap();
         assert_eq!(slot(&g, group_dest(0)), (SENTINEL, 1.0), "sqrt(1)");
-        assert_eq!(slot(&g, group_dest(0) + 16), (SENTINEL, 2.0), "sqrt(4), from source 1");
-        assert_eq!(slot(&g, group_dest(1)), (SENTINEL, 100.0), "copied, not rooted");
+        assert_eq!(
+            slot(&g, group_dest(0) + 16),
+            (SENTINEL, 2.0),
+            "sqrt(4), from source 1"
+        );
+        assert_eq!(
+            slot(&g, group_dest(1)),
+            (SENTINEL, 100.0),
+            "copied, not rooted"
+        );
         assert_eq!(slot(&g, group_dest(2) + 16), (SENTINEL, 201.0));
-        assert_eq!(g.u32(OBJECT + group_dest(1) + 8).unwrap(), POISON, "slot 1 is the mono slot");
+        assert_eq!(
+            g.u32(OBJECT + group_dest(1) + 8).unwrap(),
+            POISON,
+            "slot 1 is the mono slot"
+        );
         assert_eq!(g.u32(OBJECT + group_tail(0)).unwrap(), POISON);
     }
 
@@ -156,7 +177,11 @@ mod tests {
         expand_layout(&mut g, OBJECT).unwrap();
         assert_eq!(slot(&g, group_dest(1) + 40), (SENTINEL, 105.0));
         assert_eq!(slot(&g, group_dest(0) + 40), (SENTINEL, 6.0), "sqrt(36)");
-        assert_eq!(slot(&g, group_dest(2) + 8), (SENTINEL, 201.0), "the wide layouts use slot 1");
+        assert_eq!(
+            slot(&g, group_dest(2) + 8),
+            (SENTINEL, 201.0),
+            "the wide layouts use slot 1"
+        );
         for group in 0..GROUPS {
             assert_eq!(g.u32(OBJECT + group_tail(group)).unwrap(), POISON);
         }

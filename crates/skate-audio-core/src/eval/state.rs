@@ -14,7 +14,9 @@
 //! lays objects out itself.
 
 use crate::counter;
-use crate::eval::{HALF_SINGLE, MINUS_ONE_SINGLE, RATE_UNIT_SINGLE, TICK_SCALE_GLOBAL, ZERO_SINGLE};
+use crate::eval::{
+    HALF_SINGLE, MINUS_ONE_SINGLE, RATE_UNIT_SINGLE, TICK_SCALE_GLOBAL, ZERO_SINGLE,
+};
 use crate::fp;
 use crate::{Guest, Result};
 
@@ -203,15 +205,22 @@ pub fn op_ramp(g: &mut Guest, object: u32) -> Result<u64> {
     let falling = rate < zero;
     let next = fp::fmadd_single(step_count, rate, current);
     fp::store_single(g, object, next)?;
-    let overshot = if falling { next < target_single } else { next > target_single };
+    let overshot = if falling {
+        next < target_single
+    } else {
+        next > target_single
+    };
     if overshot {
         fp::store_single(g, object, target_single)?;
     }
 
     let value = fp::load_single(g, object)?;
     let half = fp::load_single(g, HALF_SINGLE)?;
-    let rounded =
-        if value < zero { fp::sub_single(value, half) } else { fp::add_single(value, half) };
+    let rounded = if value < zero {
+        fp::sub_single(value, half)
+    } else {
+        fp::add_single(value, half)
+    };
     Ok(fp::fctiwz_low_word(rounded) as u64)
 }
 
@@ -311,7 +320,10 @@ pub fn op_shuffle_bag(g: &mut Guest, bag: u32) -> Result<u64> {
         g.set_u16(picked.wrapping_add(bag), held)?;
         let temp = g.u32(bag + 12)?;
         let cursor_now = g.u16(bag + 8)? as u64;
-        g.set_u16(half_offset(cursor_now.wrapping_add(8)).wrapping_add(bag), temp as u16)?;
+        g.set_u16(
+            half_offset(cursor_now.wrapping_add(8)).wrapping_add(bag),
+            temp as u16,
+        )?;
     }
 
     // Every field reloaded after the swap's stores.
@@ -496,7 +508,11 @@ mod tests {
 
         // Re-entering pulses again.
         set_value(&mut g, 200);
-        assert_eq!(op_window_latch(&mut g, BLOCK).unwrap(), 1, "the bound is inclusive");
+        assert_eq!(
+            op_window_latch(&mut g, BLOCK).unwrap(),
+            1,
+            "the bound is inclusive"
+        );
     }
 
     #[test]
@@ -505,18 +521,30 @@ mod tests {
         put_words(&mut g, &[10, 20, 15, 0, 1, 12]); // low, high, current, step, enabled, probe
         g.set_u8(BLOCK + 12, 3).unwrap(); // the step is a signed BYTE at +12
 
-        assert_eq!(op_stepping_cursor(&mut g, BLOCK).unwrap(), 12, "the probe is inside [10,20]");
+        assert_eq!(
+            op_stepping_cursor(&mut g, BLOCK).unwrap(),
+            12,
+            "the probe is inside [10,20]"
+        );
         assert_eq!(g.u32(BLOCK + 8).unwrap(), 15, "and nothing was written");
 
         // Out of range: the cursor steps.
         g.set_u32(BLOCK + 20, 99).unwrap();
         assert_eq!(op_stepping_cursor(&mut g, BLOCK).unwrap(), 18);
-        assert_eq!(op_stepping_cursor(&mut g, BLOCK).unwrap(), 10, "21 is over high, so it wraps");
+        assert_eq!(
+            op_stepping_cursor(&mut g, BLOCK).unwrap(),
+            10,
+            "21 is over high, so it wraps"
+        );
 
         // A negative step wraps the other way.
         g.set_u8(BLOCK + 12, (-3i8) as u8).unwrap();
         g.set_u32(BLOCK + 8, 11).unwrap();
-        assert_eq!(op_stepping_cursor(&mut g, BLOCK).unwrap(), 20, "8 is under low, so it wraps");
+        assert_eq!(
+            op_stepping_cursor(&mut g, BLOCK).unwrap(),
+            20,
+            "8 is under low, so it wraps"
+        );
 
         // Disabled: the cursor is read back untouched.
         g.set_u32(BLOCK + 16, 0).unwrap();
@@ -544,7 +572,11 @@ mod tests {
         // At 1.0 the threshold is reached: it fires and parks.
         assert_eq!(op_timer(&mut g, BLOCK).unwrap(), 1);
         assert_eq!(g.u8(BLOCK + 4).unwrap(), 1);
-        assert_eq!(g.f32(BLOCK).unwrap(), -1.0, "parked at the guest's -1.0f cell");
+        assert_eq!(
+            g.f32(BLOCK).unwrap(),
+            -1.0,
+            "parked at the guest's -1.0f cell"
+        );
 
         // Parked: the negative accumulator short-circuits and does not advance.
         assert_eq!(op_timer(&mut g, BLOCK).unwrap(), 0);
@@ -563,7 +595,11 @@ mod tests {
         g.set_u32(BLOCK, f32::NAN.to_bits()).unwrap();
         g.set_u32(BLOCK + 8, 0).unwrap();
         g.set_u32(BLOCK + 12, 1_000_000).unwrap();
-        assert_eq!(op_timer(&mut g, BLOCK).unwrap(), 1, "NaN is neither below zero nor below the threshold");
+        assert_eq!(
+            op_timer(&mut g, BLOCK).unwrap(),
+            1,
+            "NaN is neither below zero nor below the threshold"
+        );
         assert_eq!(g.f32(BLOCK).unwrap(), -1.0);
     }
 
@@ -601,7 +637,11 @@ mod tests {
         fp::store_single(&mut g, BLOCK, 90.0).unwrap();
         g.set_u32(BLOCK + 20, 4).unwrap(); // four steps of 25 would reach 190
         assert_eq!(op_ramp(&mut g, BLOCK).unwrap(), 100);
-        assert_eq!(g.f32(BLOCK).unwrap(), 100.0, "clamped at the target, not 190");
+        assert_eq!(
+            g.f32(BLOCK).unwrap(),
+            100.0,
+            "clamped at the target, not 190"
+        );
     }
 
     #[test]
@@ -613,9 +653,17 @@ mod tests {
         g.set_u32(BLOCK + 16, 0).unwrap(); // duration 0
         g.set_u32(BLOCK + 24, (-7i32) as u32).unwrap(); // target -7
 
-        assert_eq!(op_ramp(&mut g, BLOCK).unwrap(), 0xFFFF_FFF9, "the target, zero-extended");
+        assert_eq!(
+            op_ramp(&mut g, BLOCK).unwrap(),
+            0xFFFF_FFF9,
+            "the target, zero-extended"
+        );
         assert_eq!(g.f32(BLOCK).unwrap(), -7.0, "snapped");
-        assert_eq!(g.u32(BLOCK + 4).unwrap(), 0x7F7F_FFFF, "the rate was left alone");
+        assert_eq!(
+            g.u32(BLOCK + 4).unwrap(),
+            0x7F7F_FFFF,
+            "the rate was left alone"
+        );
     }
 
     #[test]
@@ -640,13 +688,21 @@ mod tests {
         put_words(&mut g, &[1000, 7, 0xABCD, 0]); // base, range, current, enabled=0
 
         assert_eq!(op_random_in_range(&mut g, BLOCK).unwrap(), 0xABCD, "cached");
-        assert_eq!(g.u32(counter::COUNTER + 20).unwrap(), 0, "the counter did not advance");
+        assert_eq!(
+            g.u32(counter::COUNTER + 20).unwrap(),
+            0,
+            "the counter did not advance"
+        );
 
         g.set_u32(BLOCK + 12, 1).unwrap();
         // From a zeroed counter the first draw is 0, so the result is base + 0 % 7.
         assert_eq!(op_random_in_range(&mut g, BLOCK).unwrap(), 1000);
         assert_eq!(g.u32(BLOCK + 8).unwrap(), 1000, "published into +8");
-        assert_eq!(g.u32(counter::COUNTER + 20).unwrap(), 1, "the counter advanced");
+        assert_eq!(
+            g.u32(counter::COUNTER + 20).unwrap(),
+            1,
+            "the counter advanced"
+        );
         // Second draw is 1, third is 7 -> 7 % 7 == 0.
         assert_eq!(op_random_in_range(&mut g, BLOCK).unwrap(), 1001);
         assert_eq!(op_random_in_range(&mut g, BLOCK).unwrap(), 1000);
@@ -664,8 +720,15 @@ mod tests {
         // range 1: quotient = low word, product = quotient * 1 sign-extended, so the 64-bit
         // subtract leaves the draw's high half plus the sign-extension in r3.
         let r3 = op_random_in_range(&mut g, BLOCK).unwrap();
-        assert!(r3 > u32::MAX as u64, "the high half survives into r3: {r3:#x}");
-        assert_eq!(g.u32(BLOCK + 8).unwrap(), r3 as u32, "memory keeps the low word only");
+        assert!(
+            r3 > u32::MAX as u64,
+            "the high half survives into r3: {r3:#x}"
+        );
+        assert_eq!(
+            g.u32(BLOCK + 8).unwrap(),
+            r3 as u32,
+            "memory keeps the low word only"
+        );
     }
 
     #[test]
@@ -698,7 +761,11 @@ mod tests {
             g.set_u8(source + 16 + i as u32, *w).unwrap();
         }
 
-        assert_eq!(op_weighted_cursor(&mut g, BLOCK).unwrap(), 0xDEAD, "disabled: read back");
+        assert_eq!(
+            op_weighted_cursor(&mut g, BLOCK).unwrap(),
+            0xDEAD,
+            "disabled: read back"
+        );
         assert_eq!(g.u32(counter::COUNTER + 20).unwrap(), 0, "and no draw");
 
         // Enabled. From a zeroed counter the draw is 0, so the remainder is 0 and the first
@@ -748,7 +815,11 @@ mod tests {
         g.set_u32(counter::COUNTER, 99).unwrap(); // remainder 99
         g.set_u8(source + 16, 1).unwrap();
         g.set_u8(source + 17, 1).unwrap(); // total 2, never above 99
-        assert_eq!(op_weighted_cursor(&mut g, BLOCK).unwrap(), 0x1234, "the stale result");
+        assert_eq!(
+            op_weighted_cursor(&mut g, BLOCK).unwrap(),
+            0x1234,
+            "the stale result"
+        );
     }
 
     /// A halfword shuffle bag over `count` elements, with the gate word live.
@@ -767,7 +838,9 @@ mod tests {
     }
 
     fn bag_elements(g: &Guest, count: u16) -> Vec<u16> {
-        (0..count).map(|i| g.u16(BLOCK + 16 + 2 * i as u32).unwrap()).collect()
+        (0..count)
+            .map(|i| g.u16(BLOCK + 16 + 2 * i as u32).unwrap())
+            .collect()
     }
 
     #[test]
@@ -803,13 +876,21 @@ mod tests {
             present.sort_unstable();
             let mut expect = original;
             expect.sort_unstable();
-            assert_eq!(present, expect.to_vec(), "still a permutation after draw {i}");
+            assert_eq!(
+                present,
+                expect.to_vec(),
+                "still a permutation after draw {i}"
+            );
         }
         let mut sorted = drawn.clone();
         sorted.sort_unstable();
         let mut expect = original;
         expect.sort_unstable();
-        assert_eq!(sorted, expect.to_vec(), "each element was drawn exactly once");
+        assert_eq!(
+            sorted,
+            expect.to_vec(),
+            "each element was drawn exactly once"
+        );
 
         // The fifth draw wrapped: the cursor is back at 0 and the flag is set.
         assert_eq!(g.u16(BLOCK + 8).unwrap(), 0, "wrapped");
@@ -830,7 +911,11 @@ mod tests {
         // range = 2 - 1 - 0 = 1, so the draw is forced to slot 0 whatever the counter says.
         g.set_u32(counter::COUNTER, 12345).unwrap();
         assert_eq!(op_shuffle_bag(&mut g, BLOCK).unwrap(), 1007);
-        assert_eq!(bag_elements(&g, 2), vec![7, 9], "a self-swap leaves the array alone");
+        assert_eq!(
+            bag_elements(&g, 2),
+            vec![7, 9],
+            "a self-swap leaves the array alone"
+        );
         assert_eq!(g.u16(BLOCK + 8).unwrap(), 1, "the cursor advanced");
         assert_eq!(g.u8(BLOCK + 3).unwrap(), 0, "and the flag was cleared");
     }
@@ -849,7 +934,11 @@ mod tests {
             drawn.push((op_shuffle_bag(&mut g, BLOCK).unwrap() - 1000) as u8);
         }
         drawn.sort_unstable();
-        assert_eq!(drawn, vec![5, 6, 7], "each byte element was drawn exactly once");
+        assert_eq!(
+            drawn,
+            vec![5, 6, 7],
+            "each byte element was drawn exactly once"
+        );
     }
 
     #[test]
@@ -869,7 +958,11 @@ mod tests {
 
         // Re-derive: offset = round(2/1) = 2, so write = read + 2 = 2. Push word, pop slot 0.
         g.set_u32(source, 0xAA).unwrap();
-        assert_eq!(op_delay_ring(&mut g, BLOCK).unwrap(), 0, "slot 0 is still empty");
+        assert_eq!(
+            op_delay_ring(&mut g, BLOCK).unwrap(),
+            0,
+            "slot 0 is still empty"
+        );
         assert_eq!(g.u32(BLOCK + 8).unwrap(), 2, "the delay was latched");
         assert_eq!(g.u32(BLOCK + 12 + 4 * 2).unwrap(), 0xAA, "pushed at slot 2");
         assert_eq!(g.u16(BLOCK + 4).unwrap(), 3, "write advanced");
@@ -879,7 +972,11 @@ mod tests {
         g.set_u32(source, 0xBB).unwrap();
         assert_eq!(op_delay_ring(&mut g, BLOCK).unwrap(), 0);
         g.set_u32(source, 0xCC).unwrap();
-        assert_eq!(op_delay_ring(&mut g, BLOCK).unwrap(), 0xAA, "two calls of delay");
+        assert_eq!(
+            op_delay_ring(&mut g, BLOCK).unwrap(),
+            0xAA,
+            "two calls of delay"
+        );
     }
 
     #[test]
@@ -894,9 +991,17 @@ mod tests {
         g.set_u32(source + 4, (-3i32) as u32).unwrap();
 
         op_delay_ring(&mut g, BLOCK).unwrap();
-        assert_eq!(g.u32(source + 4).unwrap(), 0, "clamped in the caller's own record");
+        assert_eq!(
+            g.u32(source + 4).unwrap(),
+            0,
+            "clamped in the caller's own record"
+        );
         // +8 latched the value seen BEFORE the clamp, which is the negative one.
-        assert_eq!(g.u32(BLOCK + 8).unwrap(), (-3i32) as u32, "latched before the clamp");
+        assert_eq!(
+            g.u32(BLOCK + 8).unwrap(),
+            (-3i32) as u32,
+            "latched before the clamp"
+        );
         // offset = round(0/1) = 0, so write = read = 0 and the push and pop hit the same slot.
         assert_eq!(g.u16(BLOCK + 4).unwrap(), 1);
         assert_eq!(g.u16(BLOCK + 6).unwrap(), 1);

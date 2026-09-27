@@ -42,7 +42,7 @@
 //! ever stops holding an [`Fpscr`].
 
 use crate::vmx::Fpscr;
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// `lis r11,-32241` — `0x820F0000`, computed from the immediate.
 const LIS_820F0000: u32 = ((-32241i32 as u32) & 0xFFFF) << 16;
@@ -197,8 +197,16 @@ mod tests {
 
             assert_eq!(hard_clip(&mut g, STATE, PAIR).unwrap(), 1, "level {level}");
 
-            assert_eq!(g.u32(BUF_B).unwrap(), POISON, "level {level}: nothing written");
-            assert_eq!(g.u32(PAIR + SOURCE_BUFFER).unwrap(), DESC_A, "level {level}: no swap");
+            assert_eq!(
+                g.u32(BUF_B).unwrap(),
+                POISON,
+                "level {level}: nothing written"
+            );
+            assert_eq!(
+                g.u32(PAIR + SOURCE_BUFFER).unwrap(),
+                DESC_A,
+                "level {level}: no swap"
+            );
             assert_eq!(g.u32(PAIR + DEST_BUFFER).unwrap(), DESC_B);
         }
         // And just below the ceiling it does run, so the test above is not vacuous.
@@ -206,7 +214,11 @@ mod tests {
         fill(&mut g, BUF_A, (0..256).map(|_| 7.0));
         hard_clip(&mut g, STATE, PAIR).unwrap();
         assert_eq!(g.f32(BUF_B).unwrap(), 7.0);
-        assert_eq!(g.u32(PAIR + SOURCE_BUFFER).unwrap(), DESC_B, "and the pair swapped");
+        assert_eq!(
+            g.u32(PAIR + SOURCE_BUFFER).unwrap(),
+            DESC_B,
+            "and the pair swapped"
+        );
     }
 
     #[test]
@@ -216,8 +228,16 @@ mod tests {
 
         hard_clip(&mut g, STATE, PAIR).unwrap();
 
-        assert_eq!(g.u32(PAIR + SOURCE_BUFFER).unwrap(), DESC_B, "source := old dest");
-        assert_eq!(g.u32(PAIR + DEST_BUFFER).unwrap(), DESC_A, "dest := old source");
+        assert_eq!(
+            g.u32(PAIR + SOURCE_BUFFER).unwrap(),
+            DESC_B,
+            "source := old dest"
+        );
+        assert_eq!(
+            g.u32(PAIR + DEST_BUFFER).unwrap(),
+            DESC_A,
+            "dest := old source"
+        );
     }
 
     #[test]
@@ -226,16 +246,20 @@ mod tests {
         // would read channel 1 from the wrong place, and every value here differs by channel.
         let mut g = guest(3, 0.9, 300, 256);
         for channel in 0..3u32 {
-            fill(&mut g, BUF_A + channel * 300 * 4, (0..256).map(move |i| {
-                (channel as f32) + (i as f32) / 1000.0
-            }));
+            fill(
+                &mut g,
+                BUF_A + channel * 300 * 4,
+                (0..256).map(move |i| (channel as f32) + (i as f32) / 1000.0),
+            );
         }
 
         hard_clip(&mut g, STATE, PAIR).unwrap();
 
         for channel in 0..3u32 {
             let got = out(&g, BUF_B + channel * 256 * 4, 4);
-            let want: Vec<f32> = (0..4).map(|i| ((channel as f32) + (i as f32) / 1000.0).min(0.9)).collect();
+            let want: Vec<f32> = (0..4)
+                .map(|i| ((channel as f32) + (i as f32) / 1000.0).min(0.9))
+                .collect();
             assert_eq!(got, want, "channel {channel}");
         }
         // Three channels, not four.
@@ -250,7 +274,11 @@ mod tests {
         assert_eq!(hard_clip(&mut g, STATE, PAIR).unwrap(), 1);
 
         assert_eq!(g.u32(BUF_B).unwrap(), POISON, "no channel, no samples");
-        assert_eq!(g.u32(PAIR + SOURCE_BUFFER).unwrap(), DESC_B, "the swap is outside the loop");
+        assert_eq!(
+            g.u32(PAIR + SOURCE_BUFFER).unwrap(),
+            DESC_B,
+            "the swap is outside the loop"
+        );
     }
 
     #[test]
@@ -274,12 +302,24 @@ mod tests {
         // mistake this test made on its first run, and the reason it read back 0xDEADBEEF.
         let mut g = guest(1, 99.0, 256, 256);
         let values = [0.375f32, -98.5, 1.0, 7.125e-20];
-        fill(&mut g, BUF_A, values.iter().copied().chain(std::iter::repeat(0.0)).take(256));
+        fill(
+            &mut g,
+            BUF_A,
+            values
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(0.0))
+                .take(256),
+        );
 
         hard_clip(&mut g, STATE, PAIR).unwrap();
 
         for (i, v) in values.iter().enumerate() {
-            assert_eq!(g.u32(BUF_B + (i as u32) * 4).unwrap(), v.to_bits(), "sample {i}");
+            assert_eq!(
+                g.u32(BUF_B + (i as u32) * 4).unwrap(),
+                v.to_bits(),
+                "sample {i}"
+            );
         }
     }
 
@@ -302,7 +342,11 @@ mod tests {
         g.set_u32(CEILING, 1.0f32.to_bits()).unwrap();
         fill(&mut g, BUF_A, (0..256).map(|_| 7.0));
         hard_clip(&mut g, STATE, PAIR).unwrap();
-        assert_eq!(g.u32(BUF_B).unwrap(), POISON, "99 is no longer below the ceiling");
+        assert_eq!(
+            g.u32(BUF_B).unwrap(),
+            POISON,
+            "99 is no longer below the ceiling"
+        );
     }
 
     #[test]

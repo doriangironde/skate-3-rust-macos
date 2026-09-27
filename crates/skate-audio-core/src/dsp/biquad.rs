@@ -268,11 +268,20 @@ mod tests {
     /// Everything arrives as `f32` and is widened here. Passing `f64` literals instead is how the
     /// first version of this test disagreed with a correct port: `0.6f64` is not `0.6f32 as f64`.
     fn model(input: &[f32], c: [f32; 5], bias: f32, hist: [f32; 4]) -> (Vec<f32>, [f64; 4]) {
-        let [a1, a2, b0, b1, b2] =
-            [c[0] as f64, c[1] as f64, c[2] as f64, c[3] as f64, c[4] as f64];
+        let [a1, a2, b0, b1, b2] = [
+            c[0] as f64,
+            c[1] as f64,
+            c[2] as f64,
+            c[3] as f64,
+            c[4] as f64,
+        ];
         let bias = bias as f64;
-        let (mut x1, mut x2, mut y1, mut y2) =
-            (hist[0] as f64, hist[1] as f64, hist[2] as f64, hist[3] as f64);
+        let (mut x1, mut x2, mut y1, mut y2) = (
+            hist[0] as f64,
+            hist[1] as f64,
+            hist[2] as f64,
+            hist[3] as f64,
+        );
         let mut out = Vec::new();
         for block in input.chunks(BLOCK_SAMPLES) {
             let x: Vec<f64> = block.iter().map(|v| *v as f64).collect();
@@ -322,8 +331,12 @@ mod tests {
 
         biquad(&mut g, HISTORY, DST, SRC, COEFFS, 8).unwrap();
 
-        let (expected, h) =
-            model(&x, [-1.5, 0.6, 0.25, 0.5, 0.25], 1.0e-20, [0.0, 0.0, 0.0, 0.0]);
+        let (expected, h) = model(
+            &x,
+            [-1.5, 0.6, 0.25, 0.5, 0.25],
+            1.0e-20,
+            [0.0, 0.0, 0.0, 0.0],
+        );
         assert_eq!(get(&g, DST, 8), expected);
         // And the history carries out the right four values: x[7], x[6], y[7], y[6].
         assert_eq!(g.f32(HISTORY + HISTORY_X1).unwrap(), h[0] as f32);
@@ -378,7 +391,10 @@ mod tests {
         let a = run(3.0, 5.0);
         let b = run(-3.0, 5.0);
         assert_ne!(a[0], b[0], "sample 0's x[k-2] is the history's x2");
-        assert_eq!(a[1], b[1], "sample 1's x[k-2] is the history's x1, which did not move");
+        assert_eq!(
+            a[1], b[1],
+            "sample 1's x[k-2] is the history's x1, which did not move"
+        );
         assert_eq!(a[2..], b[2..], "samples 2..7 read only this block's inputs");
 
         let c = run(3.0, -5.0);
@@ -398,7 +414,10 @@ mod tests {
         bias(&mut g, 0.0);
         put(&mut g, SRC, &[1.0f32; 8]);
         biquad(&mut g, HISTORY, DST, SRC, COEFFS, 8).unwrap();
-        assert_eq!(get(&g, DST, 8), vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(
+            get(&g, DST, 8),
+            vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+        );
 
         // The fusion. y[0] = t - y1*a1 with y1*a1 needing 48 bits and t their f32 rounding: a
         // single-rounded fnmsubs returns the discarded low bits, a multiply-then-subtract zero.
@@ -431,7 +450,8 @@ mod tests {
             xorshift ^= xorshift >> 17;
             xorshift ^= xorshift << 5;
             // Exponents around 1.0, so nothing overflows or goes denormal.
-            f32::from_bits((xorshift & 0x007F_FFFF) | 0x3F80_0000) * if xorshift & 1 == 0 { 1.0 } else { -1.0 }
+            f32::from_bits((xorshift & 0x007F_FFFF) | 0x3F80_0000)
+                * if xorshift & 1 == 0 { 1.0 } else { -1.0 }
         };
 
         let mut found = 0;
@@ -460,13 +480,24 @@ mod tests {
             put(&mut g, SRC, &[x0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
             biquad(&mut g, HISTORY, DST, SRC, COEFFS, 8).unwrap();
 
-            assert_eq!(g.f32(DST).unwrap(), lifted as f32, "x {x0} {x1} {x2}, b {b0} {b1} {b2}");
-            assert_ne!(g.f32(DST).unwrap(), uniform as f32, "the two orders have to differ here");
+            assert_eq!(
+                g.f32(DST).unwrap(),
+                lifted as f32,
+                "x {x0} {x1} {x2}, b {b0} {b1} {b2}"
+            );
+            assert_ne!(
+                g.f32(DST).unwrap(),
+                uniform as f32,
+                "the two orders have to differ here"
+            );
             if found == 8 {
                 break;
             }
         }
-        assert!(found > 0, "no distinguishing input found: this test would prove nothing");
+        assert!(
+            found > 0,
+            "no distinguishing input found: this test would prove nothing"
+        );
     }
 
     #[test]
@@ -525,8 +556,16 @@ mod tests {
             let e = biquad(&mut g, HISTORY, DST, SRC, COEFFS, count).unwrap_err();
             assert_eq!(e.address, GENERIC_BIQUAD, "count {count}");
 
-            assert_eq!(get(&g, HISTORY, 4), vec![9.0f32; 4], "count {count}: history untouched");
-            assert_eq!(get(&g, DST, 8), vec![7.0f32; 8], "count {count}: output untouched");
+            assert_eq!(
+                get(&g, HISTORY, 4),
+                vec![9.0f32; 4],
+                "count {count}: history untouched"
+            );
+            assert_eq!(
+                get(&g, DST, 8),
+                vec![7.0f32; 8],
+                "count {count}: output untouched"
+            );
         }
         // 8 and 16 are fine, so the test above is not simply refusing everything.
         let mut g = guest();
@@ -558,7 +597,8 @@ mod tests {
         let output_at = 0xFFFF_F100u32;
         let input_at = 0xFFFF_FF00u32; // + 4*256 wraps to 0xFFFF_FF00 + 0x400 == 0x0000_0300
         for i in 0..4u32 {
-            g.set_u32(history_at + 4 * i, (1.0f32 + i as f32).to_bits()).unwrap();
+            g.set_u32(history_at + 4 * i, (1.0f32 + i as f32).to_bits())
+                .unwrap();
         }
         for i in 0..5u32 {
             g.set_u32(coeffs_at + 4 * i, 1.0f32.to_bits()).unwrap();
@@ -566,12 +606,19 @@ mod tests {
         for i in 0..8u32 {
             g.set_u32(output_at + 4 * i, 0x7F7F_7F7F).unwrap();
         }
-        assert!(input_at.wrapping_add(1024) < input_at, "the span has to wrap for this to test it");
+        assert!(
+            input_at.wrapping_add(1024) < input_at,
+            "the span has to wrap for this to test it"
+        );
 
         biquad(&mut g, history_at, output_at, input_at, coeffs_at, 256).unwrap();
 
         for i in 0..8u32 {
-            assert_eq!(g.u32(output_at + 4 * i).unwrap(), 0x7F7F_7F7F, "word {i} was filtered");
+            assert_eq!(
+                g.u32(output_at + 4 * i).unwrap(),
+                0x7F7F_7F7F,
+                "word {i} was filtered"
+            );
         }
         // And the history carries through unchanged, which is what the four stores leave behind.
         for i in 0..4u32 {

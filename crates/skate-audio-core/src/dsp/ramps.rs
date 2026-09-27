@@ -26,7 +26,7 @@
 use core::arch::x86_64::*;
 
 use crate::vmx::{self, Fpscr};
-use crate::{fp, mem, Guest, Result};
+use crate::{Guest, Result, fp, mem};
 
 /// `lis -32234 ; lfs 23056` — compared with the delta to pick the ascending or descending form.
 pub const RAMP_THRESHOLD: u32 = crate::leaves::ZERO_CELL;
@@ -58,27 +58,27 @@ fn int_to_single(v: i32) -> f64 {
 unsafe fn fill_vector_units(g: &mut Guest, dst: u32, units: i32, value: __m128) -> Result<()> {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    let bulk = aligned4(units);
-    if bulk > 0 {
-        let mut p = dst.wrapping_add(32);
-        let passes = ((bulk as u32).wrapping_sub(1) >> 2) + 1;
-        for _ in 0..passes {
-            vmx::stvx128_ps(g, p.wrapping_sub(32), value)?;
-            vmx::stvx128_ps(g, p.wrapping_sub(16), value)?;
-            vmx::stvx128_ps(g, p, value)?;
-            vmx::stvx128_ps(g, p.wrapping_add(16), value)?;
-            p = p.wrapping_add(64);
+        let bulk = aligned4(units);
+        if bulk > 0 {
+            let mut p = dst.wrapping_add(32);
+            let passes = ((bulk as u32).wrapping_sub(1) >> 2) + 1;
+            for _ in 0..passes {
+                vmx::stvx128_ps(g, p.wrapping_sub(32), value)?;
+                vmx::stvx128_ps(g, p.wrapping_sub(16), value)?;
+                vmx::stvx128_ps(g, p, value)?;
+                vmx::stvx128_ps(g, p.wrapping_add(16), value)?;
+                p = p.wrapping_add(64);
+            }
         }
+        if bulk < units {
+            let tail = dst.wrapping_add((bulk as u32) << 4);
+            let rest = (units.wrapping_sub(bulk) as u32) << 4;
+            vmx::stvx128_ps(g, tail, value)?;
+            let len = rest.wrapping_sub(9) & 0xFFFF_FFF8; // addi r9,r11,-9 ; rlwinm r5,r9,0,0,28
+            mem::memcpy_chunked(g, tail.wrapping_add(16), tail, u64::from(len))?; // bl 0x82f52fb8
+        }
+        Ok(())
     }
-    if bulk < units {
-        let tail = dst.wrapping_add((bulk as u32) << 4);
-        let rest = (units.wrapping_sub(bulk) as u32) << 4;
-        vmx::stvx128_ps(g, tail, value)?;
-        let len = rest.wrapping_sub(9) & 0xFFFF_FFF8; // addi r9,r11,-9 ; rlwinm r5,r9,0,0,28
-        mem::memcpy_chunked(g, tail.wrapping_add(16), tail, u64::from(len))?; // bl 0x82f52fb8
-    }
-    Ok(())
-}
 }
 
 /// What both writers do before their vector bodies: the flat `start` lead-in below index zero, then
@@ -96,57 +96,57 @@ unsafe fn lead_in(
 ) -> Result<(i32, u32)> {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    let (start, end, step, length_f, delta) = ramp;
-    let (mut index, mut cursor) = (first, out);
-    if index >= 0 {
-        return Ok((index, cursor));
-    }
-    let below = 0u32.wrapping_sub(index as u32) as i32; // neg r11,r30
-    let leftover = below.wrapping_sub(aligned4(below));
-    let mut pad = if leftover == 0 { 0 } else { 4 - leftover }; // subfic ; subfe ; and
-    let units = div_four(index).wrapping_neg(); // srawi ; addze ; neg
-    fill_vector_units(g, cursor, units, _mm_set1_ps(start as f32))?;
-    index = (index as u32).wrapping_add((units as u32) << 2) as i32;
-    cursor = cursor.wrapping_add((units as u32) << 4);
-    if index < 0 {
-        // Fewer than four below zero: one store and a replicating copy.
-        fpscr.disable_flush_mode_unconditional();
-        fp::store_single(g, cursor, start)?;
-        let left = 0u32.wrapping_sub(index as u32);
-        let len = (left << 2).wrapping_sub(1) & 0xFFFF_FFFC; // 4*left - 4
-        mem::memcpy_chunked(g, cursor.wrapping_add(4), cursor, u64::from(len))?;
-        index = (index as u32).wrapping_add(left) as i32;
-        cursor = cursor.wrapping_add(left << 2);
-    }
-    fpscr.disable_flush_mode_unconditional();
-    let threshold = match threshold {
-        Some(t) => t,
-        None => fp::load_single(g, RAMP_THRESHOLD)?, // lfs f0,23056(r11)
-    };
-    // fcmpu ; blt -- a NaN delta takes the ascending form.
-    let ascending = !(delta < threshold);
-    if index <= last {
-        let mut n = (index as u32).wrapping_add(1) as i32;
-        while pad > 0 {
+        let (start, end, step, length_f, delta) = ramp;
+        let (mut index, mut cursor) = (first, out);
+        if index >= 0 {
+            return Ok((index, cursor));
+        }
+        let below = 0u32.wrapping_sub(index as u32) as i32; // neg r11,r30
+        let leftover = below.wrapping_sub(aligned4(below));
+        let mut pad = if leftover == 0 { 0 } else { 4 - leftover }; // subfic ; subfe ; and
+        let units = div_four(index).wrapping_neg(); // srawi ; addze ; neg
+        fill_vector_units(g, cursor, units, _mm_set1_ps(start as f32))?;
+        index = (index as u32).wrapping_add((units as u32) << 2) as i32;
+        cursor = cursor.wrapping_add((units as u32) << 4);
+        if index < 0 {
+            // Fewer than four below zero: one store and a replicating copy.
             fpscr.disable_flush_mode_unconditional();
-            let value = if ascending {
-                fp::fmadd_single(int_to_single(n), step, start) // fmadds -- linear, no root
-            } else {
-                let back = fp::sub_single(length_f, int_to_single(n)); // fsubs
-                fp::nmsub_single(back, step, end) // fnmsubs
-            };
-            index = index.wrapping_add(1);
-            n = n.wrapping_add(1);
-            pad -= 1;
-            fp::store_single(g, cursor, value)?;
-            cursor = cursor.wrapping_add(4);
-            if index > last {
-                break;
+            fp::store_single(g, cursor, start)?;
+            let left = 0u32.wrapping_sub(index as u32);
+            let len = (left << 2).wrapping_sub(1) & 0xFFFF_FFFC; // 4*left - 4
+            mem::memcpy_chunked(g, cursor.wrapping_add(4), cursor, u64::from(len))?;
+            index = (index as u32).wrapping_add(left) as i32;
+            cursor = cursor.wrapping_add(left << 2);
+        }
+        fpscr.disable_flush_mode_unconditional();
+        let threshold = match threshold {
+            Some(t) => t,
+            None => fp::load_single(g, RAMP_THRESHOLD)?, // lfs f0,23056(r11)
+        };
+        // fcmpu ; blt -- a NaN delta takes the ascending form.
+        let ascending = !(delta < threshold);
+        if index <= last {
+            let mut n = (index as u32).wrapping_add(1) as i32;
+            while pad > 0 {
+                fpscr.disable_flush_mode_unconditional();
+                let value = if ascending {
+                    fp::fmadd_single(int_to_single(n), step, start) // fmadds -- linear, no root
+                } else {
+                    let back = fp::sub_single(length_f, int_to_single(n)); // fsubs
+                    fp::nmsub_single(back, step, end) // fnmsubs
+                };
+                index = index.wrapping_add(1);
+                n = n.wrapping_add(1);
+                pad -= 1;
+                fp::store_single(g, cursor, value)?;
+                cursor = cursor.wrapping_add(4);
+                if index > last {
+                    break;
+                }
             }
         }
+        Ok((index, cursor))
     }
-    Ok((index, cursor))
-}
 }
 
 /// Past the ramp: single `end` entries until the count left is a multiple of four, then the
@@ -161,26 +161,28 @@ unsafe fn trailing_fill(
 ) -> Result<()> {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    if tail_index > block_last {
-        return Ok(());
-    }
-    let mut remaining = (block_last as u32).wrapping_sub(tail_index as u32).wrapping_add(1) as i32;
-    let units = div_four(remaining);
-    if remaining != aligned4(remaining) {
-        while tail_index <= block_last {
-            remaining -= 1;
-            fpscr.disable_flush_mode_unconditional();
-            fp::store_single(g, cursor, end)?;
-            cursor = cursor.wrapping_add(4);
-            tail_index = tail_index.wrapping_add(1);
-            if remaining == aligned4(remaining) {
-                break;
+        if tail_index > block_last {
+            return Ok(());
+        }
+        let mut remaining = (block_last as u32)
+            .wrapping_sub(tail_index as u32)
+            .wrapping_add(1) as i32;
+        let units = div_four(remaining);
+        if remaining != aligned4(remaining) {
+            while tail_index <= block_last {
+                remaining -= 1;
+                fpscr.disable_flush_mode_unconditional();
+                fp::store_single(g, cursor, end)?;
+                cursor = cursor.wrapping_add(4);
+                tail_index = tail_index.wrapping_add(1);
+                if remaining == aligned4(remaining) {
+                    break;
+                }
             }
         }
+        fpscr.disable_flush_mode_unconditional();
+        fill_vector_units(g, cursor, units, _mm_set1_ps(end as f32))
     }
-    fpscr.disable_flush_mode_unconditional();
-    fill_vector_units(g, cursor, units, _mm_set1_ps(end as f32))
-}
 }
 
 /// `stfs float(i+1..i+4)` into the frame, read back by `lvx128`: the lane reversal puts `i + 4` in
@@ -188,10 +190,10 @@ unsafe fn trailing_fill(
 unsafe fn index_vector(index: i32) -> __m128 {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    let i0 = index as u32;
-    let f = |k: u32| int_to_single(i0.wrapping_add(k) as i32) as f32;
-    _mm_setr_ps(f(4), f(3), f(2), f(1))
-}
+        let i0 = index as u32;
+        let f = |k: u32| int_to_single(i0.wrapping_add(k) as i32) as f32;
+        _mm_setr_ps(f(4), f(3), f(2), f(1))
+    }
 }
 
 /// The ramp span in whole vectors, and those taken four at a time.
@@ -204,11 +206,25 @@ fn groups_for(last: i32, index: i32) -> (i32, i32) {
 fn block_bounds(first: i32, length: i32) -> (i32, i32) {
     let block_last = (first as u32).wrapping_add(255) as i32; // addi r26,r6,255
     let ramp_last = (length as u32).wrapping_sub(1) as i32; // addi r11,r7,-1
-    (block_last, if block_last > ramp_last { ramp_last } else { block_last })
+    (
+        block_last,
+        if block_last > ramp_last {
+            ramp_last
+        } else {
+            block_last
+        },
+    )
 }
 
 /// The linear ramp writer (`sub_82B427D8`). Returns 1.
-pub fn linear_ramp(g: &mut Guest, out: u32, first: i32, length: i32, start: f64, end: f64) -> Result<u64> {
+pub fn linear_ramp(
+    g: &mut Guest,
+    out: u32,
+    first: i32,
+    length: i32,
+    start: f64,
+    end: f64,
+) -> Result<u64> {
     if !vmx::supported() {
         return Err(vmx::unsupported());
     }
@@ -277,8 +293,11 @@ pub fn linear_ramp(g: &mut Guest, out: u32, first: i32, length: i32, start: f64,
 unsafe fn half_vector() -> __m128 {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    _mm_mul_ps(_mm_cvtepi32_ps(_mm_set1_epi32(1)), _mm_castsi128_ps(_mm_set1_epi32(0x3F00_0000)))
-}
+        _mm_mul_ps(
+            _mm_cvtepi32_ps(_mm_set1_epi32(1)),
+            _mm_castsi128_ps(_mm_set1_epi32(0x3F00_0000)),
+        )
+    }
 }
 
 /// The vector square root: the `vrsqrtefp` estimate, one Newton step, and a mask selecting `x` in
@@ -287,24 +306,31 @@ unsafe fn half_vector() -> __m128 {
 unsafe fn sqrt_vector(x: __m128, half: __m128) -> __m128 {
     // SAFETY: the callers check vmx support; every guest access is bounds-checked.
     unsafe {
-    let e = vmx::vrsqrtefp(x); // vrsqrtefp128 v13,v63
-    let scaled = _mm_mul_ps(x, half); // vmulfp128 v10,v63,v0
-    let square = _mm_mul_ps(e, e); // vmulfp128 v7,v13,v13
-    let mask_e = _mm_cmpeq_ps(e, e);
-    let c = vmx::vnmsubfp(scaled, square, half); // vnmsubfp v1,v10,v7,v0
-    let refined = vmx::vmaddfp(e, c, e); // vmaddfp v31,v13,v1,v13
-    let mask_c = _mm_cmpeq_ps(c, c);
-    let product = _mm_mul_ps(x, refined); // vmulfp128 v12,v63,v31
-    let mask = _mm_xor_si128(_mm_castps_si128(mask_c), _mm_castps_si128(mask_e));
-    _mm_castsi128_ps(_mm_or_si128(
-        _mm_andnot_si128(mask, _mm_castps_si128(product)),
-        _mm_and_si128(mask, _mm_castps_si128(x)),
-    )) // vsel v2,v12,v4,v31
-}
+        let e = vmx::vrsqrtefp(x); // vrsqrtefp128 v13,v63
+        let scaled = _mm_mul_ps(x, half); // vmulfp128 v10,v63,v0
+        let square = _mm_mul_ps(e, e); // vmulfp128 v7,v13,v13
+        let mask_e = _mm_cmpeq_ps(e, e);
+        let c = vmx::vnmsubfp(scaled, square, half); // vnmsubfp v1,v10,v7,v0
+        let refined = vmx::vmaddfp(e, c, e); // vmaddfp v31,v13,v1,v13
+        let mask_c = _mm_cmpeq_ps(c, c);
+        let product = _mm_mul_ps(x, refined); // vmulfp128 v12,v63,v31
+        let mask = _mm_xor_si128(_mm_castps_si128(mask_c), _mm_castps_si128(mask_e));
+        _mm_castsi128_ps(_mm_or_si128(
+            _mm_andnot_si128(mask, _mm_castps_si128(product)),
+            _mm_and_si128(mask, _mm_castps_si128(x)),
+        )) // vsel v2,v12,v4,v31
+    }
 }
 
 /// The square-root ramp writer (`sub_82B42C98`). Returns 1.
-pub fn sqrt_ramp(g: &mut Guest, out: u32, first: i32, length: i32, start: f64, end: f64) -> Result<u64> {
+pub fn sqrt_ramp(
+    g: &mut Guest,
+    out: u32,
+    first: i32,
+    length: i32,
+    start: f64,
+    end: f64,
+) -> Result<u64> {
     if !vmx::supported() {
         return Err(vmx::unsupported());
     }
@@ -349,7 +375,12 @@ pub fn sqrt_ramp(g: &mut Guest, out: u32, first: i32, length: i32, start: f64, e
                 let x2 = _mm_add_ps(x1, stride);
                 let x3 = _mm_add_ps(x2, stride);
                 x = _mm_add_ps(x3, stride);
-                let s = [sqrt_vector(x0, half), sqrt_vector(x1, half), sqrt_vector(x2, half), sqrt_vector(x3, half)];
+                let s = [
+                    sqrt_vector(x0, half),
+                    sqrt_vector(x1, half),
+                    sqrt_vector(x2, half),
+                    sqrt_vector(x3, half),
+                ];
                 for (k, root) in s.iter().enumerate() {
                     let a = vmx::vmaddfp(coef, *root, base_v); // coefficient first, root second
                     vmx::stvx128_ps(g, cursor.wrapping_add(16 * k as u32), a)?;
@@ -409,7 +440,9 @@ unsafe fn sine_lanes(g: &Guest, x: __m128) -> Result<__m128> {
         let mut lanes = [0u32; 4];
         _mm_storeu_si128(lanes.as_mut_ptr() as *mut __m128i, _mm_castps_si128(x));
         let s = crate::dsp::sine::sine4_value(g, lanes)?; // bl 0x824531c8
-        Ok(_mm_castsi128_ps(_mm_loadu_si128(s.as_ptr() as *const __m128i)))
+        Ok(_mm_castsi128_ps(_mm_loadu_si128(
+            s.as_ptr() as *const __m128i
+        )))
     }
 }
 
@@ -518,14 +551,25 @@ mod tests {
 
     fn guest() -> Guest {
         let mut g = Guest::from_segments(vec![
-            Segment { base: BASE, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8216_0000, bytes: vec![0u8; 0x10000] },
-            Segment { base: 0x8231_B000, bytes: vec![0u8; 0x1000] },
+            Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8216_0000,
+                bytes: vec![0u8; 0x10000],
+            },
+            Segment {
+                base: 0x8231_B000,
+                bytes: vec![0u8; 0x1000],
+            },
         ]);
         g.set_u32(RAMP_THRESHOLD, 0.0f32.to_bits()).unwrap();
-        g.set_u32(RAMP_DESCENDING_SCALE, (-1.0f32).to_bits()).unwrap();
+        g.set_u32(RAMP_DESCENDING_SCALE, (-1.0f32).to_bits())
+            .unwrap();
         for k in 0..4 {
-            g.set_u32(RAMP_INDEX_STRIDE + 4 * k, 4.0f32.to_bits()).unwrap();
+            g.set_u32(RAMP_INDEX_STRIDE + 4 * k, 4.0f32.to_bits())
+                .unwrap();
         }
         for k in 0..300u32 {
             g.set_u32(OUT + 4 * k, POISON).unwrap();
@@ -541,8 +585,15 @@ mod tests {
     fn a_unit_linear_ramp_counts_one_to_256() {
         let mut g = guest();
         assert_eq!(linear_ramp(&mut g, OUT, 0, 256, 0.0, 256.0).unwrap(), 1);
-        assert_eq!(out(&g, 256), (1..=256).map(|v| v as f32).collect::<Vec<_>>());
-        assert_eq!(g.u32(OUT + 4 * 256).unwrap(), POISON, "one block and no more");
+        assert_eq!(
+            out(&g, 256),
+            (1..=256).map(|v| v as f32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            g.u32(OUT + 4 * 256).unwrap(),
+            POISON,
+            "one block and no more"
+        );
     }
 
     #[test]
@@ -570,7 +621,10 @@ mod tests {
         // first -2: two flat samples, two padding samples by the descending form, then the vectors.
         let mut g = guest();
         linear_ramp(&mut g, OUT, -2, 10, 10.0, 0.0).unwrap();
-        assert_eq!(out(&g, 12), [10.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        assert_eq!(
+            out(&g, 12),
+            [10.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0]
+        );
         assert!(out(&g, 256)[12..].iter().all(|v| *v == 0.0));
     }
 
@@ -580,7 +634,10 @@ mod tests {
         assert_eq!(sqrt_ramp(&mut g, OUT, 0, 256, 0.0, 16.0).unwrap(), 1);
         for (i, v) in out(&g, 256).iter().enumerate() {
             let want = ((i + 1) as f32).sqrt();
-            assert!((v - want).abs() <= want * 1e-4, "entry {i}: {v} against {want}");
+            assert!(
+                (v - want).abs() <= want * 1e-4,
+                "entry {i}: {v} against {want}"
+            );
         }
     }
 
@@ -590,7 +647,10 @@ mod tests {
         sqrt_ramp(&mut g, OUT, 0, 36, 0.0, 6.0).unwrap();
         let o = out(&g, 256);
         assert!((o[35] - 6.0).abs() < 1e-4);
-        assert!(o[36..].iter().all(|v| *v == 6.0), "the trailing fill is exact");
+        assert!(
+            o[36..].iter().all(|v| *v == 6.0),
+            "the trailing fill is exact"
+        );
     }
 
     #[test]
@@ -611,7 +671,10 @@ mod tests {
         sqrt_ramp(&mut g, OUT, 0, 256, 16.0, 0.0).unwrap();
         for (i, v) in out(&g, 256).iter().enumerate() {
             let want = ((255 - i) as f32).sqrt();
-            assert!((v - want).abs() <= want.max(1.0) * 1e-4, "entry {i}: {v} against {want}");
+            assert!(
+                (v - want).abs() <= want.max(1.0) * 1e-4,
+                "entry {i}: {v} against {want}"
+            );
         }
     }
 }
@@ -647,13 +710,20 @@ mod sine_ramp_tests {
     }
 
     fn scripted(sine: f64) -> Scripted {
-        Scripted { sine, cosine: 0.0, asked: vec![] }
+        Scripted {
+            sine,
+            cosine: 0.0,
+            asked: vec![],
+        }
     }
 
     #[test]
     fn a_quarter_period_over_the_block_tracks_the_sine() {
         let mut g = guest();
-        assert_eq!(sine_ramp(&mut g, &mut scripted(0.0), OUT, 0, 256, 0.0, 1.0).unwrap(), 1);
+        assert_eq!(
+            sine_ramp(&mut g, &mut scripted(0.0), OUT, 0, 256, 0.0, 1.0).unwrap(),
+            1
+        );
         let step = core::f64::consts::FRAC_PI_2 / 256.0;
         for (i, v) in out(&g, 256).iter().enumerate() {
             let want = ((i + 1) as f64 * step).sin() as f32;
@@ -668,7 +738,11 @@ mod sine_ramp_tests {
         let mut trig = scripted(0.5);
         sine_ramp(&mut g, &mut trig, OUT, 0, 6, 0.0, 2.0).unwrap();
         let o = out(&g, 256);
-        assert_eq!((o[4], o[5]), (1.0, 1.0), "0 + 0.5 * 2 from the scripted sine");
+        assert_eq!(
+            (o[4], o[5]),
+            (1.0, 1.0),
+            "0 + 0.5 * 2 from the scripted sine"
+        );
         assert_eq!(trig.asked.len(), 2);
         assert!(o[6..].iter().all(|v| *v == 2.0));
     }

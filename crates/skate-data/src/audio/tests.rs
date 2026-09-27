@@ -77,7 +77,10 @@ impl Decoder for Recorder {
 #[test]
 fn finish_is_always_called_even_with_no_blocks() {
     // The default trait method returns nothing, so a decoder that holds state must be asked.
-    let mut rec = Recorder { seen: Vec::new(), finished: false };
+    let mut rec = Recorder {
+        seen: Vec::new(),
+        finished: false,
+    };
     let data = header_bytes(1, 48_000, 0);
     // No block chain follows the header, so this reports a format error -- but the contract
     // being pinned is that a decoder is never silently skipped when blocks DO exist, which the
@@ -89,7 +92,9 @@ struct Failing;
 
 impl Decoder for Failing {
     fn decode_chunk(&mut self, _c: usize, _chunk: &[u8]) -> Result<Vec<i16>, DecodeError> {
-        Err(DecodeError { message: "no".into() })
+        Err(DecodeError {
+            message: "no".into(),
+        })
     }
 }
 
@@ -97,7 +102,9 @@ impl Decoder for Failing {
 fn a_decoder_error_surfaces_as_decode_not_format() {
     // Distinguishing these matters: a format error means our parsing is wrong, a decode error
     // means the host's codec is. Collapsing them would send a reader to the wrong file.
-    let e = DecodeError { message: "boom".into() };
+    let e = DecodeError {
+        message: "boom".into(),
+    };
     let wrapped = Error::Decode(e.clone());
     assert!(format!("{wrapped}").contains("boom"));
     assert!(!format!("{wrapped}").contains("container"));

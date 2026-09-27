@@ -17,7 +17,7 @@
 //! Neither structure is named by `docs/rw_audio_structs.h`, so the offsets stay numbers.
 
 use crate::vmx::Fpscr;
-use crate::{dsp, fp, routing, Guest, Result};
+use crate::{Guest, Result, dsp, fp, routing};
 
 // ------------------------------------------------------------------ sub_82B31838: one source
 
@@ -120,19 +120,43 @@ pub fn mix_source(g: &mut Guest, object: u32, command: u32, forced: u32, sp: u32
         1 => {
             let start = fp::load_single(g, zero)?; // lfs f1,23056(r11)
             let current = fp::load_single(g, object.wrapping_add(CURRENT_GAIN))?; // lfs f2,112(r31)
-            routing::downmix(g, bus_ptrs, channel_ptrs, u64::from(buses), channels, start, current)?;
+            routing::downmix(
+                g,
+                bus_ptrs,
+                channel_ptrs,
+                u64::from(buses),
+                channels,
+                start,
+                current,
+            )?;
         }
         3 => {
             let target = fp::load_single(g, object.wrapping_add(TARGET_GAIN))?; // lfs f1,52(r31)
             let start = fp::load_single(g, zero)?; // lfs f2,23056(r11)
-            routing::downmix(g, bus_ptrs, channel_ptrs, u64::from(buses), channels, target, start)?;
+            routing::downmix(
+                g,
+                bus_ptrs,
+                channel_ptrs,
+                u64::from(buses),
+                channels,
+                target,
+                start,
+            )?;
         }
         _ => {
             // loc_82B31954
             let target = fp::load_single(g, object.wrapping_add(TARGET_GAIN))?; // lfs f31,52(r31)
             let current = fp::load_single(g, object.wrapping_add(CURRENT_GAIN))?; // lfs f2,112(r31)
             if target != current {
-                routing::downmix(g, bus_ptrs, channel_ptrs, u64::from(buses), channels, target, current)?;
+                routing::downmix(
+                    g,
+                    bus_ptrs,
+                    channel_ptrs,
+                    u64::from(buses),
+                    channels,
+                    target,
+                    current,
+                )?;
             } else {
                 // loc_82B3197C: the downmix loop with the ramp collapsed to one gain per route.
                 let row = (8 * channels).wrapping_add(buses).wrapping_sub(9);
@@ -145,7 +169,8 @@ pub fn mix_source(g: &mut Guest, object: u32, command: u32, forced: u32, sp: u32
                         cursor = cursor.wrapping_add(1); // lbzu r11,1(r28)
                         let entry = u32::from(g.u8(cursor)?);
                         fpscr.disable_flush_mode_unconditional();
-                        let gain = fp::load_single(g, routing::GAIN_TABLE + 4 * ((entry >> 6) & 3))?;
+                        let gain =
+                            fp::load_single(g, routing::GAIN_TABLE + 4 * ((entry >> 6) & 3))?;
                         let source = g.u32(channel_ptrs.wrapping_add(4 * ((entry >> 3) & 7)))?;
                         let bus = g.u32(bus_ptrs.wrapping_add(4 * (entry & 7)))?;
                         let k = fp::mul_single(gain, target); // fmuls f1,f0,f31
@@ -250,8 +275,14 @@ pub fn mix_back_channels(g: &mut Guest, object: u32, pair: u32) -> Result<u64> {
     let mut fpscr = Fpscr::capture();
     fpscr.disable_flush_mode_unconditional();
     let (gain, step) = match mode {
-        1 => (fp::load_single(g, BACK_GAIN_START)?, fp::load_single(g, BACK_RAMP_STEP_1)?),
-        3 => (fp::load_single(g, crate::leaves::ZERO_CELL)?, fp::load_single(g, BACK_RAMP_STEP_3)?),
+        1 => (
+            fp::load_single(g, BACK_GAIN_START)?,
+            fp::load_single(g, BACK_RAMP_STEP_1)?,
+        ),
+        3 => (
+            fp::load_single(g, crate::leaves::ZERO_CELL)?,
+            fp::load_single(g, BACK_RAMP_STEP_3)?,
+        ),
         _ => (fp::load_single(g, BACK_GAIN_START)?, 0.0),
     };
     let mut channel = 0u64;
@@ -302,13 +333,34 @@ mod tests {
     /// the back mixer's gains and steps.
     fn guest() -> Guest {
         let mut g = Guest::from_segments(vec![
-            Segment { base: BASE, bytes: vec![0u8; 0x10000] },
-            Segment { base: 0x8206_0000, bytes: vec![0u8; 0x4000] },
-            Segment { base: 0x8216_5000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8225_7000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x820E_D000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x822F_8000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8231_A000, bytes: vec![0u8; 0x2000] },
+            Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x10000],
+            },
+            Segment {
+                base: 0x8206_0000,
+                bytes: vec![0u8; 0x4000],
+            },
+            Segment {
+                base: 0x8216_5000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8225_7000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x820E_D000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x822F_8000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8231_A000,
+                bytes: vec![0u8; 0x2000],
+            },
         ]);
         let f = |g: &mut Guest, at: u32, v: f32| g.set_u32(at, v.to_bits()).unwrap();
         f(&mut g, STEP_SCALE, 4.0);
@@ -334,7 +386,11 @@ mod tests {
         // Eight channel buffers whose last single is the gain cell, and eight buses at 0.5.
         for c in 0..8u32 {
             for i in 0..256u32 {
-                f(&mut g, CHANNELS_AT + 1024 * c + 4 * i, (c + 1) as f32 * 0.1 + i as f32 * 0.001);
+                f(
+                    &mut g,
+                    CHANNELS_AT + 1024 * c + 4 * i,
+                    (c + 1) as f32 * 0.1 + i as f32 * 0.001,
+                );
                 f(&mut g, BUSES_AT + 1024 * c + 4 * i, 0.5);
             }
         }
@@ -354,7 +410,8 @@ mod tests {
         g.set_u32(OBJECT + TARGET_GAIN, target.to_bits()).unwrap();
         g.set_u32(OBJECT + CURRENT_GAIN, current.to_bits()).unwrap();
         g.set_u32(OBJECT + BUS_ARRAY, BUSES_AT).unwrap();
-        g.set_u16(OBJECT + BUS_COUNTER, (COUNTER - BUSES_AT) as u16).unwrap();
+        g.set_u16(OBJECT + BUS_COUNTER, (COUNTER - BUSES_AT) as u16)
+            .unwrap();
         g.set_u32(COMMAND + COMMAND_SOURCES, SOURCES).unwrap();
         g.set_u32(SOURCES + SOURCE_FIRST, CHANNELS_AT).unwrap();
         g.set_u16(SOURCES + SOURCE_STRIDE, 256).unwrap();
@@ -368,8 +425,14 @@ mod tests {
     fn flat_reference(h: &mut Guest, target: f32) {
         for (bus, chan, gain) in [(1u32, 0u32, 0.5f64), (0, 1, 1.0)] {
             let k = fp::mul_single(gain, f64::from(target));
-            dsp::scale::scale_accumulate(h, BUSES_AT + 1024 * bus, CHANNELS_AT + 1024 * chan, 256, k)
-                .unwrap();
+            dsp::scale::scale_accumulate(
+                h,
+                BUSES_AT + 1024 * bus,
+                CHANNELS_AT + 1024 * chan,
+                256,
+                k,
+            )
+            .unwrap();
         }
     }
 
@@ -377,14 +440,19 @@ mod tests {
     fn downmix_reference(h: &mut Guest, target: f64, current: f64) {
         for i in 0..2u32 {
             h.set_u32(REF_ARRAYS + 4 * i, BUSES_AT + 1024 * i).unwrap();
-            h.set_u32(REF_ARRAYS + 0x40 + 4 * i, CHANNELS_AT + 1024 * i).unwrap();
+            h.set_u32(REF_ARRAYS + 0x40 + 4 * i, CHANNELS_AT + 1024 * i)
+                .unwrap();
         }
         routing::downmix(h, REF_ARRAYS, REF_ARRAYS + 0x40, 2, 2, target, current).unwrap();
     }
 
     fn same_buses(g: &Guest, h: &Guest) {
         for b in 0..2 {
-            assert_eq!(words(g, BUSES_AT + 1024 * b, 256), words(h, BUSES_AT + 1024 * b, 256), "bus {b}");
+            assert_eq!(
+                words(g, BUSES_AT + 1024 * b, 256),
+                words(h, BUSES_AT + 1024 * b, 256),
+                "bus {b}"
+            );
         }
     }
 
@@ -396,11 +464,19 @@ mod tests {
         assert_eq!(mix_source(&mut g, OBJECT, COMMAND, 0, SP).unwrap(), 1);
         flat_reference(&mut h, 0.8);
         same_buses(&g, &h);
-        assert_ne!(g.u32(BUSES_AT).unwrap(), 0.5f32.to_bits(), "bus 0 was mixed into");
+        assert_ne!(
+            g.u32(BUSES_AT).unwrap(),
+            0.5f32.to_bits(),
+            "bus 0 was mixed into"
+        );
         assert_eq!(g.u32(COUNTER).unwrap(), 1, "the counter");
         for c in 0..2u32 {
             let cell = g.f32(CHANNELS_AT + 1024 * c + SOURCE_GAIN).unwrap();
-            assert_eq!(g.f32(OBJECT + CHANNEL_GAINS + 4 * c).unwrap(), cell * 0.8, "channel {c}'s gain");
+            assert_eq!(
+                g.f32(OBJECT + CHANNEL_GAINS + 4 * c).unwrap(),
+                cell * 0.8,
+                "channel {c}'s gain"
+            );
         }
         assert_eq!(g.u32(SP - MIX_FRAME_BYTES).unwrap(), SP, "the back chain");
     }
@@ -413,7 +489,11 @@ mod tests {
         mix_source(&mut g, OBJECT, COMMAND, 0, SP).unwrap();
         downmix_reference(&mut h, f64::from(0.8f32), f64::from(0.2f32));
         same_buses(&g, &h);
-        assert_eq!(g.f32(OBJECT + CURRENT_GAIN).unwrap(), 0.8, "the buses now stand at the target");
+        assert_eq!(
+            g.f32(OBJECT + CURRENT_GAIN).unwrap(),
+            0.8,
+            "the buses now stand at the target"
+        );
     }
 
     #[test]
@@ -498,7 +578,11 @@ mod tests {
     fn same_runs(g: &Guest, h: &Guest) {
         assert_eq!(words(g, BLOCK + 2048, 512), words(h, BLOCK + 2048, 512));
         // Word 100 rather than word 0: mode 3's ramp starts from a zero gain.
-        assert_ne!(g.u32(BLOCK + 2048 + 400).unwrap(), 0.25f32.to_bits(), "run 2 was mixed into");
+        assert_ne!(
+            g.u32(BLOCK + 2048 + 400).unwrap(),
+            0.25f32.to_bits(),
+            "run 2 was mixed into"
+        );
     }
 
     #[test]
@@ -520,8 +604,14 @@ mod tests {
         same_runs(&g, &h);
         assert_eq!(g.u32(BLOCK + 0x1800).unwrap(), 1, "the counter");
         for ch in 0..2u32 {
-            let last = g.f32(CHANNELS_AT + 1024 * (1 + ch) + BACK_LAST_IN_RUN).unwrap();
-            assert_eq!(g.f32(BACK + 4 * (2 + ch + 17)).unwrap(), last, "channel {ch}'s last sample");
+            let last = g
+                .f32(CHANNELS_AT + 1024 * (1 + ch) + BACK_LAST_IN_RUN)
+                .unwrap();
+            assert_eq!(
+                g.f32(BACK + 4 * (2 + ch + 17)).unwrap(),
+                last,
+                "channel {ch}'s last sample"
+            );
         }
     }
 

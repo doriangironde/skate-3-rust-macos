@@ -112,7 +112,10 @@ pub const CHANNEL_STRIDE: u32 = 14;
 /// 16 — the span both C++ `Windows()` builders alias-check, so the whole descriptor.
 pub const DESCRIPTOR_BYTES: u32 = 16;
 
-const _: () = assert!(BUFFER_BASE == crate::mix::ROW_BASE, "the same descriptor mix.rs walks");
+const _: () = assert!(
+    BUFFER_BASE == crate::mix::ROW_BASE,
+    "the same descriptor mix.rs walks"
+);
 const _: () = assert!(CHANNEL_STRIDE == crate::mix::ROW_STRIDE);
 
 /// `rlwinm rX,rX,2,0,29` applied to `mullw stride,index`: the byte offset of one channel.
@@ -155,7 +158,10 @@ pub const DEST_COUNT: u32 = 752;
 pub const SAMPLES: u32 = 256;
 
 const _: () = assert!(GAIN_CURSOR_BASE == 440, "addi r29,r3,440");
-const _: () = assert!(GAIN_MATRIX + GAIN_ROW_STRIDE == 476, "addi r24,r28,476 for row 1");
+const _: () = assert!(
+    GAIN_MATRIX + GAIN_ROW_STRIDE == 476,
+    "addi r24,r28,476 for row 1"
+);
 
 /// `sub_82B29AF0` — apply the channel gain matrix.
 ///
@@ -272,7 +278,10 @@ pub const SOURCE_DESC: u32 = 28;
 /// `lwz r28,32(r4)` — the descriptor written this block.
 pub const DEST_DESC: u32 = 32;
 
-const _: () = assert!(CHANNEL_COUNT == crate::mix::CHANNELS, "the same count mix.rs reloads");
+const _: () = assert!(
+    CHANNEL_COUNT == crate::mix::CHANNELS,
+    "the same count mix.rs reloads"
+);
 const _: () = assert!(SOURCE_DESC == crate::mix::PAIR_BACK && DEST_DESC == crate::mix::PAIR_FRONT);
 
 // The per-sample step scale, a rodata single. `((lis_imm & 0xFFFF) << 16) + offsets`, computed:
@@ -285,7 +294,10 @@ const _: () = assert!(LIS_82300000 == 0x8230_0000, "lis -32208");
 /// first 64 of the block's 256 singles. Read live through the [`Guest`] map anyway.
 pub const STEP_SCALE: u32 = LIS_82300000.wrapping_add(-31232i32 as u32) + 480;
 const _: () = assert!(STEP_SCALE == 0x822F_87E0);
-const _: () = assert!(STEP_SCALE == crate::spatial::POOL + 480, "the same pool, 480 in");
+const _: () = assert!(
+    STEP_SCALE == crate::spatial::POOL + 480,
+    "the same pool, 480 in"
+);
 
 /// What [`ramp_channels`] leaves behind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,12 +337,7 @@ pub struct RampResult {
 /// One consequence of the latch worth stating: because `applied` is re-read inside the loop and only
 /// written *after* it, every channel ramps from the same starting gain. A reader expecting the ramp
 /// to accumulate across channels would be wrong.
-pub fn ramp_channels(
-    g: &mut Guest,
-    object: u32,
-    pair: u32,
-    restart: u64,
-) -> Result<RampResult> {
+pub fn ramp_channels(g: &mut Guest, object: u32, pair: u32, restart: u64) -> Result<RampResult> {
     let mut fpscr = Fpscr::capture();
 
     let restart = (restart & 0xFF) as u32; // clrlwi r11,r5,24
@@ -386,7 +393,10 @@ pub fn ramp_channels(
     let target = fp::load_single(g, object + TARGET_GAIN)?; // lfs f0,52(r30)
     fp::store_single(g, object + APPLIED_GAIN, target)?; // stfs f0,56(r30)
 
-    Ok(RampResult { r3, vector_clobbers })
+    Ok(RampResult {
+        r3,
+        vector_clobbers,
+    })
 }
 
 // ============================================================ sub_82B298E0: the ramped matrix
@@ -691,7 +701,12 @@ fn recompute_placement<T: crate::mathlib::Trig>(
     crate::spatial::lay_out_panners(g, trig, entries, count as i32, layout, frame)?; // bl 0x82b45c50
     let tail = fp::load_single(g, mixer.wrapping_add(MIX_TAIL))?; // lfs f4,744(r31)
     let sources = g.u32(mixer.wrapping_add(SOURCE_COUNT))? as i32; // lwz r5,748(r31)
-    let gains = crate::spatial::MatrixGains { weight: live[5], focus: live[4], fill: live[6], gain: tail };
+    let gains = crate::spatial::MatrixGains {
+        weight: live[5],
+        focus: live[4],
+        fill: live[6],
+        gain: tail,
+    };
     let config = mixer.wrapping_add(MIX_CONFIG);
     let matrix = mixer.wrapping_add(MIX_MATRIX);
     crate::spatial::fill_mix_matrix(g, trig, config, entries, sources, matrix, gains) // bl 0x82b460a0
@@ -1023,12 +1038,30 @@ mod tests {
     fn guest() -> Guest {
         use crate::dsp::gain_ramp as gr;
         let mut g = Guest::from_segments(vec![
-            crate::Segment { base: MIXER, bytes: vec![0u8; 0x0002_0000] },
-            crate::Segment { base: 0x8206_0000, bytes: vec![0u8; 0x4000] },
-            crate::Segment { base: 0x8225_7000, bytes: vec![0u8; 0x1000] },
-            crate::Segment { base: 0x820E_D000, bytes: vec![0u8; 0x1000] },
-            crate::Segment { base: 0x8231_BA00, bytes: vec![0u8; 0x100] },
-            crate::Segment { base: 0x822F_8600, bytes: vec![0u8; 0x1000] },
+            crate::Segment {
+                base: MIXER,
+                bytes: vec![0u8; 0x0002_0000],
+            },
+            crate::Segment {
+                base: 0x8206_0000,
+                bytes: vec![0u8; 0x4000],
+            },
+            crate::Segment {
+                base: 0x8225_7000,
+                bytes: vec![0u8; 0x1000],
+            },
+            crate::Segment {
+                base: 0x820E_D000,
+                bytes: vec![0u8; 0x1000],
+            },
+            crate::Segment {
+                base: 0x8231_BA00,
+                bytes: vec![0u8; 0x100],
+            },
+            crate::Segment {
+                base: 0x822F_8600,
+                bytes: vec![0u8; 0x1000],
+            },
         ]);
         g.set_u32(STEP_SCALE, 0.015625f32.to_bits()).unwrap(); // measured 1/64
         g.set_u32(gr::STEP_SCALE, 4.0f32.to_bits()).unwrap();
@@ -1065,8 +1098,11 @@ mod tests {
     }
 
     fn gain(g: &mut Guest, source: u32, dest: u32, value: f32) {
-        g.set_u32(MIXER + GAIN_MATRIX + GAIN_ROW_STRIDE * source + 4 * dest, value.to_bits())
-            .unwrap();
+        g.set_u32(
+            MIXER + GAIN_MATRIX + GAIN_ROW_STRIDE * source + 4 * dest,
+            value.to_bits(),
+        )
+        .unwrap();
     }
 
     // =========================================================== the address arithmetic
@@ -1089,8 +1125,14 @@ mod tests {
         // leaves memory byte-identical and the register wrong.
         let wide = channel_address(256, 1, 0xFFFF_FF00);
         assert_eq!(wide, 0x1_0000_0300, "the carry into bit 32 survives");
-        assert_eq!(wide as u32, 0x0000_0300, "and the truncation is the callee's, not ours");
-        assert!(wide > u64::from(u32::MAX), "a u32 chain could not represent this at all");
+        assert_eq!(
+            wide as u32, 0x0000_0300,
+            "and the truncation is the callee's, not ours"
+        );
+        assert!(
+            wide > u64::from(u32::MAX),
+            "a u32 chain could not represent this at all"
+        );
     }
 
     // =========================================================== sub_82B29AF0
@@ -1190,9 +1232,17 @@ mod tests {
         gain(&mut g, 0, 2, 5.0);
         gain(&mut g, 0, 3, 5.0);
         apply_gain_matrix(&mut g, MIXER, DST_DESC, SRC_DESC).unwrap();
-        assert_eq!(g.u32(MIXER + DEST_COUNT).unwrap(), 0, "the first channel cleared the count");
+        assert_eq!(
+            g.u32(MIXER + DEST_COUNT).unwrap(),
+            0,
+            "the first channel cleared the count"
+        );
         for i in 0..1024u32 {
-            assert_eq!(at(&g, dst_buf + 1024 + 4 * i), 7.0, "channel 1 word {i} was written");
+            assert_eq!(
+                at(&g, dst_buf + 1024 + 4 * i),
+                7.0,
+                "channel 1 word {i} was written"
+            );
         }
     }
 
@@ -1226,7 +1276,8 @@ mod tests {
     fn ramp_layout(g: &mut Guest, channels: u8, target: f32, applied: f32) {
         g.set_u8(RAMP_OBJ + CHANNEL_COUNT, channels).unwrap();
         g.set_u32(RAMP_OBJ + TARGET_GAIN, target.to_bits()).unwrap();
-        g.set_u32(RAMP_OBJ + APPLIED_GAIN, applied.to_bits()).unwrap();
+        g.set_u32(RAMP_OBJ + APPLIED_GAIN, applied.to_bits())
+            .unwrap();
         g.set_u32(PAIR + SOURCE_DESC, DESC_A).unwrap();
         g.set_u32(PAIR + DEST_DESC, DESC_B).unwrap();
         descriptor(g, DESC_A, MIXER + 0x1_0000, 256);
@@ -1244,12 +1295,19 @@ mod tests {
 
         let out = ramp_channels(&mut g, RAMP_OBJ, PAIR, 0).unwrap();
         assert_eq!(out.r3, 1, "li r3,1 on every path");
-        assert!(out.vector_clobbers.is_some(), "two calls were made, so v28-v31 moved");
+        assert!(
+            out.vector_clobbers.is_some(),
+            "two calls were made, so v28-v31 moved"
+        );
 
         // step = (1.0 - 0.0)/64, so the kernel's gain is k/64 for the first 64 samples and then 1.0.
         for channel in 0..2u32 {
             let base = dst + 1024 * channel; // row 0 of the destination, then a channel of 256
-            assert_eq!(at(&g, base), 0.0, "channel {channel} sample 0 takes the applied gain");
+            assert_eq!(
+                at(&g, base),
+                0.0,
+                "channel {channel} sample 0 takes the applied gain"
+            );
             assert_eq!(at(&g, base + 4), 1.0 / 64.0, "sample 1");
             assert_eq!(at(&g, base + 4 * 64), 1.0, "sample 64 holds at the target");
             assert_eq!(at(&g, base + 4 * 255), 1.0, "and so does the last");
@@ -1273,7 +1331,11 @@ mod tests {
         let dst = MIXER + 0x1_8000;
         fill(&mut g, src, 512, 1.0);
         ramp_channels(&mut g, RAMP_OBJ, PAIR, 0).unwrap();
-        assert_eq!(at(&g, dst), at(&g, dst + 1024), "both channels start at 0.0");
+        assert_eq!(
+            at(&g, dst),
+            at(&g, dst + 1024),
+            "both channels start at 0.0"
+        );
         assert_eq!(at(&g, dst + 4), at(&g, dst + 1024 + 4));
     }
 
@@ -1343,7 +1405,11 @@ mod tests {
         fill(&mut g, src, 256, 1.0);
         g.set_u32(STEP_SCALE, 0.03125f32.to_bits()).unwrap(); // 1/32
         ramp_channels(&mut g, RAMP_OBJ, PAIR, 0).unwrap();
-        assert_eq!(at(&g, dst + 4), 1.0 / 32.0, "the step doubled with the cell");
+        assert_eq!(
+            at(&g, dst + 4),
+            1.0 / 32.0,
+            "the step doubled with the cell"
+        );
     }
 
     // =========================================================== sub_82B298E0
@@ -1353,7 +1419,8 @@ mod tests {
     const FRAME: u32 = SP - RAMP_FRAME_BYTES;
 
     fn saved_gain(g: &mut Guest, saved: u32, source: u32, dest: u32, value: f32) {
-        g.set_u32(saved + GAIN_ROW_STRIDE * source + 4 * dest, value.to_bits()).unwrap();
+        g.set_u32(saved + GAIN_ROW_STRIDE * source + 4 * dest, value.to_bits())
+            .unwrap();
     }
 
     fn delta_slot(source: u32, column: u32) -> u32 {
@@ -1420,7 +1487,11 @@ mod tests {
 
         ramp_gain_matrix(&mut g, MIXER, DST_DESC, SRC_DESC, SAVED, SP).unwrap();
 
-        assert_eq!(g.u32(FRAME).unwrap(), SP, "stwu r1,-432(r1) stores the entry r1");
+        assert_eq!(
+            g.u32(FRAME).unwrap(),
+            SP,
+            "stwu r1,-432(r1) stores the entry r1"
+        );
         for s in 0..2 {
             for c in 0..8 {
                 let expected = (1 + s + c) as f32 / 64.0;
@@ -1432,7 +1503,12 @@ mod tests {
         };
         for ea in FRAME..SP {
             if !written(ea) {
-                assert_eq!(g.u8(ea).unwrap(), 0xA5, "frame byte {:#x} was written", ea - FRAME);
+                assert_eq!(
+                    g.u8(ea).unwrap(),
+                    0xA5,
+                    "frame byte {:#x} was written",
+                    ea - FRAME
+                );
             }
         }
     }
@@ -1450,15 +1526,27 @@ mod tests {
         fill(&mut g, SRC_BUF, 256, 1.0);
         saved_gain(&mut g, SAVED, 0, 0, 0.0);
         gain(&mut g, 0, 0, 5.0); // never read: no delta row is computed
-        g.set_u32(delta_slot(0, 0), (1.0f32 / 64.0).to_bits()).unwrap();
+        g.set_u32(delta_slot(0, 0), (1.0f32 / 64.0).to_bits())
+            .unwrap();
 
         let last = ramp_gain_matrix(&mut g, MIXER, DST_DESC, SRC_DESC, SAVED, SP).unwrap();
 
         assert_eq!(at(&g, DST_BUF), 0.0);
-        assert_eq!(at(&g, DST_BUF + 4), 1.0 / 64.0, "ramped by the stale frame slot");
+        assert_eq!(
+            at(&g, DST_BUF + 4),
+            1.0 / 64.0,
+            "ramped by the stale frame slot"
+        );
         assert_eq!(at(&g, DST_BUF + 4 * 64), 1.0);
-        assert_eq!(at(&g, delta_slot(0, 0)), 1.0 / 64.0, "and the slot was not rewritten");
-        assert!(matches!(last, LastKernelClobbers::Copy(_)), "pass 1 ran; pass 2 did not");
+        assert_eq!(
+            at(&g, delta_slot(0, 0)),
+            1.0 / 64.0,
+            "and the slot was not rewritten"
+        );
+        assert!(
+            matches!(last, LastKernelClobbers::Copy(_)),
+            "pass 1 ran; pass 2 did not"
+        );
     }
 
     #[test]
@@ -1483,9 +1571,17 @@ mod tests {
             gain(&mut g, 0, d, 0.5);
         }
         ramp_gain_matrix(&mut g, MIXER, dst_desc, src_desc, saved, SP).unwrap();
-        assert_eq!(g.u32(MIXER + DEST_COUNT).unwrap(), 0, "channel 0 cleared the count");
+        assert_eq!(
+            g.u32(MIXER + DEST_COUNT).unwrap(),
+            0,
+            "channel 0 cleared the count"
+        );
         for i in 0..3 * 256u32 {
-            assert_eq!(at(&g, channel0 + 1024 + 4 * i), 7.0, "channels 1-3 word {i} was written");
+            assert_eq!(
+                at(&g, channel0 + 1024 + 4 * i),
+                7.0,
+                "channels 1-3 word {i} was written"
+            );
         }
     }
 
@@ -1509,7 +1605,11 @@ mod tests {
         gain(&mut g, 0, 0, 0.0);
         gain(&mut g, 0, 1, 0.5);
         ramp_gain_matrix(&mut g, MIXER, dst_desc, src_desc, SAVED, SP).unwrap();
-        assert_eq!(g.u32(src_desc + BUFFER_BASE).unwrap(), 0, "channel 0 zeroed the base");
+        assert_eq!(
+            g.u32(src_desc + BUFFER_BASE).unwrap(),
+            0,
+            "channel 0 zeroed the base"
+        );
         for i in 0..256u32 {
             assert_eq!(at(&g, channel0 + 1024 + 4 * i), 0.5, "channel 1 word {i}");
         }
@@ -1530,7 +1630,11 @@ mod tests {
         gain(&mut g, 1, 0, 1000.0);
         let last = ramp_gain_matrix(&mut g, MIXER, DST_DESC, SRC_DESC, SAVED, SP).unwrap();
         for i in 0..256u32 {
-            assert_eq!(at(&g, DST_BUF + 4 * i), 0.5, "word {i}: row 0 and source 0 only");
+            assert_eq!(
+                at(&g, DST_BUF + 4 * i),
+                0.5,
+                "word {i}: row 0 and source 0 only"
+            );
         }
         assert!(matches!(last, LastKernelClobbers::Copy(_)));
     }
@@ -1632,7 +1736,11 @@ mod tests {
         }
         crate::mathlib::tests::with_atan_pool(&mut g);
         for (i, v) in RP_LIVE.iter().enumerate() {
-            word(&mut g, MIXER + LIVE_FIRST + LIVE_STRIDE * i as u32, v.to_bits());
+            word(
+                &mut g,
+                MIXER + LIVE_FIRST + LIVE_STRIDE * i as u32,
+                v.to_bits(),
+            );
             let cached = if cached_equal { *v } else { v + 1.0 };
             word(&mut g, MIXER + MIX_CACHED + 4 * i as u32, cached.to_bits());
         }
@@ -1640,9 +1748,17 @@ mod tests {
         word(&mut g, MIXER + MIX_TAIL, 0.5f32.to_bits());
         word(&mut g, MIXER + SOURCE_COUNT, 2);
         word(&mut g, MIXER + DEST_COUNT, 0);
-        word(&mut g, MIXER + MIX_CONFIG + crate::spatial::MATRIX_DEST_COUNT, 2);
+        word(
+            &mut g,
+            MIXER + MIX_CONFIG + crate::spatial::MATRIX_DEST_COUNT,
+            2,
+        );
         for k in 0..64u32 {
-            word(&mut g, MIXER + MIX_MATRIX + 4 * k, (k as f32 * 0.01).to_bits());
+            word(
+                &mut g,
+                MIXER + MIX_MATRIX + 4 * k,
+                (k as f32 * 0.01).to_bits(),
+            );
         }
         word(&mut g, RP_PAIR + REPUBLISH_PAIR_BACK, RP_DESC_BACK);
         word(&mut g, RP_PAIR + REPUBLISH_PAIR_FRONT, RP_DESC_FRONT);
@@ -1650,11 +1766,17 @@ mod tests {
     }
 
     fn scripted() -> crate::mathlib::tests::Scripted {
-        crate::mathlib::tests::Scripted { sine: 0.25, cosine: 0.5, asked: vec![] }
+        crate::mathlib::tests::Scripted {
+            sine: 0.25,
+            cosine: 0.5,
+            asked: vec![],
+        }
     }
 
     fn mixer_words(g: &Guest) -> Vec<u32> {
-        (MIX_ENTRIES / 4..(MIX_TAIL + 12) / 4).map(|k| g.u32(MIXER + 4 * k).unwrap()).collect()
+        (MIX_ENTRIES / 4..(MIX_TAIL + 12) / 4)
+            .map(|k| g.u32(MIXER + 4 * k).unwrap())
+            .collect()
     }
 
     fn swapped(g: &Guest) {
@@ -1666,8 +1788,15 @@ mod tests {
     fn nothing_moved_and_no_flag_only_mixes_and_swaps() {
         let mut g = republish_guest(true);
         let before = mixer_words(&g);
-        assert_eq!(republish_mix(&mut g, &mut scripted(), MIXER, RP_PAIR, 0x100, RP_STACK_TOP).unwrap(), 1);
-        assert_eq!(mixer_words(&g), before, "no recompute, no cache, no +700: the flag's low byte is 0");
+        assert_eq!(
+            republish_mix(&mut g, &mut scripted(), MIXER, RP_PAIR, 0x100, RP_STACK_TOP).unwrap(),
+            1
+        );
+        assert_eq!(
+            mixer_words(&g),
+            before,
+            "no recompute, no cache, no +700: the flag's low byte is 0"
+        );
         swapped(&g);
     }
 
@@ -1677,29 +1806,58 @@ mod tests {
         let mut h = g.clone();
         republish_mix(&mut g, &mut scripted(), MIXER, RP_PAIR, 1, RP_STACK_TOP).unwrap();
         let live: [f64; 10] = RP_LIVE.map(f64::from);
-        recompute_placement(&mut h, &mut scripted(), MIXER, 2, &live, RP_STACK_TOP - REPUBLISH_FRAME_BYTES).unwrap();
+        recompute_placement(
+            &mut h,
+            &mut scripted(),
+            MIXER,
+            2,
+            &live,
+            RP_STACK_TOP - REPUBLISH_FRAME_BYTES,
+        )
+        .unwrap();
         assert_eq!(mixer_words(&g), mixer_words(&h));
-        assert_eq!(g.u32(MIXER + MIX_COMPARED).unwrap(), 0xDEAD_BEEF, "+700 only on the moved path");
+        assert_eq!(
+            g.u32(MIXER + MIX_COMPARED).unwrap(),
+            0xDEAD_BEEF,
+            "+700 only on the moved path"
+        );
     }
 
     #[test]
     fn a_moved_parameter_saves_the_matrix_recomputes_ramps_and_caches() {
         let mut g = republish_guest(false);
         let mut h = g.clone();
-        let old: Vec<u32> = (0..16).map(|k| g.u32(MIXER + MIX_MATRIX + 4 * k).unwrap()).collect();
+        let old: Vec<u32> = (0..16)
+            .map(|k| g.u32(MIXER + MIX_MATRIX + 4 * k).unwrap())
+            .collect();
         republish_mix(&mut g, &mut scripted(), MIXER, RP_PAIR, 0, RP_STACK_TOP).unwrap();
         let frame = RP_STACK_TOP - REPUBLISH_FRAME_BYTES;
-        let saved: Vec<u32> = (0..16).map(|k| g.u32(frame + REPUBLISH_SAVED + 4 * k).unwrap()).collect();
-        assert_eq!(saved, old, "two source rows saved before the recompute overwrote them");
+        let saved: Vec<u32> = (0..16)
+            .map(|k| g.u32(frame + REPUBLISH_SAVED + 4 * k).unwrap())
+            .collect();
+        assert_eq!(
+            saved, old,
+            "two source rows saved before the recompute overwrote them"
+        );
         let live: [f64; 10] = RP_LIVE.map(f64::from);
         for k in 0..16u32 {
-            h.set_u32(frame + REPUBLISH_SAVED + 4 * k, old[k as usize]).unwrap();
+            h.set_u32(frame + REPUBLISH_SAVED + 4 * k, old[k as usize])
+                .unwrap();
         }
         recompute_placement(&mut h, &mut scripted(), MIXER, 2, &live, frame).unwrap();
-        ramp_gain_matrix(&mut h, MIXER, RP_DESC_FRONT, RP_DESC_BACK, frame + REPUBLISH_SAVED, frame).unwrap();
+        ramp_gain_matrix(
+            &mut h,
+            MIXER,
+            RP_DESC_FRONT,
+            RP_DESC_BACK,
+            frame + REPUBLISH_SAVED,
+            frame,
+        )
+        .unwrap();
         fp::store_single(&mut h, MIXER + MIX_COMPARED, 0.75).unwrap();
         for (i, v) in RP_LIVE.iter().enumerate() {
-            h.set_u32(MIXER + MIX_CACHED + 4 * i as u32, v.to_bits()).unwrap();
+            h.set_u32(MIXER + MIX_CACHED + 4 * i as u32, v.to_bits())
+                .unwrap();
         }
         assert_eq!(mixer_words(&g), mixer_words(&h));
         swapped(&g);
@@ -1723,10 +1881,25 @@ mod gain_ramp_advance_tests {
     /// One channel of 2.0s at 256 samples a second; the gain sentinel 1.0 and the time sentinel -1.
     fn guest(gain: f32) -> Guest {
         let mut g = Guest::single(BASE, 0x4000);
-        g.put(crate::routing::UNITY_GAIN, 1.0f32.to_bits().to_be_bytes().to_vec());
-        g.put(VOICE_RAMP_TIME_SENTINEL, (-1.0f64).to_bits().to_be_bytes().to_vec());
-        g.put(crate::leaves::ZERO_CELL, 0.0f32.to_bits().to_be_bytes().to_vec());
-        g.put(crate::dsp::ramps::RAMP_INDEX_STRIDE, [4.0f32; 4].iter().flat_map(|v| v.to_bits().to_be_bytes()).collect());
+        g.put(
+            crate::routing::UNITY_GAIN,
+            1.0f32.to_bits().to_be_bytes().to_vec(),
+        );
+        g.put(
+            VOICE_RAMP_TIME_SENTINEL,
+            (-1.0f64).to_bits().to_be_bytes().to_vec(),
+        );
+        g.put(
+            crate::leaves::ZERO_CELL,
+            0.0f32.to_bits().to_be_bytes().to_vec(),
+        );
+        g.put(
+            crate::dsp::ramps::RAMP_INDEX_STRIDE,
+            [4.0f32; 4]
+                .iter()
+                .flat_map(|v| v.to_bits().to_be_bytes())
+                .collect(),
+        );
         g.set_u32(DESC + MIX_DESC_CLOCK, CLOCK).unwrap();
         g.set_u32(CLOCK + 12, 256.0f32.to_bits()).unwrap();
         g.set_u32(DESC + MIX_DESC_MIXER, MIXER).unwrap();
@@ -1735,7 +1908,8 @@ mod gain_ramp_advance_tests {
         g.set_u32(CHANNELS + 4, CHANNEL0).unwrap();
         g.set_u16(CHANNELS + 14, 256).unwrap();
         g.set_u8(STATE + VOICE_RAMP_CHANNELS, 1).unwrap();
-        g.set_u32(STATE + VOICE_RAMP_CURRENT_GAIN, gain.to_bits()).unwrap();
+        g.set_u32(STATE + VOICE_RAMP_CURRENT_GAIN, gain.to_bits())
+            .unwrap();
         for i in 0..256u32 {
             g.set_u32(CHANNEL0 + 4 * i, 2.0f32.to_bits()).unwrap();
             g.set_u32(ENVELOPE + 4 * i, 0x7777_7777).unwrap();
@@ -1744,13 +1918,20 @@ mod gain_ramp_advance_tests {
     }
 
     fn trig() -> Scripted {
-        Scripted { sine: 0.0, cosine: 0.0, asked: vec![] }
+        Scripted {
+            sine: 0.0,
+            cosine: 0.0,
+            asked: vec![],
+        }
     }
 
     #[test]
     fn a_steady_voice_at_the_sentinel_gain_changes_nothing() {
         let mut g = guest(1.0);
-        assert_eq!(advance_gain_ramp(&mut g, &mut trig(), STATE, DESC).unwrap(), 1);
+        assert_eq!(
+            advance_gain_ramp(&mut g, &mut trig(), STATE, DESC).unwrap(),
+            1
+        );
         assert_eq!(g.u32(ENVELOPE).unwrap(), 0x7777_7777);
         assert_eq!(g.f32(CHANNEL0).unwrap(), 2.0);
         assert_eq!(g.u32(STATE + VOICE_RAMP_LAST_WORD).unwrap(), 0);
@@ -1770,22 +1951,34 @@ mod gain_ramp_advance_tests {
     fn a_start_request_runs_a_one_block_linear_ramp_to_its_end() {
         let mut g = guest(0.0);
         g.set_u8(STATE + VOICE_RAMP_START_PENDING, 1).unwrap();
-        g.set_u32(STATE + VOICE_RAMP_REQUEST_SPAN, 1.0f32.to_bits()).unwrap(); // 256 samples
-        g.set_u32(STATE + VOICE_RAMP_REQUEST_EXTRA, 256.0f32.to_bits()).unwrap();
+        g.set_u32(STATE + VOICE_RAMP_REQUEST_SPAN, 1.0f32.to_bits())
+            .unwrap(); // 256 samples
+        g.set_u32(STATE + VOICE_RAMP_REQUEST_EXTRA, 256.0f32.to_bits())
+            .unwrap();
         g.set_u32(STATE + VOICE_RAMP_REQUEST_CURVE, 0).unwrap();
-        g.set_u64(STATE + VOICE_RAMP_START_TIME, 10.0f64.to_bits()).unwrap();
-        g.set_u64(DESC + MIX_DESC_TIME_BASE, 10.0f64.to_bits()).unwrap();
+        g.set_u64(STATE + VOICE_RAMP_START_TIME, 10.0f64.to_bits())
+            .unwrap();
+        g.set_u64(DESC + MIX_DESC_TIME_BASE, 10.0f64.to_bits())
+            .unwrap();
         let mut h = g.clone();
         advance_gain_ramp(&mut g, &mut trig(), STATE, DESC).unwrap();
         crate::dsp::ramps::linear_ramp(&mut h, ENVELOPE, 0, 256, 0.0, 256.0).unwrap();
         for i in 0..256u32 {
-            assert_eq!(g.u32(ENVELOPE + 4 * i).unwrap(), h.u32(ENVELOPE + 4 * i).unwrap(), "envelope {i}");
+            assert_eq!(
+                g.u32(ENVELOPE + 4 * i).unwrap(),
+                h.u32(ENVELOPE + 4 * i).unwrap(),
+                "envelope {i}"
+            );
             let scaled = h.f32(ENVELOPE + 4 * i).unwrap() * 2.0;
             assert_eq!(g.f32(CHANNEL0 + 4 * i).unwrap(), scaled, "channel {i}");
         }
         assert_eq!(g.u32(STATE + VOICE_RAMP_SAMPLES).unwrap(), 256);
         assert_eq!(g.u32(STATE + VOICE_RAMP_CURSOR).unwrap(), 256);
-        assert_eq!(g.u8(STATE + VOICE_RAMP_STATE).unwrap(), 0, "the ramp finished within the block");
+        assert_eq!(
+            g.u8(STATE + VOICE_RAMP_STATE).unwrap(),
+            0,
+            "the ramp finished within the block"
+        );
         assert_eq!(g.f32(STATE + VOICE_RAMP_CURRENT_GAIN).unwrap(), 256.0);
     }
 }

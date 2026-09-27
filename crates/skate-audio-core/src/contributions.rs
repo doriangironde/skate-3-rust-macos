@@ -37,7 +37,7 @@
 //! and its callee's scratch land below this one, and [`crate::mathlib::log10`] keeps all of that in
 //! registers. Nor are the `r12`/`r31`/`f31` spills, since nothing here writes them.
 
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// `lwz r11,12(r31)` — the accumulator this contribution belongs to.
 pub const OWNER: u32 = 12;
@@ -61,7 +61,10 @@ pub const CORRECTION_SCALE: u32 = (((-32225i32 as u32) & 0xFFFF) << 16).wrapping
 
 const _: () = assert!(ZERO_FLOAT == 0x8216_5A10, "lis -32234 ; lfs 23056");
 const _: () = assert!(CORRECTION_SCALE == 0x821F_1790, "lis -32225 ; lfs 6032");
-const _: () = assert!(ZERO_FLOAT == crate::mix::ZERO_SINGLE, "the same word, reached twice");
+const _: () = assert!(
+    ZERO_FLOAT == crate::mix::ZERO_SINGLE,
+    "the same word, reached twice"
+);
 
 /// Republish this contribution (`sub_82B225A0`). `self_object` is the guest's `r3`; the original
 /// returns nothing.
@@ -131,7 +134,8 @@ mod tests {
         g.put(CORRECTION_SCALE, SCALE.to_bits().to_be_bytes().to_vec());
         g.set_u32(SELF + MODE, mode as u32).unwrap();
         g.set_u32(SELF + LENGTH, length as u32).unwrap();
-        g.set_u32(SELF + COEFFICIENT, coefficient.to_bits()).unwrap();
+        g.set_u32(SELF + COEFFICIENT, coefficient.to_bits())
+            .unwrap();
         g.set_u32(SELF + VALUE, 0xDEAD_BEEF).unwrap();
         g.set_u32(SELF + PUBLISHED, previous.to_bits()).unwrap();
         g.set_u32(SELF + OWNER, OWNER_AT).unwrap();
@@ -156,7 +160,11 @@ mod tests {
         republish(&mut g, SELF).unwrap();
         assert_eq!(value(&g), 50.0);
         assert_eq!(published(&g), 50.0);
-        assert_eq!(total(&g), 120.0, "the total gained the difference, not the value");
+        assert_eq!(
+            total(&g),
+            120.0,
+            "the total gained the difference, not the value"
+        );
     }
 
     #[test]
@@ -166,7 +174,11 @@ mod tests {
         republish(&mut g, SELF).unwrap();
         assert_eq!(total(&g), 50.0);
         republish(&mut g, SELF).unwrap();
-        assert_eq!(total(&g), 50.0, "the second publish is a no-op for the total");
+        assert_eq!(
+            total(&g),
+            50.0,
+            "the second publish is a no-op for the total"
+        );
     }
 
     #[test]
@@ -185,7 +197,11 @@ mod tests {
 
         assert_eq!(value(&g), 50.0, "+28 is the raw value");
         assert_eq!(published(&g), want, "+32 is the corrected one");
-        assert_ne!(value(&g), published(&g), "and they differ, which is the point");
+        assert_ne!(
+            value(&g),
+            published(&g),
+            "and they differ, which is the point"
+        );
         assert_eq!(total(&g), want, "the total took the corrected value");
     }
 
@@ -202,7 +218,11 @@ mod tests {
         // The same coefficient against the unpatched cell is corrected, so the cell decided it.
         let mut h = guest(1, 50, 7.0, 0.0, 0.0);
         republish(&mut h, SELF).unwrap();
-        assert_ne!(published(&h), 50.0, "7 is not the image's zero, so it is corrected");
+        assert_ne!(
+            published(&h),
+            50.0,
+            "7 is not the image's zero, so it is corrected"
+        );
 
         // And a zero coefficient against a patched cell does take the correction path, but
         // log10(0) is -inf, so the correction is 1000 / -inf = -0 and the value is unchanged. This
@@ -228,9 +248,17 @@ mod tests {
         for mode in [0i32, 2, -1, 1000] {
             let mut g = guest(mode, 50, 0.0, 30.0, 100.0);
             republish(&mut g, SELF).unwrap();
-            assert_eq!(value(&g), 0.0, "mode {mode}: +28 settles at the image's zero");
+            assert_eq!(
+                value(&g),
+                0.0,
+                "mode {mode}: +28 settles at the image's zero"
+            );
             assert_eq!(published(&g), 0.0, "mode {mode}: and so does +32");
-            assert_eq!(total(&g), 70.0, "mode {mode}: the total lost the last publish");
+            assert_eq!(
+                total(&g),
+                70.0,
+                "mode {mode}: the total lost the last publish"
+            );
         }
     }
 
@@ -241,7 +269,11 @@ mod tests {
         // `total + (0 - published)`, is (-0) + (+0) = +0 under round-to-nearest.
         let mut g = guest(0, 0, 0.0, 0.0, -0.0);
         republish(&mut g, SELF).unwrap();
-        assert_eq!(g.u32(OWNER_AT + OWNER_TOTAL).unwrap(), (-0.0f32).to_bits(), "still -0");
+        assert_eq!(
+            g.u32(OWNER_AT + OWNER_TOTAL).unwrap(),
+            (-0.0f32).to_bits(),
+            "still -0"
+        );
     }
 
     #[test]
@@ -261,6 +293,10 @@ mod tests {
     fn the_addresses_come_from_the_lis_immediates() {
         assert_eq!(ZERO_FLOAT, 0x8216_0000 + 23056);
         assert_eq!(CORRECTION_SCALE, 0x821F_0000 + 6032);
-        assert_eq!(ZERO_FLOAT, crate::mix::ZERO_SINGLE, "the same cell the mixer reads");
+        assert_eq!(
+            ZERO_FLOAT,
+            crate::mix::ZERO_SINGLE,
+            "the same cell the mixer reads"
+        );
     }
 }

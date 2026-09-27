@@ -38,7 +38,7 @@
 //! the note in [`crate::vmx::Fpscr`]). The pair is written here because it is the shape of the
 //! original, and no claim is made about what either language does to a NaN.
 
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// `lwz r10,4(r4)` — the planar buffer's base.
 pub const PLANE_BASE: u32 = 4;
@@ -102,7 +102,12 @@ pub fn interleave_six(g: &mut Guest, out: u64, desc: u32) -> Result<u64> {
         let trips = u64::from(adjusted as u32 >> 4) + 1;
         for _ in 0..trips {
             for k in 0..4u32 {
-                frame(g, &planes, element + k, (out as u32).wrapping_add(FRAME_BYTES * k))?;
+                frame(
+                    g,
+                    &planes,
+                    element + k,
+                    (out as u32).wrapping_add(FRAME_BYTES * k),
+                )?;
             }
             element += 4; // all six plane pointers advance by 16
             out += 4 * i64::from(FRAME_BYTES); // addi r3,r3,96
@@ -151,7 +156,8 @@ mod tests {
     fn guest() -> Guest {
         let mut g = Guest::single(BASE, 0x1_0000);
         g.set_u32(DESC + PLANE_BASE, PLANES_AT).unwrap();
-        g.set_u16(DESC + PLANE_FRAMES, FRAMES_PER_PLANE as u16).unwrap();
+        g.set_u16(DESC + PLANE_FRAMES, FRAMES_PER_PLANE as u16)
+            .unwrap();
         for plane in 0..PLANES {
             for f in 0..FRAMES_PER_PLANE {
                 let at = PLANES_AT + 4 * (plane * FRAMES_PER_PLANE + f);
@@ -174,11 +180,19 @@ mod tests {
         let mut g = guest();
         let end = interleave_six(&mut g, u64::from(OUT), DESC).unwrap();
 
-        assert_eq!(end, u64::from(OUT) + 256 * u64::from(FRAME_BYTES), "the cursor advanced 6,144");
+        assert_eq!(
+            end,
+            u64::from(OUT) + 256 * u64::from(FRAME_BYTES),
+            "the cursor advanced 6,144"
+        );
         for f in [0u32, 1, 5, 128, 255] {
             for plane in 0..PLANES {
                 let at = OUT + f * FRAME_BYTES + slot_of(plane);
-                assert_eq!(g.f32(at).unwrap(), value(plane, f), "frame {f}, plane {plane}");
+                assert_eq!(
+                    g.f32(at).unwrap(),
+                    value(plane, f),
+                    "frame {f}, plane {plane}"
+                );
             }
         }
     }
@@ -193,7 +207,14 @@ mod tests {
         // coincides, at +0.
         let straight: Vec<u32> = (0..PLANES).map(|p| 4 * p).collect();
         let actual: Vec<u32> = (0..PLANES).map(slot_of).collect();
-        assert_eq!(straight.iter().zip(&actual).filter(|(a, b)| *a != *b).count(), 5);
+        assert_eq!(
+            straight
+                .iter()
+                .zip(&actual)
+                .filter(|(a, b)| *a != *b)
+                .count(),
+            5
+        );
         assert_eq!(straight[0], actual[0], "plane 0 is the only agreement");
 
         // And the values really follow it: plane 1's first sample is at +8 of the first frame.
@@ -257,9 +278,17 @@ mod tests {
         assert_eq!((PLANE_BASE, PLANE_FRAMES), (4, 14));
         assert_eq!(SPAN_BYTES, 1024);
         assert_eq!(FRAME_BYTES, 24);
-        assert_eq!(SPAN_BYTES / 4 * FRAME_BYTES, 6144, "256 frames of six floats");
+        assert_eq!(
+            SPAN_BYTES / 4 * FRAME_BYTES,
+            6144,
+            "256 frames of six floats"
+        );
         // The unrolled trip count the original computes, for the span it always gets.
         assert_eq!(((1024u32 - 13) >> 4) + 1, 64);
-        assert_eq!(64 * 4, 256, "and it consumes the span exactly, leaving no tail");
+        assert_eq!(
+            64 * 4,
+            256,
+            "and it consumes the span exactly, leaving no tail"
+        );
     }
 }

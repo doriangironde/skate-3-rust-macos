@@ -403,7 +403,9 @@ mod tests {
     }
 
     fn get(g: &Guest, base: u32, n: usize) -> Vec<f32> {
-        (0..n).map(|i| g.f32(base + 4 * i as u32).unwrap()).collect()
+        (0..n)
+            .map(|i| g.f32(base + 4 * i as u32).unwrap())
+            .collect()
     }
 
     fn ramp(n: usize) -> Vec<f32> {
@@ -417,17 +419,32 @@ mod tests {
         src.iter().map(|x| ((*x as f64) * k) as f32).collect()
     }
     fn model_accumulate(dst: &[f32], src: &[f32], k: f64) -> Vec<f32> {
-        dst.iter().zip(src).map(|(c, x)| ((*x as f64).mul_add(k, *c as f64)) as f32).collect()
+        dst.iter()
+            .zip(src)
+            .map(|(c, x)| ((*x as f64).mul_add(k, *c as f64)) as f32)
+            .collect()
     }
 
     #[test]
     fn the_path_selector_is_both_masks() {
         // Vector needs 128-byte alignment on *both* pointers and a count that is a multiple of 64.
         assert!(takes_vector_path(0x1000_0000, 0x2000_0080, 256));
-        assert!(!takes_vector_path(0x1000_0004, 0x2000_0000, 256), "dst misaligned");
-        assert!(!takes_vector_path(0x1000_0000, 0x2000_0040, 256), "src on 64 but not 128");
-        assert!(!takes_vector_path(0x1000_0000, 0x2000_0000, 255), "count not a multiple of 64");
-        assert!(!takes_vector_path(0x1000_0000, 0x2000_0000, 32), "32 is not a multiple of 64");
+        assert!(
+            !takes_vector_path(0x1000_0004, 0x2000_0000, 256),
+            "dst misaligned"
+        );
+        assert!(
+            !takes_vector_path(0x1000_0000, 0x2000_0040, 256),
+            "src on 64 but not 128"
+        );
+        assert!(
+            !takes_vector_path(0x1000_0000, 0x2000_0000, 255),
+            "count not a multiple of 64"
+        );
+        assert!(
+            !takes_vector_path(0x1000_0000, 0x2000_0000, 32),
+            "32 is not a multiple of 64"
+        );
         // The mask is 0x7F, not 0xF: a 16-byte aligned pair is still the scalar path.
         assert!(!takes_vector_path(0x1000_0010, 0x2000_0010, 64));
     }
@@ -458,9 +475,18 @@ mod tests {
         scale(&mut g, DST, SRC, 256, 2.0).unwrap();
         let out = get(&g, DST, 256);
         for (i, v) in out.iter().enumerate() {
-            assert_eq!(*v, (i as f32 + 1.0) * 2.0, "float {i} (block {}, word {})", i / 32, i % 32);
+            assert_eq!(
+                *v,
+                (i as f32 + 1.0) * 2.0,
+                "float {i} (block {}, word {})",
+                i / 32,
+                i % 32
+            );
         }
-        assert!(out.iter().all(|v| *v != 0.0), "a zero anywhere means a store was missed");
+        assert!(
+            out.iter().all(|v| *v != 0.0),
+            "a zero anywhere means a store was missed"
+        );
     }
 
     #[test]
@@ -474,7 +500,11 @@ mod tests {
         put(&mut g, DST - 128, &vec![7.0f32; 32]);
         put(&mut g, DST, &vec![7.0f32; 32]);
         scale(&mut g, DST, SRC, 64, 1.0).unwrap();
-        assert_eq!(get(&g, DST - 128, 32), vec![7.0f32; 32], "the line below is not this call's");
+        assert_eq!(
+            get(&g, DST - 128, 32),
+            vec![7.0f32; 32],
+            "the line below is not this call's"
+        );
         // Now the aliasing case the mask really describes: an unaligned destination, where the
         // cleared line reaches backwards past it. `Windows()` still covers it, and the C++ keeps
         // the clear for exactly this reason.
@@ -485,7 +515,11 @@ mod tests {
         // dcbzl runs at all: the guard below is what distinguishes the two.
         assert!(!takes_vector_path(DST + 64, SRC, 64));
         scale(&mut h, DST + 64, SRC, 64, 1.0).unwrap();
-        assert_eq!(get(&h, DST - 64, 16), vec![7.0f32; 16], "no dcbzl on the scalar path");
+        assert_eq!(
+            get(&h, DST - 64, 16),
+            vec![7.0f32; 16],
+            "no dcbzl on the scalar path"
+        );
     }
 
     #[test]
@@ -501,9 +535,17 @@ mod tests {
             assert!(!takes_vector_path(d, s, count));
             put(&mut g, s, &src);
             scale(&mut g, d, s, count, -1.5).unwrap();
-            assert_eq!(get(&g, d, count as usize), model_scale(&src, -1.5), "count = {count}");
+            assert_eq!(
+                get(&g, d, count as usize),
+                model_scale(&src, -1.5),
+                "count = {count}"
+            );
             // Nothing past the end.
-            assert_eq!(g.u32(d + 4 * count).unwrap(), 0, "wrote past dst_end at count = {count}");
+            assert_eq!(
+                g.u32(d + 4 * count).unwrap(),
+                0,
+                "wrote past dst_end at count = {count}"
+            );
         }
     }
 
@@ -548,7 +590,11 @@ mod tests {
         assert_ne!(fused, 0.0);
 
         for count in [256u32, 4] {
-            let (d, s) = if count == 256 { (DST, SRC) } else { (DST + 4, SRC + 4) };
+            let (d, s) = if count == 256 {
+                (DST, SRC)
+            } else {
+                (DST + 4, SRC + 4)
+            };
             let mut g = guest();
             put(&mut g, s, &vec![a; count as usize]);
             put(&mut g, d, &vec![-rounded; count as usize]);
@@ -559,7 +605,10 @@ mod tests {
             // which is correctly rounded in software with or without the instruction, so it keeps
             // them. One function, two answers, decided by which path the count and alignment take.
             let want = if count == 256 { 0.0f32 } else { fused };
-            let got: Vec<u32> = get(&g, d, count as usize).iter().map(|v| v.to_bits()).collect();
+            let got: Vec<u32> = get(&g, d, count as usize)
+                .iter()
+                .map(|v| v.to_bits())
+                .collect();
             assert_eq!(got, vec![want.to_bits(); count as usize], "count {count}");
         }
 
@@ -621,7 +670,10 @@ mod tests {
         let vector = get(&v, DST, 256);
         let scalar = get(&s, DST + 4, 256);
         let differing = vector.iter().zip(&scalar).filter(|(a, b)| a != b).count();
-        assert!(differing > 0, "the narrowing has to be visible, or this file has lost it");
+        assert!(
+            differing > 0,
+            "the narrowing has to be visible, or this file has lost it"
+        );
         // The scalar path is the one that keeps the double: it matches an f64 multiply.
         assert_eq!(scalar, model_scale(&src, k));
         // The vector path matches the same multiply with the scale narrowed first.
@@ -637,7 +689,11 @@ mod tests {
         assert_eq!(scalar_shape(32), (8, 2));
         assert_eq!(scalar_shape(64), (16, 4));
         assert_eq!(scalar_shape(4).0, 1, "one float, no group loop");
-        assert_eq!(scalar_shape(12).0, 3, "three floats, still below the group threshold");
+        assert_eq!(
+            scalar_shape(12).0,
+            3,
+            "three floats, still below the group threshold"
+        );
         // 17 floats: four groups of four plus a one-float tail.
         assert_eq!(scalar_shape(68), (17, 4));
     }
@@ -677,7 +733,11 @@ mod tests {
         );
         // Beyond the first group the source really has been overwritten — by this call, exactly as
         // the original overwrites it — so there is nothing to assert there and none is asserted.
-        assert_eq!(g.f32(s).unwrap(), src[0], "the word below the destination is untouched");
+        assert_eq!(
+            g.f32(s).unwrap(),
+            src[0],
+            "the word below the destination is untouched"
+        );
     }
 
     #[test]

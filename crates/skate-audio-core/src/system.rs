@@ -109,7 +109,7 @@ pub fn enqueue(
         };
         let system = g.u32(player + PLAYER_SYSTEM)?;
         let offset = g.u32(system + SYSTEM_CMD_WRITE_OFF)?;
-        let record = g.u32(system + SYSTEM_CMD_BUFFER)?+ offset;
+        let record = g.u32(system + SYSTEM_CMD_BUFFER)? + offset;
 
         g.set_u32(record + RECORD_HANDLER, handler)?;
         g.set_u32(record + RECORD_OBJECT, player)?;
@@ -124,12 +124,19 @@ pub fn enqueue(
         }
         // Published last: see the note above.
         g.set_u32(system + SYSTEM_CMD_WRITE_OFF, offset + size)?;
-        return Ok(Enqueued::Record { address: record, size });
+        return Ok(Enqueued::Record {
+            address: record,
+            size,
+        });
     }
 
     let wanted = g.u32(params + PARAMS_FIRST)?;
     let live = crate::player::packet_is_live(g, player, wanted)?;
-    let bits = if live { consts.voice_live_bits } else { consts.voice_gone_bits };
+    let bits = if live {
+        consts.voice_live_bits
+    } else {
+        consts.voice_gone_bits
+    };
     g.set_u32(params + PARAMS_CONSTANT, bits)?;
     g.set_u32(params + PARAMS_SENTINEL, INVALID_SENTINEL)?;
     Ok(Enqueued::Queried { live })
@@ -139,7 +146,10 @@ pub fn enqueue(
 pub fn check_ring(g: &Guest, player: u32) -> Result<()> {
     let system = g.u32(player + PLAYER_SYSTEM)?;
     if g.u32(system + SYSTEM_CMD_BUFFER)? == 0 {
-        return Err(Error::new(system + SYSTEM_CMD_BUFFER, "command ring has no buffer"));
+        return Err(Error::new(
+            system + SYSTEM_CMD_BUFFER,
+            "command ring has no buffer",
+        ));
     }
     Ok(())
 }
@@ -150,7 +160,10 @@ mod tests {
     use crate::testutil::*;
 
     fn consts() -> Constants {
-        Constants { voice_live_bits: 0x3F80_0000, voice_gone_bits: 0xBF80_0000 }
+        Constants {
+            voice_live_bits: 0x3F80_0000,
+            voice_gone_bits: 0xBF80_0000,
+        }
     }
 
     #[test]
@@ -159,7 +172,13 @@ mod tests {
         g.set_u32(PARAMS + PARAMS_FIRST, PACKET_A).unwrap();
 
         let r = enqueue(&mut g, PLAYER, 2, PARAMS, &consts()).unwrap();
-        assert_eq!(r, Enqueued::Record { address: RING, size: SIZE_SUBMIT });
+        assert_eq!(
+            r,
+            Enqueued::Record {
+                address: RING,
+                size: SIZE_SUBMIT
+            }
+        );
         assert_eq!(g.u32(RING + RECORD_HANDLER).unwrap(), HANDLER_SUBMIT);
         assert_eq!(g.u32(RING + RECORD_OBJECT).unwrap(), PLAYER);
         assert_eq!(g.u32(RING + RECORD_SUBMIT_PACKET).unwrap(), PACKET_A);
@@ -170,7 +189,13 @@ mod tests {
     fn stop_record_is_eight_bytes_and_carries_no_payload() {
         let mut g = guest();
         let r = enqueue(&mut g, PLAYER, 1, PARAMS, &consts()).unwrap();
-        assert_eq!(r, Enqueued::Record { address: RING, size: SIZE_STOP });
+        assert_eq!(
+            r,
+            Enqueued::Record {
+                address: RING,
+                size: SIZE_STOP
+            }
+        );
         assert_eq!(g.u32(RING + RECORD_HANDLER).unwrap(), HANDLER_STOP);
         // Nothing past +0x08: the next record would start there.
         assert_eq!(g.u32(RING + 0x08).unwrap(), 0);
@@ -180,11 +205,18 @@ mod tests {
     fn play_record_carries_three_floats_from_a_stride_eight_params() {
         let mut g = guest();
         g.set_u32(PARAMS + PARAMS_FIRST, 1.0f32.to_bits()).unwrap();
-        g.set_u32(PARAMS + PARAMS_SECOND, 48000.0f32.to_bits()).unwrap();
+        g.set_u32(PARAMS + PARAMS_SECOND, 48000.0f32.to_bits())
+            .unwrap();
         g.set_u32(PARAMS + PARAMS_THIRD, 6.0f32.to_bits()).unwrap();
 
         let r = enqueue(&mut g, PLAYER, 0, PARAMS, &consts()).unwrap();
-        assert_eq!(r, Enqueued::Record { address: RING, size: SIZE_PLAY });
+        assert_eq!(
+            r,
+            Enqueued::Record {
+                address: RING,
+                size: SIZE_PLAY
+            }
+        );
         assert_eq!(g.f32(RING + RECORD_PLAY_FORMAT).unwrap(), 1.0);
         assert_eq!(g.f32(RING + RECORD_PLAY_RATE).unwrap(), 48000.0);
         assert_eq!(g.f32(RING + RECORD_PLAY_CHANNELS).unwrap(), 6.0);
@@ -196,7 +228,13 @@ mod tests {
         g.set_u32(PARAMS + PARAMS_FIRST, PACKET_A).unwrap();
         enqueue(&mut g, PLAYER, 2, PARAMS, &consts()).unwrap();
         let second = enqueue(&mut g, PLAYER, 1, PARAMS, &consts()).unwrap();
-        assert_eq!(second, Enqueued::Record { address: RING + SIZE_SUBMIT, size: SIZE_STOP });
+        assert_eq!(
+            second,
+            Enqueued::Record {
+                address: RING + SIZE_SUBMIT,
+                size: SIZE_STOP
+            }
+        );
         assert_eq!(
             g.u32(SYSTEM + SYSTEM_CMD_WRITE_OFF).unwrap(),
             SIZE_SUBMIT + SIZE_STOP
@@ -208,12 +246,16 @@ mod tests {
         let mut g = guest();
         g.set_u32(PARAMS + PARAMS_FIRST, PACKET_A).unwrap();
         // PACKET_A is on the FIFO, so it is live.
-        g.set_u32(PLAYER + crate::player::PLAYER_PACKET_HEAD, PACKET_A).unwrap();
+        g.set_u32(PLAYER + crate::player::PLAYER_PACKET_HEAD, PACKET_A)
+            .unwrap();
 
         let r = enqueue(&mut g, PLAYER, 3, PARAMS, &consts()).unwrap();
         assert_eq!(r, Enqueued::Queried { live: true });
         assert_eq!(g.u32(PARAMS + PARAMS_SENTINEL).unwrap(), INVALID_SENTINEL);
-        assert_eq!(g.u32(PARAMS + PARAMS_CONSTANT).unwrap(), consts().voice_live_bits);
+        assert_eq!(
+            g.u32(PARAMS + PARAMS_CONSTANT).unwrap(),
+            consts().voice_live_bits
+        );
         // The ring was not touched.
         assert_eq!(g.u32(SYSTEM + SYSTEM_CMD_WRITE_OFF).unwrap(), 0);
         assert_eq!(g.u32(RING).unwrap(), 0);

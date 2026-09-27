@@ -36,7 +36,7 @@
 //! array at `+0x10`, the `u16` at `+460`, or the stream table [`stream_remaining`] walks, so
 //! every offset below is a plain constant with the instruction that produced it beside it.
 
-use crate::{fp, Guest, Result};
+use crate::{Guest, Result, fp};
 
 /// A command-ring record: `{+0 handler, +4 object, +8 index, +12 value}`, 16 bytes.
 ///
@@ -321,7 +321,10 @@ pub fn push_node(g: &mut Guest, record: u32) -> Result<u64> {
 /// `lis -32208 ; addi r8,r9,-31232 ; lfd f13,256(r8)` — the double a command's value is tested
 /// against to choose the "clear" form.
 pub const SENTINEL_DOUBLE: u32 = (((-32208i32 as u32) & 0xFFFF) << 16).wrapping_sub(31232) + 256;
-const _: () = assert!(SENTINEL_DOUBLE == 0x822F_8700, "lis -32208 ; addi -31232 ; lfd 256");
+const _: () = assert!(
+    SENTINEL_DOUBLE == 0x822F_8700,
+    "lis -32208 ; addi -31232 ; lfd 256"
+);
 
 /// Publish a command's value onto its target in one of two forms, returning the record size, 32
 /// (`sub_82B23828`).
@@ -425,7 +428,10 @@ pub fn five_point_ramp(g: &mut Guest, rate_field: u32, out: u32) -> Result<u64> 
     let step = fp::mul_single(width, fp::load_single(g, RAMP_STEP_SCALE)?); // fmuls f11,f12,f13
     let mut point = first;
     for k in 1..5u32 {
-        point = fp::add_single(if k == 1 { step } else { point }, if k == 1 { first } else { step });
+        point = fp::add_single(
+            if k == 1 { step } else { point },
+            if k == 1 { first } else { step },
+        );
         fp::store_single(g, out.wrapping_add(4 * k), point)?; // fadds ; stfs +4, +8, +12, +16
     }
     Ok(1) // li r3,1
@@ -595,7 +601,11 @@ pub fn settle_levels(g: &mut Guest, object: u32) -> Result<()> {
     let term2 = sub_single(n2, div_single(n2_ten, log2)); // fdivs f8 ; fsubs f7
     let sum = add_single(term2, term1); // fadds f6,f7,f30
     let delta = sub_single(sum, level); // fsubs f5,f6,f11
-    store_single(g, linked.wrapping_add(LEVEL_LINKED_LEVEL), add_single(delta, linked_level))?;
+    store_single(
+        g,
+        linked.wrapping_add(LEVEL_LINKED_LEVEL),
+        add_single(delta, linked_level),
+    )?;
     store_single(g, object.wrapping_add(LEVEL), sum)?; // stfs f6,32(r31)
     Ok(())
 }
@@ -666,7 +676,9 @@ pub fn resample_bands(
     band: f64,
     sp: u32,
 ) -> Result<u64> {
-    use crate::fp::{add_single, div_single, fmadd_single, load_single, mul_single, store_single, sub_single};
+    use crate::fp::{
+        add_single, div_single, fmadd_single, load_single, mul_single, store_single, sub_single,
+    };
     let xs = sp.wrapping_sub(BAND_RED_ZONE); // addi r8,r1,-80
     let ys = xs.wrapping_add(36); // addi r7,r1,-44
     let mut fpscr = crate::vmx::Fpscr::capture();
@@ -706,7 +718,11 @@ pub fn resample_bands(
         let scaled_b = mul_single(row_b, rest); // fmuls f9,f12,f13
         let knot_x = load_single(g, BAND_KNOT_X + 4 * k)?; // lfsx f8,r11,r9
         store_single(g, xs.wrapping_add(4 * k), knot_x)?; // stfsx f8,r11,r8
-        store_single(g, ys.wrapping_add(4 * k), fmadd_single(row_a, weight, scaled_b))?; // fmadds ; stfsx
+        store_single(
+            g,
+            ys.wrapping_add(4 * k),
+            fmadd_single(row_a, weight, scaled_b),
+        )?; // fmadds ; stfsx
     }
     let x1 = load_single(g, xs.wrapping_add(4))?; // lfs f0,-76(r1)
     let x0 = load_single(g, xs)?; // lfs f13,-80(r1)
@@ -773,7 +789,10 @@ pub fn resample_bands(
             g.set_u32(queue.wrapping_add(32), pos_again)?; // stw r6,32(r11)
         }
         // Records 1 and 2, sixty bytes apart, sizes at +0 and +4.
-        for (rec, size_at) in [(queue.wrapping_add(60), sizes), (queue.wrapping_add(120), sizes.wrapping_add(4))] {
+        for (rec, size_at) in [
+            (queue.wrapping_add(60), sizes),
+            (queue.wrapping_add(120), sizes.wrapping_add(4)),
+        ] {
             let size = g.u32(size_at)?;
             let pos = g.u32(rec.wrapping_add(4))?;
             let limit = g.u32(rec)?;
@@ -967,7 +986,14 @@ pub fn recommit_filter(g: &mut Guest, object: u32, sp: u32) -> Result<()> {
         table_ramp(g, object, at(RECOMMIT_RAMP), at(RECOMMIT_POINTS), blend)?; // bl 0x82b2fea8
         fpscr.disable_flush_mode_unconditional();
         let blend = load_single(g, at(LEVEL_SOURCE))?; // reloaded
-        resample_bands(g, object, at(RECOMMIT_BANDS), at(RECOMMIT_RAMP), blend, frame)?; // bl 0x82b2f2c8
+        resample_bands(
+            g,
+            object,
+            at(RECOMMIT_BANDS),
+            at(RECOMMIT_RAMP),
+            blend,
+            frame,
+        )?; // bl 0x82b2f2c8
         retuned = true; // li r29,1
     } else {
         let blend_published = load_single(g, at(RECOMMIT_PUBLISHED_BLEND))?; // lfs f0,348(r31)
@@ -976,14 +1002,28 @@ pub fn recommit_filter(g: &mut Guest, object: u32, sp: u32) -> Result<()> {
             table_ramp(g, object, at(RECOMMIT_RAMP), at(RECOMMIT_POINTS), blend)?;
             fpscr.disable_flush_mode_unconditional();
             let blend = load_single(g, at(LEVEL_SOURCE))?;
-            resample_bands(g, object, at(RECOMMIT_BANDS), at(RECOMMIT_RAMP), blend, frame)?;
+            resample_bands(
+                g,
+                object,
+                at(RECOMMIT_BANDS),
+                at(RECOMMIT_RAMP),
+                blend,
+                frame,
+            )?;
             g.set_u8(at(RECOMMIT_READY), 0)?; // stb r30,1088(r31)
         } else {
             let level = load_single(g, at(RECOMMIT_LEVEL))?;
             let level_published = load_single(g, at(RECOMMIT_PUBLISHED_LEVEL))?;
             if level != level_published {
                 // f1 is not reloaded here: it still holds the blend from the compare above.
-                resample_bands(g, object, at(RECOMMIT_BANDS), at(RECOMMIT_RAMP), blend, frame)?;
+                resample_bands(
+                    g,
+                    object,
+                    at(RECOMMIT_BANDS),
+                    at(RECOMMIT_RAMP),
+                    blend,
+                    frame,
+                )?;
             }
         }
     }
@@ -1006,7 +1046,11 @@ pub fn recommit_filter(g: &mut Guest, object: u32, sp: u32) -> Result<()> {
     let rest = band.map(|b| sub_single(one, b));
     let depth = sub_single(one, ratio); // fsubs f2,f0,f13
     for (k, r) in rest.iter().enumerate() {
-        store_single(g, at(RECOMMIT_WEIGHTS + 4 * k as u32), mul_single(*r, depth))?;
+        store_single(
+            g,
+            at(RECOMMIT_WEIGHTS + 4 * k as u32),
+            mul_single(*r, depth),
+        )?;
     }
 
     if g.u8(at(RECOMMIT_READY))? == 0 {
@@ -1089,7 +1133,11 @@ mod tests {
             if index > 0 {
                 assert_eq!(g.u32(slot - 4).unwrap(), POISON, "index {index}: below");
             }
-            assert_eq!(g.u32(slot + SLOT_STRIDE).unwrap(), POISON, "index {index}: above");
+            assert_eq!(
+                g.u32(slot + SLOT_STRIDE).unwrap(),
+                POISON,
+                "index {index}: above"
+            );
         }
     }
 
@@ -1111,7 +1159,12 @@ mod tests {
         // Every finite single survives `lfs` then `stfs` exactly, which is what this asserts and all
         // it asserts.
         let mut g = guest();
-        for bits in [0.375f32.to_bits(), 1.0f32.to_bits(), (-2.5e30f32).to_bits(), 0x0000_0000] {
+        for bits in [
+            0.375f32.to_bits(),
+            1.0f32.to_bits(),
+            (-2.5e30f32).to_bits(),
+            0x0000_0000,
+        ] {
             record(&mut g, 2, bits);
             stamp_slot(&mut g, RECORD).unwrap();
             assert_eq!(g.u32(SLOTS + 2 * SLOT_STRIDE + 4).unwrap(), bits);
@@ -1156,9 +1209,15 @@ mod tests {
 
     #[test]
     fn the_fourth_argument_comes_back_with_its_upper_half() {
-        assert_eq!(fourth_argument(0x1234_5678_9ABC_DEF0), 0x1234_5678_9ABC_DEF0);
+        assert_eq!(
+            fourth_argument(0x1234_5678_9ABC_DEF0),
+            0x1234_5678_9ABC_DEF0
+        );
         // The case a u32 port gets wrong: junk above bit 31 is part of the result.
-        assert_eq!(fourth_argument(0xFFFF_FFFF_0000_0001), 0xFFFF_FFFF_0000_0001);
+        assert_eq!(
+            fourth_argument(0xFFFF_FFFF_0000_0001),
+            0xFFFF_FFFF_0000_0001
+        );
         assert_eq!(fourth_argument(0), 0);
     }
 
@@ -1250,7 +1309,11 @@ mod tests {
     fn the_pair_record_size_rounds_the_count_up_to_pairs() {
         let mut g = small();
         for (count, want) in [(0u32, 88u64), (1, 116), (2, 116), (3, 144), (10, 228)] {
-            assert_eq!(pair_record_size(&mut g, count, L2).unwrap(), want, "count {count}");
+            assert_eq!(
+                pair_record_size(&mut g, count, L2).unwrap(),
+                want,
+                "count {count}"
+            );
             assert_eq!(g.u32(L2).unwrap(), 16, "the alignment, stored through r4");
         }
         // addi then a 32-bit shift: 0xFFFFFFFF + 1 wraps to zero pairs.
@@ -1277,8 +1340,14 @@ mod tests {
         g.set_u32(L2 + 12, 0xDEAD_BEEF).unwrap();
         g.set_u32(L2 + 24, 0xDEAD_BEEF).unwrap();
         zero_two_fields(&mut g, L2).unwrap();
-        assert_eq!((g.f32(L2 + 16).unwrap(), g.f32(L2 + 20).unwrap()), (2.5, 2.5));
-        assert_eq!((g.u32(L2 + 12).unwrap(), g.u32(L2 + 24).unwrap()), (0xDEAD_BEEF, 0xDEAD_BEEF));
+        assert_eq!(
+            (g.f32(L2 + 16).unwrap(), g.f32(L2 + 20).unwrap()),
+            (2.5, 2.5)
+        );
+        assert_eq!(
+            (g.u32(L2 + 12).unwrap(), g.u32(L2 + 24).unwrap()),
+            (0xDEAD_BEEF, 0xDEAD_BEEF)
+        );
     }
 
     #[test]
@@ -1287,14 +1356,19 @@ mod tests {
         let (source, dest) = (L2, L2 + 0x100);
         for i in 0..8u32 {
             g.set_u32(source + 4 * i, 0x1000 + i).unwrap();
-            g.set_u32(dest + FILL_FIRST_WORD + 4 * i, 0xDEAD_BEEF).unwrap();
+            g.set_u32(dest + FILL_FIRST_WORD + 4 * i, 0xDEAD_BEEF)
+                .unwrap();
         }
         g.set_u8(dest + FILL_COUNT, 3).unwrap();
         copy_and_mark_filled(&mut g, source, dest).unwrap();
         for i in 0..3u32 {
             assert_eq!(g.u32(dest + FILL_FIRST_WORD + 4 * i).unwrap(), 0x1000 + i);
         }
-        assert_eq!(g.u32(dest + FILL_FIRST_WORD + 12).unwrap(), 0xDEAD_BEEF, "three words");
+        assert_eq!(
+            g.u32(dest + FILL_FIRST_WORD + 12).unwrap(),
+            0xDEAD_BEEF,
+            "three words"
+        );
         assert_eq!(g.u8(dest + FILL_FLAG).unwrap(), 1);
 
         // A zero count copies nothing but still marks the block.
@@ -1312,16 +1386,36 @@ mod tests {
         g.set_u32(record + COMMAND_TARGET, first).unwrap();
         g.set_u32(first + 48, 0xDEAD_BEEF).unwrap();
         assert_eq!(push_node(&mut g, record).unwrap(), 8);
-        assert_eq!(g.u32(LIST_HEAD).unwrap(), first + NODE_OFFSET, "the head is the node, not the object");
-        assert_eq!(g.u32(first + NODE_OFFSET).unwrap(), 0, "an empty list's next is null");
-        assert_eq!(g.u32(first + 48).unwrap(), 0, "and the second word is cleared");
+        assert_eq!(
+            g.u32(LIST_HEAD).unwrap(),
+            first + NODE_OFFSET,
+            "the head is the node, not the object"
+        );
+        assert_eq!(
+            g.u32(first + NODE_OFFSET).unwrap(),
+            0,
+            "an empty list's next is null"
+        );
+        assert_eq!(
+            g.u32(first + 48).unwrap(),
+            0,
+            "and the second word is cleared"
+        );
         assert_eq!(g.u8(first + NODE_LINKED).unwrap(), 1);
 
         g.set_u32(record + COMMAND_TARGET, second).unwrap();
         push_node(&mut g, record).unwrap();
         assert_eq!(g.u32(LIST_HEAD).unwrap(), second + NODE_OFFSET);
-        assert_eq!(g.u32(second + NODE_OFFSET).unwrap(), first + NODE_OFFSET, "next is the old head");
-        assert_eq!(g.u32(first + NODE_OFFSET + 4).unwrap(), second + NODE_OFFSET, "the old head's back-link");
+        assert_eq!(
+            g.u32(second + NODE_OFFSET).unwrap(),
+            first + NODE_OFFSET,
+            "next is the old head"
+        );
+        assert_eq!(
+            g.u32(first + NODE_OFFSET + 4).unwrap(),
+            second + NODE_OFFSET,
+            "the old head's back-link"
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1346,18 +1440,32 @@ mod tests {
         let (record, target) = command(&mut g, 3.5, 1.25, 2.25, 77);
         assert_eq!(publish_command(&mut g, record).unwrap(), 32);
         assert_eq!(g.u64(target + 56).unwrap(), 3.5f64.to_bits());
-        assert_eq!((g.f32(target + 64).unwrap(), g.f32(target + 68).unwrap()), (1.25, 2.25));
+        assert_eq!(
+            (g.f32(target + 64).unwrap(), g.f32(target + 68).unwrap()),
+            (1.25, 2.25)
+        );
         assert_eq!(g.u32(target + 72).unwrap(), 77);
         assert_eq!(g.u8(target + 112).unwrap(), 1);
-        assert_eq!(g.u32(target + 108).unwrap(), 0xDEAD_BEEF, "+108 is the clear form's field");
+        assert_eq!(
+            g.u32(target + 108).unwrap(),
+            0xDEAD_BEEF,
+            "+108 is the clear form's field"
+        );
 
         // The sentinel and a zero A: the clear form.
         let mut g = small();
         let (record, target) = command(&mut g, -1.0, 0.0, 2.25, 77);
         assert_eq!(publish_command(&mut g, record).unwrap(), 32);
         assert_eq!(g.f32(target + 108).unwrap(), 2.25);
-        assert_eq!((g.u8(target + 112).unwrap(), g.u8(target + 113).unwrap()), (0, 0));
-        assert_eq!(g.u32(target + 56).unwrap(), 0xDEAD_BEEF, "the set form's fields are untouched");
+        assert_eq!(
+            (g.u8(target + 112).unwrap(), g.u8(target + 113).unwrap()),
+            (0, 0)
+        );
+        assert_eq!(
+            g.u32(target + 56).unwrap(),
+            0xDEAD_BEEF,
+            "the set form's fields are untouched"
+        );
 
         // The sentinel but a non-zero A: still the set form — both halves of the test are needed.
         let mut g = small();
@@ -1376,7 +1484,11 @@ mod tests {
     fn the_new_leaf_addresses_come_from_the_lis_immediates() {
         assert_eq!(LIST_HEAD, 0x830C_0000 - 8520);
         assert_eq!(SENTINEL_DOUBLE, 0x8230_0000 - 31232 + 256);
-        assert_eq!(ZERO_CELL, crate::mix::ZERO_SINGLE, "the image's zero, reached again");
+        assert_eq!(
+            ZERO_CELL,
+            crate::mix::ZERO_SINGLE,
+            "the image's zero, reached again"
+        );
     }
 
     #[test]
@@ -1385,16 +1497,25 @@ mod tests {
         g.set_u32(BASE + FIELD_364, POISON).unwrap();
         assert_eq!(set_field_364(&mut g, BASE, 0xABCD).unwrap(), 0);
         assert_eq!(g.u16(BASE + FIELD_364).unwrap(), 0xABCD);
-        assert_eq!(g.u16(BASE + FIELD_364 + 2).unwrap(), 0xBEEF, "two bytes, not four");
+        assert_eq!(
+            g.u16(BASE + FIELD_364 + 2).unwrap(),
+            0xBEEF,
+            "two bytes, not four"
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
     fn ramp_guest(rate: f32) -> Guest {
         let mut g = Guest::single(BASE, 0x400);
         for (addr, v) in [
-            (RAMP_UPPER_LIMIT, 48000.0f32), (RAMP_BASE, 3.0), (RAMP_START, 44100.0),
-            (RAMP_LOWER_LIMIT, 2.0), (RAMP_SCALE_A, 0.001), (RAMP_SCALE_B, 4.0),
-            (RAMP_CEILING, 100.0), (RAMP_STEP_SCALE, 0.25),
+            (RAMP_UPPER_LIMIT, 48000.0f32),
+            (RAMP_BASE, 3.0),
+            (RAMP_START, 44100.0),
+            (RAMP_LOWER_LIMIT, 2.0),
+            (RAMP_SCALE_A, 0.001),
+            (RAMP_SCALE_B, 4.0),
+            (RAMP_CEILING, 100.0),
+            (RAMP_STEP_SCALE, 0.25),
         ] {
             g.put(addr, v.to_bits().to_be_bytes().to_vec());
         }
@@ -1404,7 +1525,9 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     fn ramp_points(g: &Guest) -> Vec<f32> {
-        (0..6u32).map(|k| g.f32(BASE + 0x40 + 4 * k).unwrap()).collect()
+        (0..6u32)
+            .map(|k| g.f32(BASE + 0x40 + 4 * k).unwrap())
+            .collect()
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1415,8 +1538,22 @@ mod tests {
         let first = 10_000.0f32 * 0.001; // 10
         let span = first * 4.0; // 40, under the ceiling
         let step = (span - first) * 0.25; // 7.5
-        assert_eq!(ramp_points(&g), vec![first, first + step, first + 2.0 * step, first + 3.0 * step, first + 4.0 * step, span]);
-        assert_eq!(g.f32(BASE).unwrap(), 10_000.0, "an in-range rate is left alone");
+        assert_eq!(
+            ramp_points(&g),
+            vec![
+                first,
+                first + step,
+                first + 2.0 * step,
+                first + 3.0 * step,
+                first + 4.0 * step,
+                span
+            ]
+        );
+        assert_eq!(
+            g.f32(BASE).unwrap(),
+            10_000.0,
+            "an in-range rate is left alone"
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1429,7 +1566,10 @@ mod tests {
             // the pool's start value; the other two stay at the lower limit.
             let stored = g.f32(BASE).unwrap();
             if rate > 48_000.0 {
-                assert_eq!(stored, 44_100.0, "rate {rate}: the ceiling path rewrites it");
+                assert_eq!(
+                    stored, 44_100.0,
+                    "rate {rate}: the ceiling path rewrites it"
+                );
             } else {
                 assert_eq!(stored, want, "rate {rate}");
             }
@@ -1445,7 +1585,11 @@ mod tests {
         assert_eq!(pts[0], 3.0, "the ramp starts from the pool's base");
         assert_eq!(pts[5], 100.0, "and spans to the ceiling");
         assert_eq!(pts[1], 3.0 + (100.0 - 3.0) * 0.25);
-        assert_eq!(g.f32(BASE).unwrap(), 44_100.0, "the rate field is overwritten a second time");
+        assert_eq!(
+            g.f32(BASE).unwrap(),
+            44_100.0,
+            "the rate field is overwritten a second time"
+        );
     }
 }
 
@@ -1463,7 +1607,13 @@ mod table_ramp_tests {
     /// output words are poisoned with -1.
     fn guest(ramp: [f32; 6]) -> Guest {
         let mut g = Guest::single(BASE, 0x3000);
-        g.put(TABLE_INPUT_SCALE, [1.0f32, 0.5, 4.0].iter().flat_map(|v| v.to_bits().to_be_bytes()).collect());
+        g.put(
+            TABLE_INPUT_SCALE,
+            [1.0f32, 0.5, 4.0]
+                .iter()
+                .flat_map(|v| v.to_bits().to_be_bytes())
+                .collect(),
+        );
         g.put(TABLE_BASELINE, 1.0f32.to_bits().to_be_bytes().to_vec());
         g.set_u32(OBJECT + TABLE_POINTER, TABLE).unwrap();
         for i in 0..TABLE_ENTRIES as u32 {
@@ -1484,14 +1634,22 @@ mod table_ramp_tests {
     fn each_point_takes_the_first_entry_above_its_target() {
         let mut g = guest([4.0, 8.0, 12.0, 16.0, 20.0, 24.0]);
         assert_eq!(table_ramp(&mut g, OBJECT, RAMP, OUT, 0.25).unwrap(), 1);
-        assert_eq!(out(&g), [2, 3, 4, 5, 6, 7], "targets 1..6, each answered by the next entry up");
+        assert_eq!(
+            out(&g),
+            [2, 3, 4, 5, 6, 7],
+            "targets 1..6, each answered by the next entry up"
+        );
     }
 
     #[test]
     fn the_sweep_never_goes_back() {
         let mut g = guest([20.0, 4.0, 4.0, 4.0, 4.0, 4.0]);
         table_ramp(&mut g, OBJECT, RAMP, OUT, 0.25).unwrap();
-        assert_eq!(out(&g), [6, 7, 8, 9, 10, 11], "target 1 after target 5 still answers 7, not 2");
+        assert_eq!(
+            out(&g),
+            [6, 7, 8, 9, 10, 11],
+            "target 1 after target 5 still answers 7, not 2"
+        );
     }
 
     #[test]
@@ -1506,7 +1664,11 @@ mod table_ramp_tests {
     fn a_sweep_off_the_end_stores_nothing_but_still_rescales_what_was_there() {
         let mut g = guest([4000.0; 6]);
         table_ramp(&mut g, OBJECT, RAMP, OUT, 1.0).unwrap();
-        assert_eq!(out(&g), [-4, -4, -4, -4, -4, 0], "the poison rescaled; only the last word was cleared");
+        assert_eq!(
+            out(&g),
+            [-4, -4, -4, -4, -4, 0],
+            "the poison rescaled; only the last word was cleared"
+        );
     }
 }
 
@@ -1525,15 +1687,19 @@ mod settle_levels_tests {
         g.put(ZERO_CELL, 0.0f32.to_bits().to_be_bytes().to_vec());
         g.set_u32(OBJECT + LEVEL_LINKED, LINKED).unwrap();
         g.set_u32(OBJECT + LEVEL, 1.0f32.to_bits()).unwrap();
-        g.set_u32(LINKED + LEVEL_LINKED_LEVEL, 0.5f32.to_bits()).unwrap();
+        g.set_u32(LINKED + LEVEL_LINKED_LEVEL, 0.5f32.to_bits())
+            .unwrap();
         g.set_u32(OBJECT + LEVEL_FIRST_COUNT, 3).unwrap();
-        g.set_u32(OBJECT + LEVEL_FIRST_VALUE, 100.0f32.to_bits()).unwrap();
+        g.set_u32(OBJECT + LEVEL_FIRST_VALUE, 100.0f32.to_bits())
+            .unwrap();
         g.set_u8(OBJECT + LEVEL_CANDIDATE_COUNT, count).unwrap();
         for (k, v) in [10.0f32, 1000.0, 5.0].iter().enumerate() {
-            g.set_u32(OBJECT + LEVEL_CANDIDATES + 4 * k as u32, v.to_bits()).unwrap();
+            g.set_u32(OBJECT + LEVEL_CANDIDATES + 4 * k as u32, v.to_bits())
+                .unwrap();
         }
         for (k, v) in [2i32, 7, -1].iter().enumerate() {
-            g.set_u32(OBJECT + LEVEL_COUNTS + 4 * k as u32, *v as u32).unwrap();
+            g.set_u32(OBJECT + LEVEL_COUNTS + 4 * k as u32, *v as u32)
+                .unwrap();
         }
         g
     }
@@ -1551,7 +1717,10 @@ mod settle_levels_tests {
         let term2 = 7.0f32 - (7.0f32 * 10.0) / log(&g, 1000.0);
         let sum = term2 + term1;
         assert_eq!(g.f32(OBJECT + LEVEL).unwrap(), sum);
-        assert_eq!(g.f32(LINKED + LEVEL_LINKED_LEVEL).unwrap(), (sum - 1.0) + 0.5);
+        assert_eq!(
+            g.f32(LINKED + LEVEL_LINKED_LEVEL).unwrap(),
+            (sum - 1.0) + 0.5
+        );
     }
 
     #[test]
@@ -1584,7 +1753,13 @@ mod resample_bands_tests {
     /// blend weight the curve is the identity and each output equals its input.
     fn guest(inputs: [f32; 6]) -> Guest {
         let mut g = Guest::single(BASE, 0x1000);
-        g.put(BAND_EDGES, [0.0f32, 1.0, 2.0].iter().flat_map(|v| v.to_bits().to_be_bytes()).collect());
+        g.put(
+            BAND_EDGES,
+            [0.0f32, 1.0, 2.0]
+                .iter()
+                .flat_map(|v| v.to_bits().to_be_bytes())
+                .collect(),
+        );
         g.put(BAND_KNOT_X, vec![0u8; 216]);
         for k in 0..9u32 {
             cell(&mut g, BAND_KNOT_X + 4 * k, k as f32);
@@ -1592,8 +1767,13 @@ mod resample_bands_tests {
                 cell(&mut g, BAND_KNOT_X + 36 * row + 4 * k, k as f32);
             }
         }
-        for (at, v) in [(BAND_RATE_LOWER, 1.0f32), (BAND_RATE_UPPER, 1.0), (crate::routing::UNITY_GAIN, 1.0),
-                        (BAND_HEADROOM, 0.5), (ZERO_CELL, 0.0)] {
+        for (at, v) in [
+            (BAND_RATE_LOWER, 1.0f32),
+            (BAND_RATE_UPPER, 1.0),
+            (crate::routing::UNITY_GAIN, 1.0),
+            (BAND_HEADROOM, 0.5),
+            (ZERO_CELL, 0.0),
+        ] {
             cell(&mut g, at, v);
         }
         for (i, v) in inputs.iter().enumerate() {
@@ -1610,9 +1790,16 @@ mod resample_bands_tests {
     fn an_identity_curve_interpolates_each_input_to_itself() {
         let inputs = [0.5f32, 2.25, 3.0, 4.75, 6.5, 7.125];
         let mut g = guest(inputs);
-        assert_eq!(resample_bands(&mut g, OBJECT, OUT, INPUT, 0.25, SP).unwrap(), 1);
+        assert_eq!(
+            resample_bands(&mut g, OBJECT, OUT, INPUT, 0.25, SP).unwrap(),
+            1
+        );
         assert_eq!(out(&g), inputs);
-        assert_eq!(g.f32(SP - BAND_RED_ZONE + 4 * 8).unwrap(), 8.0, "the abscissae copied into the red zone");
+        assert_eq!(
+            g.f32(SP - BAND_RED_ZONE + 4 * 8).unwrap(),
+            8.0,
+            "the abscissae copied into the red zone"
+        );
     }
 
     #[test]
@@ -1631,7 +1818,8 @@ mod resample_bands_tests {
     #[test]
     fn equal_levels_stop_after_the_resample() {
         let mut g = guest([1.0; 6]);
-        g.set_u32(OBJECT + BAND_ENVELOPES + 36, 0x7777_7777).unwrap();
+        g.set_u32(OBJECT + BAND_ENVELOPES + 36, 0x7777_7777)
+            .unwrap();
         resample_bands(&mut g, OBJECT, OUT, INPUT, 0.25, SP).unwrap();
         assert_eq!(g.u32(OBJECT + BAND_ENVELOPES + 36).unwrap(), 0x7777_7777);
     }
@@ -1639,8 +1827,10 @@ mod resample_bands_tests {
     #[test]
     fn differing_levels_normalise_clear_the_envelopes_and_rearm_what_fits() {
         let mut g = guest([1.0, 1.0, 1.0, 1.0, 1.0, 1.5]);
-        g.set_u32(OBJECT + BAND_CURRENT_LEVEL, 1.0f32.to_bits()).unwrap();
-        g.set_u32(OBJECT + BAND_ENVELOPES + 36, 0x7777_7777).unwrap();
+        g.set_u32(OBJECT + BAND_CURRENT_LEVEL, 1.0f32.to_bits())
+            .unwrap();
+        g.set_u32(OBJECT + BAND_ENVELOPES + 36, 0x7777_7777)
+            .unwrap();
         // Queue 0, record 0: size 10 at +388, needing 32 bytes from position 0 in a limit of 100.
         g.set_u32(OBJECT + BAND_PENDING_SIZES - 4, 10).unwrap();
         g.set_u32(OBJECT + BAND_QUEUES, 100).unwrap();
@@ -1655,15 +1845,25 @@ mod resample_bands_tests {
         let rec = OBJECT + BAND_QUEUES;
         assert_eq!(g.u32(rec + 20).unwrap(), 11, "size + 1");
         assert_eq!(g.u32(rec + 12).unwrap(), 100, "the limit copied");
-        assert_eq!(g.u32(rec + 60 + 20).unwrap(), 0x5555, "the record that does not fit is left");
+        assert_eq!(
+            g.u32(rec + 60 + 20).unwrap(),
+            0x5555,
+            "the record that does not fit is left"
+        );
     }
 
     #[test]
     fn the_fit_test_is_a_signed_compare() {
         assert!(reservation_fits(100, 32));
         assert!(!reservation_fits(100, 128));
-        assert!(!reservation_fits(0x8000_0000, 32), "a negative limit fits nothing");
-        assert!(reservation_fits(32, 0x8000_0000), "anything fits above a negative need");
+        assert!(
+            !reservation_fits(0x8000_0000, 32),
+            "a negative limit fits nothing"
+        );
+        assert!(
+            reservation_fits(32, 0x8000_0000),
+            "anything fits above a negative need"
+        );
     }
 }
 
@@ -1683,18 +1883,46 @@ mod level_table_tests {
     /// Rates 1.5 (one), 2.0 (first), 3.0 (last); candidates 10, 20, 30; the source 2.0.
     fn guest(layout: u8, source: f32) -> Guest {
         let mut g = Guest::from_segments(vec![
-            Segment { base: BASE, bytes: vec![0u8; 0x10000] },
-            Segment { base: 0x8209_9000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x820B_A000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8211_6000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8216_5000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x822F_8000, bytes: vec![0u8; 0x1000] },
-            Segment { base: 0x8231_A000, bytes: vec![0u8; 0x1000] },
+            Segment {
+                base: BASE,
+                bytes: vec![0u8; 0x10000],
+            },
+            Segment {
+                base: 0x8209_9000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x820B_A000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8211_6000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8216_5000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x822F_8000,
+                bytes: vec![0u8; 0x1000],
+            },
+            Segment {
+                base: 0x8231_A000,
+                bytes: vec![0u8; 0x1000],
+            },
         ]);
         for (at, v) in [
-            (LEVEL_RATE_ONE, 1.5f32), (LEVEL_CANDIDATE_ONE, 10.0), (LEVEL_RATE_FIRST, 2.0),
-            (LEVEL_CANDIDATE_FIRST, 20.0), (LEVEL_RATE_LAST, 3.0), (LEVEL_CANDIDATE_LAST, 30.0),
-            (LEVEL_HALF, 0.5), (ZERO_CELL, 0.0), (RECOMMIT_FLOOR, 1.0), (crate::routing::UNITY_GAIN, 1.0),
+            (LEVEL_RATE_ONE, 1.5f32),
+            (LEVEL_CANDIDATE_ONE, 10.0),
+            (LEVEL_RATE_FIRST, 2.0),
+            (LEVEL_CANDIDATE_FIRST, 20.0),
+            (LEVEL_RATE_LAST, 3.0),
+            (LEVEL_CANDIDATE_LAST, 30.0),
+            (LEVEL_HALF, 0.5),
+            (ZERO_CELL, 0.0),
+            (RECOMMIT_FLOOR, 1.0),
+            (crate::routing::UNITY_GAIN, 1.0),
         ] {
             cell(&mut g, at, v);
         }
@@ -1706,8 +1934,12 @@ mod level_table_tests {
     fn pairs(g: &Guest, n: u32) -> (u8, Vec<f32>, Vec<i32>) {
         (
             g.u8(OBJECT + LEVEL_CANDIDATE_COUNT).unwrap(),
-            (0..n).map(|k| g.f32(OBJECT + LEVEL_CANDIDATES + 4 * k).unwrap()).collect(),
-            (0..n).map(|k| g.u32(OBJECT + LEVEL_COUNTS + 4 * k).unwrap() as i32).collect(),
+            (0..n)
+                .map(|k| g.f32(OBJECT + LEVEL_CANDIDATES + 4 * k).unwrap())
+                .collect(),
+            (0..n)
+                .map(|k| g.u32(OBJECT + LEVEL_COUNTS + 4 * k).unwrap() as i32)
+                .collect(),
         )
     }
 
@@ -1715,13 +1947,21 @@ mod level_table_tests {
     fn each_layout_rearms_its_pairs() {
         let mut g = guest(1, 2.0);
         rearm_level_table(&mut g, OBJECT).unwrap();
-        assert_eq!(pairs(&g, 1), (1, vec![10.0], vec![3]), "2 * 1.5 = 3, plus the half, truncated");
+        assert_eq!(
+            pairs(&g, 1),
+            (1, vec![10.0], vec![3]),
+            "2 * 1.5 = 3, plus the half, truncated"
+        );
         let mut g = guest(4, 2.0);
         rearm_level_table(&mut g, OBJECT).unwrap();
         assert_eq!(pairs(&g, 2), (2, vec![20.0, 30.0], vec![4, 6]));
         let mut g = guest(6, 2.0);
         rearm_level_table(&mut g, OBJECT).unwrap();
-        assert_eq!(pairs(&g, 3), (3, vec![20.0, 10.0, 30.0], vec![4, 3, 6]), "the middle pair is layout 1's");
+        assert_eq!(
+            pairs(&g, 3),
+            (3, vec![20.0, 10.0, 30.0], vec![4, 3, 6]),
+            "the middle pair is layout 1's"
+        );
     }
 
     #[test]
@@ -1737,14 +1977,18 @@ mod level_table_tests {
         g.set_u32(OBJECT + RECOMMIT_STATE, state).unwrap();
         g.set_u8(OBJECT + RECOMMIT_READY, ready).unwrap();
         cell(g, OBJECT + RECOMMIT_PARAM_52, 2.0);
-        for (a, b, v) in [(RECOMMIT_RATE, RECOMMIT_PUBLISHED_RATE, 7.0f32), (LEVEL_SOURCE, RECOMMIT_PUBLISHED_BLEND, 2.0),
-                          (RECOMMIT_LEVEL, RECOMMIT_PUBLISHED_LEVEL, 0.25)] {
+        for (a, b, v) in [
+            (RECOMMIT_RATE, RECOMMIT_PUBLISHED_RATE, 7.0f32),
+            (LEVEL_SOURCE, RECOMMIT_PUBLISHED_BLEND, 2.0),
+            (RECOMMIT_LEVEL, RECOMMIT_PUBLISHED_LEVEL, 0.25),
+        ] {
             cell(g, OBJECT + a, v);
             cell(g, OBJECT + b, v);
         }
         for k in 0..6u32 {
             cell(g, OBJECT + RECOMMIT_BANDS + 4 * k, 0.5);
-            g.set_u32(OBJECT + RECOMMIT_WEIGHTS + 4 * k, 0xDEAD_BEEF).unwrap();
+            g.set_u32(OBJECT + RECOMMIT_WEIGHTS + 4 * k, 0xDEAD_BEEF)
+                .unwrap();
         }
     }
 
@@ -1763,9 +2007,17 @@ mod level_table_tests {
         unchanged(&mut g, 1, 0);
         recommit_filter(&mut g, OBJECT, SP).unwrap();
         for k in 0..6u32 {
-            assert_eq!(g.f32(OBJECT + RECOMMIT_WEIGHTS + 4 * k).unwrap(), 0.25, "weight {k}");
+            assert_eq!(
+                g.f32(OBJECT + RECOMMIT_WEIGHTS + 4 * k).unwrap(),
+                0.25,
+                "weight {k}"
+            );
         }
-        assert_eq!(pairs(&g, 1), (1, vec![10.0], vec![3]), "the ready byte is 0");
+        assert_eq!(
+            pairs(&g, 1),
+            (1, vec![10.0], vec![3]),
+            "the ready byte is 0"
+        );
         assert_eq!(g.u32(OBJECT + RECOMMIT_STATE).unwrap(), 2);
         assert_eq!(g.f32(OBJECT + RECOMMIT_PUBLISHED_52).unwrap(), 2.0);
     }

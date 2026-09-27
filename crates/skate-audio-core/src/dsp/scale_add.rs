@@ -314,11 +314,22 @@ mod tests {
 
         scale_add_with_copy(&mut g, n, Y, X_ODD, Z, W, 0.5).unwrap();
 
-        assert!(!takes_vector_path(X_ODD), "this test has to be on the scalar path");
+        assert!(
+            !takes_vector_path(X_ODD),
+            "this test has to be on the scalar path"
+        );
         assert_eq!(get(&g, Z, n), model_z(&x, &y, 0.5, 0));
         assert_eq!(get(&g, W, n), x, "w is a verbatim copy of x");
-        assert_eq!(g.u32(Z + 4 * n).unwrap(), 0x7F7F_7F7F, "one sample past the z run");
-        assert_eq!(g.u32(W + 4 * n).unwrap(), 0x7F7F_7F7F, "one sample past the w run");
+        assert_eq!(
+            g.u32(Z + 4 * n).unwrap(),
+            0x7F7F_7F7F,
+            "one sample past the z run"
+        );
+        assert_eq!(
+            g.u32(W + 4 * n).unwrap(),
+            0x7F7F_7F7F,
+            "one sample past the w run"
+        );
         // And the source and addend come out unchanged.
         assert_eq!(get(&g, X_ODD, n), x);
         assert_eq!(get(&g, Y, n), y);
@@ -342,7 +353,11 @@ mod tests {
         assert!(takes_vector_path(X));
         assert_eq!(get(&g, Z, n), model_z(&x, &y, 0.5, 32));
         assert_eq!(get(&g, W, n), x);
-        assert_eq!(g.u32(Z + 4 * n).unwrap(), 0x7F7F_7F7F, "one sample past the run");
+        assert_eq!(
+            g.u32(Z + 4 * n).unwrap(),
+            0x7F7F_7F7F,
+            "one sample past the run"
+        );
         assert_eq!(g.u32(W + 4 * n).unwrap(), 0x7F7F_7F7F);
 
         // Fifteen samples is a *whole* tail and no vector iteration at all, which is the other side
@@ -361,7 +376,12 @@ mod tests {
         // `cmpw cr6,r11,r3 ; bge cr6` is signed, so 0 and every negative count fall straight out.
         // -16 is the interesting one: it gives `blocks = -1`, so `done` is `-16` too and the compare
         // is an equality rather than a strict inequality.
-        for count in [0u32, 1u32.wrapping_neg(), 16u32.wrapping_neg(), 100u32.wrapping_neg()] {
+        for count in [
+            0u32,
+            1u32.wrapping_neg(),
+            16u32.wrapping_neg(),
+            100u32.wrapping_neg(),
+        ] {
             for src in [X, X_ODD] {
                 let mut g = guest();
                 put(&mut g, src, &source(16));
@@ -369,8 +389,16 @@ mod tests {
                 poison(&mut g, Z, 16);
                 poison(&mut g, W, 16);
                 scale_add_with_copy(&mut g, count, Y, src, Z, W, 0.5).unwrap();
-                assert_eq!(get(&g, Z, 16), vec![f32::from_bits(0x7F7F_7F7F); 16], "count {count:#x}");
-                assert_eq!(get(&g, W, 16), vec![f32::from_bits(0x7F7F_7F7F); 16], "count {count:#x}");
+                assert_eq!(
+                    get(&g, Z, 16),
+                    vec![f32::from_bits(0x7F7F_7F7F); 16],
+                    "count {count:#x}"
+                );
+                assert_eq!(
+                    get(&g, W, 16),
+                    vec![f32::from_bits(0x7F7F_7F7F); 16],
+                    "count {count:#x}"
+                );
             }
         }
     }
@@ -393,8 +421,15 @@ mod tests {
 
             let expected = model_z(&x, &y, 0.5, if src == X { n } else { 0 });
             assert_eq!(get(&g, src, n), expected, "{name}: z");
-            assert_eq!(get(&g, W, n), expected, "{name}: w copied the result, not the source");
-            assert_ne!(expected, x, "{name}: the two have to differ for this to mean anything");
+            assert_eq!(
+                get(&g, W, n),
+                expected,
+                "{name}: w copied the result, not the source"
+            );
+            assert_ne!(
+                expected, x,
+                "{name}: the two have to differ for this to mean anything"
+            );
         }
     }
 
@@ -421,7 +456,11 @@ mod tests {
 
         assert_eq!(get(&vector, Z, n), model_z(&x, &y, gain, n));
         assert_eq!(get(&scalar, Z, n), model_z(&x, &y, gain, 0));
-        assert_ne!(get(&vector, Z, n), get(&scalar, Z, n), "the two paths are not one function");
+        assert_ne!(
+            get(&vector, Z, n),
+            get(&scalar, Z, n),
+            "the two paths are not one function"
+        );
     }
 
     #[test]
@@ -443,7 +482,11 @@ mod tests {
         scale_add_with_copy(&mut g, n, Y, X, z_odd, W, 0.5).unwrap();
 
         // The run landed at Z, not at Z + 4.
-        assert_eq!(get(&g, Z, n), model_z(&x, &y, 0.5, n), "the store floored its address");
+        assert_eq!(
+            get(&g, Z, n),
+            model_z(&x, &y, 0.5, n),
+            "the store floored its address"
+        );
         // And the four words the caller asked for at the top of the run are untouched.
         for i in 0..4u32 {
             assert_eq!(
@@ -491,7 +534,11 @@ mod tests {
         scale_add_with_copy(&mut g, n, Y, X, Z, W, 0.5).unwrap();
 
         let expected = model_z(&x, &y, 0.5, 16);
-        assert_eq!(g.f32(Z + 64).unwrap(), expected[16], "the tail's one sample");
+        assert_eq!(
+            g.f32(Z + 64).unwrap(),
+            expected[16],
+            "the tail's one sample"
+        );
         assert_eq!(g.f32(W + 64).unwrap(), x[16]);
         assert_eq!(g.u32(Z + 68).unwrap(), 0x7F7F_7F7F, "and nothing past it");
     }

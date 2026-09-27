@@ -9,10 +9,10 @@
 //!     cargo run --release --example grind_instance -- <audiofiles.big> <image dir> [bank] [object]
 
 use skate_audio_core::eval::interp;
-use skate_audio_core::{classes, device, mathlib, modules};
 use skate_audio_core::patch::{self, BumpHeap};
 use skate_audio_core::voice::{OpenRequest, VoiceDevice};
 use skate_audio_core::{Guest, Result as CoreResult, Segment, symbols};
+use skate_audio_core::{classes, device, mathlib, modules};
 use skate_audio_formats::eaac;
 
 /// Logs every call a patch makes on its voices, and keeps each voice alive.
@@ -40,7 +40,11 @@ fn class_name(class: u32) -> &'static str {
     match class {
         0x82FD_28C0 => "Send",
         0x82FC_E4CC => "GainFader",
-        _ => classes::CLASSES.iter().find(|c| c.1 == class).map(|c| c.2).unwrap_or("?"),
+        _ => classes::CLASSES
+            .iter()
+            .find(|c| c.1 == class)
+            .map(|c| c.2)
+            .unwrap_or("?"),
     }
 }
 
@@ -58,13 +62,24 @@ impl VoiceDevice for LoggingDevice {
             .span(r.sample as u32, 16)
             .ok()
             .and_then(|bytes| eaac::Header::parse(bytes, 0).ok())
-            .map(|h| format!("{} Hz, {} ch, {} samples ({:.2} s){}", h.sample_rate, h.channels(), h.num_samples, h.duration_secs(), if h.looping { ", looping" } else { "" }))
+            .map(|h| {
+                format!(
+                    "{} Hz, {} ch, {} samples ({:.2} s){}",
+                    h.sample_rate,
+                    h.channels(),
+                    h.num_samples,
+                    h.duration_secs(),
+                    if h.looping { ", looping" } else { "" }
+                )
+            })
             .unwrap_or_else(|| "no EAAC header".into());
         self.log(format!(
             "open voice {voice:#x}: sample index {} at {:#x} [{header}], byte2 {}, descriptor {:x?}, bank+72 {:#x}, arg8 {:#x}, {} records",
             r.index, r.sample, r.byte2, r.shifted, r.bank_72, r.arg8, r.record_count
         ));
-        let Some(graph) = self.graph.as_mut() else { return Ok(voice) };
+        let Some(graph) = self.graph.as_mut() else {
+            return Ok(voice);
+        };
         for (i, w) in r.shifted.iter().enumerate() {
             g.set_u32(graph.scratch + 4 * i as u32, *w)?;
         }
@@ -72,8 +87,18 @@ impl VoiceDevice for LoggingDevice {
         g.set_u32(graph.scratch + 28, r.records)?;
         let ring_start = g.u32(graph.system + 204)?;
         let voice = device::open_voice_graph(
-            g, &mut graph.heap, &mut mathlib::Image, &mut device::NoBuses, graph.device, r.sample as u32, r.byte2 as u32,
-            graph.scratch, r.bank_72, r.arg8 as u32, graph.scratch + 24, graph.sp,
+            g,
+            &mut graph.heap,
+            &mut mathlib::Image,
+            &mut device::NoBuses,
+            graph.device,
+            r.sample as u32,
+            r.byte2 as u32,
+            graph.scratch,
+            r.bank_72,
+            r.arg8 as u32,
+            graph.scratch + 24,
+            graph.sp,
         )?;
         let player = g.u32(voice + 4)?;
         let modules: Vec<String> = (0..g.u8(player + 68)? as u32)
@@ -83,7 +108,12 @@ impl VoiceDevice for LoggingDevice {
                 format!("{}x{}", class_name(class), g.u8(instance + 42).unwrap())
             })
             .collect();
-        let line = format!("  graph for voice {voice:#x}: player {player:#x}, {} modules [{}], duration {:.3} s", modules.len(), modules.join(" "), f64::from_bits(g.u64(voice + 56)?));
+        let line = format!(
+            "  graph for voice {voice:#x}: player {player:#x}, {} modules [{}], duration {:.3} s",
+            modules.len(),
+            modules.join(" "),
+            f64::from_bits(g.u64(voice + 56)?)
+        );
         self.lines.push(line);
         let (ring, end) = (g.u32(graph.system + 48)?, g.u32(graph.system + 204)?);
         let mut at = ring_start;
@@ -96,16 +126,27 @@ impl VoiceDevice for LoggingDevice {
                 device::COMMAND_PLAYER_FLOAT => (12, format!("player+56={}", g.f32(record + 8)?)),
                 device::COMMAND_STAMP => {
                     let name = g.u32(target + 20).map(class_name).unwrap_or("?");
-                    (16, format!("{name} id {} = {}", g.u32(record + 8)?, g.f32(record + 12)?))
+                    (
+                        16,
+                        format!("{name} id {} = {}", g.u32(record + 8)?, g.f32(record + 12)?),
+                    )
                 }
                 device::COMMAND_SEND_BUS => (16, format!("send bus {:#x}", g.u32(record + 12)?)),
-                device::COMMAND_PLAY => (g.u16(record + 44)? as u32, format!("play sample {:#x} counter {}", g.u32(record + 32)?, g.f32(record + 48)?)),
+                device::COMMAND_PLAY => (
+                    g.u16(record + 44)? as u32,
+                    format!(
+                        "play sample {:#x} counter {}",
+                        g.u32(record + 32)?,
+                        g.f32(record + 48)?
+                    ),
+                ),
                 _ => break,
             };
             commands.push(what);
             at += size;
         }
-        self.lines.push(format!("  commands: {}", commands.join("; ")));
+        self.lines
+            .push(format!("  commands: {}", commands.join("; ")));
         Ok(voice)
     }
     fn release(&mut self, _g: &mut Guest, v: u32) -> CoreResult<()> {
@@ -150,7 +191,9 @@ const STACK: u32 = 0x7000_0000;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let archive_path = args.next().ok_or("usage: grind_instance <audiofiles.big> <image dir> [bank] [object]")?;
+    let archive_path = args
+        .next()
+        .ok_or("usage: grind_instance <audiofiles.big> <image dir> [bank] [object]")?;
     let image = args.next().ok_or("need the image dump directory")?;
     let bank_name = args.next().unwrap_or_else(|| "GRINDS.abk".into());
     let object = args.next().unwrap_or_else(|| "Class_grind".into());
@@ -158,16 +201,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut segments = Vec::new();
     for entry in std::fs::read_dir(&image)? {
         let path = entry?.path();
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        let Some(hex) = stem.strip_prefix("g_") else { continue };
-        segments.push(Segment { base: u32::from_str_radix(hex, 16)? << 16, bytes: std::fs::read(&path)? });
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(hex) = stem.strip_prefix("g_") else {
+            continue;
+        };
+        segments.push(Segment {
+            base: u32::from_str_radix(hex, 16)? << 16,
+            bytes: std::fs::read(&path)?,
+        });
     }
     let mut g = Guest::from_segments(segments);
     g.put(MISC, vec![0; 0x1000]);
     g.put(HEAP, vec![0; HEAP_BYTES as usize]);
     g.put(STACK - 0x1000, vec![0; 0x2000]);
-    for cell in [symbols::PROJECT_LIST_HEAD, interp::LIST_HEAD, patch::BANK_LIST, interp::DELTA_CACHE,
-                 interp::FRAME_COUNT, interp::COUNTDOWN, interp::SCALE_GLOBAL] {
+    for cell in [
+        symbols::PROJECT_LIST_HEAD,
+        interp::LIST_HEAD,
+        patch::BANK_LIST,
+        interp::DELTA_CACHE,
+        interp::FRAME_COUNT,
+        interp::COUNTDOWN,
+        interp::SCALE_GLOBAL,
+    ] {
         g.set_u32(cell, 0)?;
     }
     g.set_u16(symbols::GENERATION, 0)?;
@@ -187,11 +244,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Every project, so the object resolves through the same two passes as in the game.
     let mut game_project = None;
     for e in &archive.entries {
-        let Some(name) = e.name.as_deref() else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
         if name.ends_with(".csi") {
             let bytes = &data[e.range()];
             let csi = skate_audio_formats::banks::Csi::parse(bytes)?;
-            if let Some(s) = csi.symbols.iter().find(|s| s.group == 1 && s.name == object) {
+            if let Some(s) = csi
+                .symbols
+                .iter()
+                .find(|s| s.group == 1 && s.name == object)
+            {
                 game_project = Some((csi.project_id, s.id));
             }
             let at = place(&mut g, bytes);
@@ -220,15 +283,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Class_grind's payload as sub_824AF8C8 builds it: fixed header words, then a speed of 5000,
     // 1024, surface class 3, variant 0, level 20000, three flags off, and two zero words.
-    let mut payload: Vec<u32> = vec![0, 32767, 0, 0, 0, 25000, 0, 5000, 1024, 3, 0, 20000, 0, 0, 0, 0, 0];
+    let mut payload: Vec<u32> = vec![
+        0, 32767, 0, 0, 0, 25000, 0, 5000, 1024, 3, 0, 20000, 0, 0, 0, 0, 0,
+    ];
     // PAYLOAD="hex words ..." replaces it, e.g. a payload copied from a skate3-audio-msg trace line.
     if let Ok(words) = std::env::var("PAYLOAD") {
-        payload = words.split_whitespace().map(|w| u32::from_str_radix(w, 16)).collect::<std::result::Result<_, _>>()?;
+        payload = words
+            .split_whitespace()
+            .map(|w| u32::from_str_radix(w, 16))
+            .collect::<std::result::Result<_, _>>()?;
     }
     for (i, w) in payload.iter().enumerate() {
         g.set_u32(message + 4 + 4 * i as u32, *w)?;
     }
-    let mut heap = BumpHeap { next: HEAP, end: HEAP + HEAP_BYTES };
+    let mut heap = BumpHeap {
+        next: HEAP,
+        end: HEAP + HEAP_BYTES,
+    };
     let status = patch::post(&mut g, &mut heap, slot, message + 4, message)?;
     let head = g.u32(interp::LIST_HEAD)?;
     println!("post: {status}; interpreter list head {head:#x}");
@@ -238,8 +309,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let instance = head - 8;
     let program = g.u32(instance + 16)?;
     let block = g.u32(instance + 20)?;
-    let first_words: Vec<String> = (0..12).map(|i| format!("{:08x}", g.u32(block + 4 * i).unwrap())).collect();
-    println!("instance {instance:#x}: program {program:#x}, block {block:#x}, block words {}", first_words.join(" "));
+    let first_words: Vec<String> = (0..12)
+        .map(|i| format!("{:08x}", g.u32(block + 4 * i).unwrap()))
+        .collect();
+    println!(
+        "instance {instance:#x}: program {program:#x}, block {block:#x}, block words {}",
+        first_words.join(" ")
+    );
 
     // With DISASM set, list the program: each op's absolute block offset and where its pairs write.
     if std::env::var_os("DISASM").is_some() {
@@ -264,8 +340,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             let advance = g.u32(at + 4 + 8 * pairs)? as i32 as i64;
-            let name = skate_audio_core::eval::TABLE.get(op as usize).map(|s| s.name).unwrap_or("?");
-            println!("  [{n:3}] op {op:2} {name} block +{blk} {}", wiring.join(" "));
+            let name = skate_audio_core::eval::TABLE
+                .get(op as usize)
+                .map(|s| s.name)
+                .unwrap_or("?");
+            println!(
+                "  [{n:3}] op {op:2} {name} block +{blk} {}",
+                wiring.join(" ")
+            );
             blk += advance;
             at += 8 + 8 * pairs;
             n += 1;
@@ -282,8 +364,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         const GRAPH_HEAP: u32 = 0x6800_0000;
         g.put(SPACE, vec![0; 0x2_0000]);
         g.put(GRAPH_HEAP, vec![0; 0x40_0000]);
-        let mut heap = BumpHeap { next: GRAPH_HEAP, end: GRAPH_HEAP + 0x40_0000 };
-        let (system, ring, manager, root, device_object) = (SPACE, SPACE + 0x1000, SPACE + 0x8000, SPACE + 0x9000, SPACE + 0x9100);
+        let mut heap = BumpHeap {
+            next: GRAPH_HEAP,
+            end: GRAPH_HEAP + 0x40_0000,
+        };
+        let (system, ring, manager, root, device_object) = (
+            SPACE,
+            SPACE + 0x1000,
+            SPACE + 0x8000,
+            SPACE + 0x9000,
+            SPACE + 0x9100,
+        );
         g.set_u32(modules::SYSTEM, system)?;
         g.set_u32(system + 48, ring)?;
         let registry = classes::class_registry(&mut g, &mut heap, system)?;
@@ -301,12 +392,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         g.set_u32(SPACE + 0x9400, 0xB0B0_0DEF)?;
         g.set_u32(classes::DEFAULT_BUS, 0)?;
         g.set_u32(classes::REGISTERED, 0)?;
-        Some(Graph { heap, system, device: device_object, scratch: SPACE + 0xA000, sp: SPACE + 0x1_F000 })
+        Some(Graph {
+            heap,
+            system,
+            device: device_object,
+            scratch: SPACE + 0xA000,
+            sp: SPACE + 0x1_F000,
+        })
     } else {
         None
     };
-    let mut device = LoggingDevice { graph, voices: 0, frame: 0, lines: Vec::new(), last: Default::default() };
-    let frames: usize = std::env::var("FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(375);
+    let mut device = LoggingDevice {
+        graph,
+        voices: 0,
+        frame: 0,
+        lines: Vec::new(),
+        last: Default::default(),
+    };
+    let frames: usize = std::env::var("FRAMES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(375);
     // UPDATES re-delivers the payload every frame the way the grind updater sub_824C39E0 does:
     // word 0 becomes 32767, and volume, two cutoffs and speed are refreshed (values chosen here).
     let updates = std::env::var_os("UPDATES").is_some();
@@ -316,12 +422,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let traced: Vec<Vec<u32>> = match std::env::var("UPDATE_FILE") {
         Ok(path) => std::fs::read_to_string(path)?
             .lines()
-            .map(|l| l.split_whitespace().filter_map(|w| u32::from_str_radix(w, 16).ok()).collect())
+            .map(|l| {
+                l.split_whitespace()
+                    .filter_map(|w| u32::from_str_radix(w, 16).ok())
+                    .collect()
+            })
             .filter(|v: &Vec<u32>| !v.is_empty())
             .collect(),
         Err(_) => Vec::new(),
     };
-    let every: usize = std::env::var("UPDATE_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(1).max(1);
+    let every: usize = std::env::var("UPDATE_EVERY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
+        .max(1);
     let node = g.u32(message)?;
     for frame in 0..frames {
         device.frame = frame;
@@ -332,12 +446,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             patch::redeliver(&mut g, node, message + 4)?;
         }
         if updates && frame >= 20 {
-            for (field, value) in [(4u32, 32767u32), (8, 20000), (12, 0), (16, 0), (20, 0), (24, 25000), (28, 25000), (32, 5000)] {
+            for (field, value) in [
+                (4u32, 32767u32),
+                (8, 20000),
+                (12, 0),
+                (16, 0),
+                (20, 0),
+                (24, 25000),
+                (28, 25000),
+                (32, 5000),
+            ] {
                 g.set_u32(message + field, value)?;
             }
             patch::redeliver(&mut g, node, message + 4)?;
         }
-        match interp::tick_with(&mut g, delta, &mut patch::PatchHost { heap: &mut heap, device: &mut device }) {
+        match interp::tick_with(
+            &mut g,
+            delta,
+            &mut patch::PatchHost {
+                heap: &mut heap,
+                device: &mut device,
+            },
+        ) {
             Ok(t) => {
                 ops += t.ops;
                 if frame < 12 && t.walked {
@@ -349,7 +479,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let words: Vec<String> = list
                             .split(',')
                             .filter_map(|o| o.trim().parse::<u32>().ok())
-                            .map(|o| format!("+{o}={}", g.u32(block + o).map(|w| w as i32).unwrap_or(i32::MIN)))
+                            .map(|o| {
+                                format!(
+                                    "+{o}={}",
+                                    g.u32(block + o).map(|w| w as i32).unwrap_or(i32::MIN)
+                                )
+                            })
                             .collect();
                         println!("  watch frame {frame}: {}", words.join(" "));
                     }
@@ -363,9 +498,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => {
-                println!("  frame {frame}: stopped after {ops} ops: {} (at {:#x})", e.message, e.address);
+                println!(
+                    "  frame {frame}: stopped after {ops} ops: {} (at {:#x})",
+                    e.message, e.address
+                );
                 let record = g.u32(instance + 16)?;
-                println!("  period {} frames, scale {}", g.u32(interp::FRAME_COUNT)?, g.f32(interp::SCALE_GLOBAL)?);
+                println!(
+                    "  period {} frames, scale {}",
+                    g.u32(interp::FRAME_COUNT)?,
+                    g.f32(interp::SCALE_GLOBAL)?
+                );
                 let _ = record;
                 break;
             }

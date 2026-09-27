@@ -9,9 +9,11 @@
 pub mod banks;
 pub mod eaac;
 pub mod eb;
+pub mod grain;
 pub mod hash;
 pub mod mpf;
 pub mod mus;
+pub mod splc;
 
 /// A parse failure, with the byte offset it was detected at.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,7 +24,10 @@ pub struct Error {
 
 impl Error {
     pub fn new(offset: usize, message: impl Into<String>) -> Self {
-        Self { offset, message: message.into() }
+        Self {
+            offset,
+            message: message.into(),
+        }
     }
 }
 

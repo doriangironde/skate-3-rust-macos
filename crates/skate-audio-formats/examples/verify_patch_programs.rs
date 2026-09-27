@@ -17,15 +17,19 @@ use skate_audio_formats::{banks, eb};
 use std::collections::BTreeMap;
 
 fn be32(b: &[u8], at: usize) -> Option<u32> {
-    b.get(at..at + 4).map(|s| u32::from_be_bytes(s.try_into().unwrap()))
+    b.get(at..at + 4)
+        .map(|s| u32::from_be_bytes(s.try_into().unwrap()))
 }
 fn be16(b: &[u8], at: usize) -> Option<u16> {
-    b.get(at..at + 2).map(|s| u16::from_be_bytes(s.try_into().unwrap()))
+    b.get(at..at + 2)
+        .map(|s| u16::from_be_bytes(s.try_into().unwrap()))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let path = args.next().ok_or("usage: verify_patch_programs <archive> [bank...]")?;
+    let path = args
+        .next()
+        .ok_or("usage: verify_patch_programs <archive> [bank...]")?;
     let focus: Vec<String> = args.collect();
     let data = std::fs::read(&path)?;
     let (mut programs, mut ops_total, mut failures) = (0usize, 0usize, 0usize);
@@ -35,12 +39,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut shapes = BTreeMap::<(Vec<u8>, Vec<u8>), usize>::new();
     let mut unused_tail = BTreeMap::<i64, usize>::new();
     for e in &eb::Archive::parse(&data)?.entries {
-        let Some(name) = e.name.as_deref() else { continue };
+        let Some(name) = e.name.as_deref() else {
+            continue;
+        };
         if !name.ends_with(".abk") {
             continue;
         }
-        let Some(b) = data.get(e.range()) else { continue };
-        let Ok(abk) = banks::Abk::parse(b) else { continue };
+        let Some(b) = data.get(e.range()) else {
+            continue;
+        };
+        let Ok(abk) = banks::Abk::parse(b) else {
+            continue;
+        };
         let focused = focus.iter().any(|f| name.contains(f.as_str()));
         let count = be16(b, 0x0A).unwrap_or(0) as usize;
         let mut rec = be32(b, 0x1C).unwrap_or(0) as usize;
@@ -79,13 +89,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Offsets are relative to the current block and may point back at earlier ones.
                     let outside = |o: i64| block + o < 0 || block + o + 4 > block_area;
                     if outside(dst) || (src != -1 && outside(src)) {
-                        fail(format!("op {op} pair {p} src {src} dst {dst} at block {block} outside {block_area}"));
+                        fail(format!(
+                            "op {op} pair {p} src {src} dst {dst} at block {block} outside {block_area}"
+                        ));
                     }
                 }
                 let advance = be32(b, at + 4 + 8 * pairs).unwrap_or(0) as i32 as i64;
                 block += advance;
                 if block < 0 || block > block_area {
-                    fail(format!("block pointer {block} leaves the operand area {block_area} after op {op}"));
+                    fail(format!(
+                        "block pointer {block} leaves the operand area {block_area} after op {op}"
+                    ));
                     break;
                 }
                 *hist.entry(op).or_default() += 1;
@@ -105,13 +119,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tail: Vec<u8> = seq.iter().rev().take(2).rev().copied().collect();
             *shapes.entry((head, tail)).or_default() += 1;
             max_ops = max_ops.max(n);
-            *unused_tail.entry((block_area - block).signum()).or_default() += 1;
+            *unused_tail
+                .entry((block_area - block).signum())
+                .or_default() += 1;
             let entries = b[rec + 36] as usize + b[rec + 39] as usize;
             rec += 60 + 4 * entries;
         }
     }
     println!("{programs} programs, {ops_total} ops (longest {max_ops}), {failures} failures");
-    println!("block pointer at the end vs the operand area (-1 past, 0 exactly, 1 short): {unused_tail:?}");
+    println!(
+        "block pointer at the end vs the operand area (-1 past, 0 exactly, 1 short): {unused_tail:?}"
+    );
     println!("opcode histogram: {hist:?}");
     let mut common: Vec<_> = shapes.iter().collect();
     common.sort_by(|a, b| b.1.cmp(a.1));
