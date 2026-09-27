@@ -514,20 +514,26 @@ fn headless_group_coverage_is_audible() {
     ));
     stages.push((
         "skid (powerslide)",
-        "Class_Squeaks",
+        "Class_wheels_skid",
         stage(&mut tick, 60, &mut |i| {
             let mut o = rolling(i, 8.0);
             o.powersliding = true;
+            // `skid_predicate` takes the revert path when the deck is not sliding sideways.
+            o.retail.state_flags[66 - 52] = true;
             o
         }),
     ));
     stages.push((
-        "board contact (seams)",
-        "Class_Seams",
+        "board/foot contact",
+        "Class_Seams + Class_foot_drag",
         stage(&mut tick, 60, &mut |i| {
             let mut o = rolling(i, 6.0);
             o.retail.wheel_seam_patterns = [11, 0, 4, 8];
             o.retail.wheel_positions = [[i as f32 * 0.4, 1.0, 0.0]; 4];
+            // The foot-drag path: state flag 54 is the manual brake, and the wheel surfaces are
+            // the audio materials `wheel_material_620` is mapped from.
+            o.retail.state_flags[54 - 52] = true;
+            o.retail.wheel_audio_surfaces = [41; 4];
             o
         }),
     ));
@@ -536,33 +542,52 @@ fn headless_group_coverage_is_audible() {
         "Class_grind",
         stage(&mut tick, 90, &mut |i| {
             let mut o = rolling(i, 4.0);
+            o.state = 400;
             o.grinding = true;
             o.grind_family = 0;
             o.grind_substate = 1;
             o.grind_audio_surface = 3;
             o.grind_impact_speed = 2.0;
+            o.retail.grinding = true;
+            // The conditioner's grinding latch is the grind state category, not `grinding`.
+            o.retail.state = 400;
+            o.retail.state_category = 400;
+            o.retail.grind_family = 0;
+            o.retail.grind_audio_surface = 3;
+            o.retail.grind_impact_speed = 2.0;
             o
         }),
     ));
     stages.push((
-        "trick (flip)",
-        "Class_Flips",
+        "trick (flip + cloth)",
+        "Class_Flips + cloth_trick",
         stage(&mut tick, 60, &mut |i| {
             let mut o = airborne(i, 6.0, (i as f32) / 60.0, 1.2);
             o.trick_identifier = Some("N_Kickflip".into());
+            // The vault's trick table is indexed by the scorable id the scorer publishes.
+            o.retail.scorable_id = 128;
             o
         }),
     ));
+    // A descent with real vertical speed, then the impact: the treatment bucket is the last four
+    // vertical velocity samples, so a level landing must not be the only case exercised.
     stages.push((
         "landing",
         "Class_Treatment",
-        stage(&mut tick, 60, &mut |i| {
+        stage(&mut tick, 40, &mut |i| {
+            let mut o = airborne(i, 6.0, 1.0 + (i as f32) / 60.0, 1.2);
+            o.retail.com_velocity = [6.0, -6.0, 0.0];
+            o
+        })
+        .into_iter()
+        .chain(stage(&mut tick, 30, &mut |i| {
             let mut o = rolling(i, 6.0);
             o.landed = i < 5;
             o.landing_impact_speed = 6.0;
             o.landing_clean = true;
             o
-        }),
+        }))
+        .collect(),
     ));
     stages.push((
         "footstep",

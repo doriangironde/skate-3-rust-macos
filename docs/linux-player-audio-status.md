@@ -53,6 +53,32 @@ audio is **audible offline**; a real in-game clean-install capture is still outs
   (`fstep_skateshoe1_sm.abk` slot 168) through the Bevy source at **−4.8 dBFS** — samples reach the
   sound device, not just the sink's bookkeeping.
 
+## Event-to-output coverage matrix (headless, owned assets)
+
+`headless_group_coverage_is_audible` drives one stage per named group through the game's own
+`sound.frame` path and asserts every stage is audible. Run it with `SKATE_AUDIO_TRACE=<file>` for
+the per-stage attribution below (posts/updates read from that trace, voices from
+`RuntimeStats`):
+
+| stage | frames | posted/held object | voices | peak |
+|---|---|---|---|---|
+| rolling | 0–90 | `Class_rolling` + `Class_Seams` | 41 | −10.4 dBFS |
+| speed (wind/rattle/jet) | 90–210 | `Rolling_Rattle_Class`, `SenseOfSpeed_wind` | 18 | −6.5 dBFS |
+| skid (powerslide/revert) | 210–270 | `Class_wheels_skid` (held, driven here) | 6 | −8.8 dBFS |
+| board/foot contact | 270–330 | `Class_Seams` + `Class_foot_drag` | 53 | −3.1 dBFS |
+| grind | 330–420 | `Class_grind` | 17 | −12.6 dBFS |
+| trick (flip + cloth) | 420–480 | `Class_Flips` + `cloth_trick` | 10 | −17.3 dBFS |
+| landing | 480–550 | `Class_Treatment` + contact `Class_wheels_skid` | 22 | −3.5 dBFS |
+| footstep | 550–670 | `playercharacter_footstep` (held; step updates) | 60 | −11.0 dBFS |
+| body/cloth (wipeout) | 670–750 | `c_cloth_falls` + `Class_foot_drag` family | 21 | −16.7 dBFS |
+
+Continuous families (rolling bed, treatment, footsteps, seams) are held objects whose per-frame
+updates carry the controls; one-shots (rattle, foot drag, flips, cloth, grind layer) post when
+their event fires. Start/stop and voice lifetime are covered by `headless_rolling_through_the_retail_path`,
+`headless_revert_skid_level`, `wheels_play_headless`, `rocket_plays_headless` and the voice-arena
+plateau test. Short (one-shot) and looping (grind/rolling layers) play are both exercised. No
+independent reference capture was available, so levels are measured, not claimed as parity.
+
 ## Event delivery and lifecycle
 
 * A completed fixed tick is published exactly once even when presentation runs more than once
