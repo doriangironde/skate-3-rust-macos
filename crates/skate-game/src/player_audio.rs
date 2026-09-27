@@ -221,14 +221,19 @@ fn forward(
             Ok(()) => {}
             Err(TrySendError::Full(lost)) => {
                 host.dropped_observations += 1;
-                eprintln!(
-                    "SKATE_PLAYER_AUDIO observation_overflow tick={} footstep={} push={} landed={} events={:?}",
-                    lost.tick,
-                    lost.footstep_strength,
-                    lost.foot_push_speed,
-                    lost.landed,
-                    lost.events
-                );
+                // The worker decodes its banks before its first block, so an early launch fills
+                // this queue. Report the first drop and then a periodic total, not one line per
+                // frame for a whole minute.
+                if host.dropped_observations == 1 || host.dropped_observations % 60 == 0 {
+                    eprintln!(
+                        "SKATE_PLAYER_AUDIO observation_overflow tick={} dropped={} footstep={} push={} landed={}",
+                        lost.tick,
+                        host.dropped_observations,
+                        lost.footstep_strength,
+                        lost.foot_push_speed,
+                        lost.landed,
+                    );
+                }
             }
             Err(TrySendError::Disconnected(_)) => break,
         }
@@ -278,9 +283,29 @@ fn report(mut host: Option<ResMut<PlayerAudioHost>>) {
 }
 
 fn cache_directory() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
+    #[cfg(windows)]
+    {
+        return std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map(|root| root.join("Skate3RustEngine/audio-pcm-cache"));
+    }
+    #[cfg(not(windows))]
+    {
+        // The first decode of every player bank takes about a minute. An XDG cache keeps that
+        // cost to the first launch, exactly as the Windows path does; without it every launch
+        // pays it again and the audio starts late.
+        let xdg = std::env::var_os("XDG_CACHE_HOME");
+        let home = std::env::var_os("HOME");
+        pcm_cache_path(xdg.as_deref(), home.as_deref())
+    }
+}
+
+#[cfg(not(windows))]
+fn pcm_cache_path(xdg_cache_home: Option<&std::ffi::OsStr>, home: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    let base = xdg_cache_home
         .map(PathBuf::from)
-        .map(|root| root.join("Skate3RustEngine/audio-pcm-cache"))
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".cache")))?;
+    Some(base.join("skate3rust/audio-pcm-cache"))
 }
 
 /// Everything the worker builds before its first block: the authored runtime with its banks and
@@ -388,7 +413,12 @@ fn run(
         mut sound,
         samples: sample_count,
         cache_hits,
-    } = prepare(&assets)?;
+    } = {
+        // The first launch without a cache decodes every player bank; say so, because the game
+        // is playable for that minute and the sound starts when this finishes.
+        eprintln!("SKATE_PLAYER_AUDIO preparing player banks (first launch can take about a minute)");
+        prepare(&assets)?
+    };
     let _ = status.send(WorkerStatus::Ready {
         samples: sample_count,
         cache_hits,
@@ -1874,11 +1904,25 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn the_pcm_cache_honours_xdg_cache_home_then_home() {
+        use std::ffi::OsStr;
+        assert_eq!(
+            pcm_cache_path(Some(OsStr::new("/x/cache")), None),
+            Some(PathBuf::from("/x/cache/skate3rust/audio-pcm-cache"))
+        );
+        assert_eq!(
+            pcm_cache_path(None, Some(OsStr::new("/home/u"))),
+            Some(PathBuf::from("/home/u/.cache/skate3rust/audio-pcm-cache"))
+        );
+        assert_eq!(pcm_cache_path(None, None), None);
+    }
+
     /// The worker's shutdown path: when the host drops the observation sender the worker sees a
     /// disconnect and stops instead of spinning forever.
     #[test]
-    fn a_disconnected_observation_source_stops_the_worker() {
-        let (tx, rx) = mpsc::channel::<u8>();
+    fn a_disconnected_observation_source_stops_the_worker() {        let (tx, rx) = mpsc::channel::<u8>();
         drop(tx);
         let error = next_observation(&rx).expect_err("a disconnect is an error");
         assert!(error.contains("disconnected"), "{error}");
