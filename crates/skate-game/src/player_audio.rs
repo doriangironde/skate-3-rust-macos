@@ -80,6 +80,19 @@ struct PlayerAudioHost {
     pending_frontend: Vec<u64>,
 }
 
+impl PlayerAudioHost {
+    /// A map replacement stops the previous world's audio: drop queued PCM, forget the carried
+    /// observation, the buffered front-end ids and the overflow count so nothing from the old
+    /// world rides into the new one's first frames.
+    pub(crate) fn reset_world(&mut self) {
+        self.live.clear();
+        self.last_observation = None;
+        self.paused_carry = 0.0;
+        self.pending_frontend.clear();
+        self.dropped_observations = 0;
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct PlayerAudioAssets(pub PathBuf);
 
@@ -92,8 +105,23 @@ pub(super) fn install(app: &mut App) {
     // The session marker registers this too, but its plugin returns early when its validation
     // data will not load, and the multiplier sounds must not depend on that.
     app.add_message::<crate::skate_audio::FrontEndSoundRequest>()
+        .add_message::<crate::skate_audio::PlayerAudioWorldChanged>()
         .add_systems(Startup, start)
-        .add_systems(Update, (forward, report));
+        .add_systems(Update, (forward, report, world_change));
+}
+
+/// A committed map replacement clears the queued PCM and the carried observation. The worker's
+/// next observation comes from the new world; nothing is replayed from the old one.
+fn world_change(
+    host: Option<ResMut<PlayerAudioHost>>,
+    mut changed: MessageReader<crate::skate_audio::PlayerAudioWorldChanged>,
+) {
+    let Some(mut host) = host else { return };
+    if changed.read().next().is_none() {
+        return;
+    }
+    host.reset_world();
+    eprintln!("SKATE_PLAYER_AUDIO world_changed: cleared queued pcm and carried state");
 }
 
 /// 82666BC0's sound for a sequence multiplier that has just changed, or `None` for the
@@ -1844,5 +1872,111 @@ mod tests {
             output.iter().all(|sample| *sample < 1.0),
             "LFE must not enter full-range output"
         );
+    }
+
+    /// The worker's shutdown path: when the host drops the observation sender the worker sees a
+    /// disconnect and stops instead of spinning forever.
+    #[test]
+    fn a_disconnected_observation_source_stops_the_worker() {
+        let (tx, rx) = mpsc::channel::<u8>();
+        drop(tx);
+        let error = next_observation(&rx).expect_err("a disconnect is an error");
+        assert!(error.contains("disconnected"), "{error}");
+    }
+
+    /// The host's frame path against the real Bevy systems: distinct fixed ticks are delivered in
+    /// order, a paused frame repeats the last observation as retail's frozen state, a full queue
+    /// is counted rather than silently dropping, and a committed map replacement clears the queued
+    /// PCM and the carried state.
+    #[test]
+    fn forward_delivers_ticks_pauses_overflows_and_resets() {
+        use crate::skate_audio::{PlayerAudioObservation, PlayerAudioWorldChanged};
+        use std::sync::mpsc::Receiver;
+
+        fn app_with_host(queue: usize) -> (App, Receiver<PlayerAudioObservation>) {
+            let (input, received) = mpsc::sync_channel(queue);
+            let (_status_tx, status) = mpsc::channel();
+            let host = PlayerAudioHost {
+                input,
+                last_observation: None,
+                paused_carry: 0.0,
+                status: Mutex::new(status),
+                live: LivePcm::new(2, 48_000, 64).unwrap(),
+                last_report: Instant::now(),
+                dropped_observations: 0,
+                pending_frontend: Vec::new(),
+            };
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<PlayerAudioObservation>()
+                .add_message::<crate::skate_audio::FrontEndSoundRequest>()
+                .add_message::<PlayerAudioWorldChanged>()
+                .insert_resource(host)
+                .add_systems(Update, (forward, report, world_change));
+            (app, received)
+        }
+
+        fn write(app: &mut App, tick: u64) {
+            app.world_mut()
+                .resource_mut::<Messages<PlayerAudioObservation>>()
+                .write(headless::rolling(tick, 1.0));
+        }
+
+        // Several distinct fixed ticks between one audio update are all forwarded, in order.
+        let (mut app, received) = app_with_host(8);
+        for tick in 1..=3 {
+            write(&mut app, tick);
+        }
+        app.update();
+        let ticks: Vec<u64> = received.try_iter().map(|o| o.tick).collect();
+        assert_eq!(ticks, vec![1, 2, 3], "fixed ticks reach the worker in order");
+
+        // Paused: the last observation is repeated frozen, without inventing a new tick.
+        app.world_mut().resource_mut::<Time<Virtual>>().pause();
+        app.world_mut()
+            .resource_mut::<PlayerAudioHost>()
+            .paused_carry = sound::FRAME_SECONDS;
+        app.update();
+        let frozen: Vec<PlayerAudioObservation> = received.try_iter().collect();
+        assert!(!frozen.is_empty(), "a paused frame repeats the last observation");
+        assert!(
+            frozen.iter().all(|o| o.retail.paused && o.tick == 3),
+            "the frozen repeat keeps the last tick and sets the pause input"
+        );
+        app.world_mut().resource_mut::<Time<Virtual>>().unpause();
+
+        // A full queue is counted, not silently dropped.
+        let (mut app, received) = app_with_host(2);
+        for tick in 1..=4 {
+            write(&mut app, tick);
+        }
+        app.update();
+        let delivered: Vec<u64> = received.try_iter().map(|o| o.tick).collect();
+        assert_eq!(delivered, vec![1, 2], "the bounded queue holds what fits");
+        assert_eq!(
+            app.world_mut()
+                .resource::<PlayerAudioHost>()
+                .dropped_observations,
+            2,
+            "the excess is reported"
+        );
+
+        // A map replacement clears the queue and the carried observation.
+        {
+            let mut host = app.world_mut().resource_mut::<PlayerAudioHost>();
+            host.live.push(&[0.5; 32]).unwrap();
+            host.last_observation = Some(headless::rolling(9, 1.0));
+            host.pending_frontend.push(7);
+            assert!(host.live.queued_frames() > 0);
+        }
+        app.world_mut()
+            .resource_mut::<Messages<PlayerAudioWorldChanged>>()
+            .write(PlayerAudioWorldChanged { generation: 4 });
+        app.update();
+        let host = app.world().resource::<PlayerAudioHost>();
+        assert_eq!(host.live.queued_frames(), 0, "queued pcm is dropped");
+        assert!(host.last_observation.is_none(), "no carried observation");
+        assert!(host.pending_frontend.is_empty(), "no carried front-end ids");
+        assert_eq!(host.dropped_observations, 0, "the count resets with the world");
     }
 }

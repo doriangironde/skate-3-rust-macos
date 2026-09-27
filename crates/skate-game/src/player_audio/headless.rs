@@ -11,7 +11,7 @@ use crate::skate_audio::{PlayerAudioObservation, RetailAudioInputs};
 const DEFAULT_ASSETS: &str = r"C:\s3\installations\70eda9dc4644496d81ae73af95ff4285\assets";
 
 /// A grounded roll at `speed` m/s straight along +X on four wheels.
-fn rolling(tick: u64, speed: f32) -> PlayerAudioObservation {
+pub(super) fn rolling(tick: u64, speed: f32) -> PlayerAudioObservation {
     let mut retail = RetailAudioInputs::default();
     retail.dt = 1.0 / 60.0;
     retail.ground_speed = speed;

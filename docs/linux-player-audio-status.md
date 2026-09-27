@@ -53,6 +53,24 @@ audio is **audible offline**; a real in-game clean-install capture is still outs
   (`fstep_skateshoe1_sm.abk` slot 168) through the Bevy source at **−4.8 dBFS** — samples reach the
   sound device, not just the sink's bookkeeping.
 
+## Event delivery and lifecycle
+
+* A completed fixed tick is published exactly once even when presentation runs more than once
+  between ticks (`AudioObservationCursor::begin_tick`), and several ticks between two audio
+  updates are forwarded in order by the host frame path; a full observation queue is counted and
+  logged (`SKATE_PLAYER_AUDIO observation_overflow`) rather than silently dropping.
+* Pause repeats the last observation frozen (`retail.paused`) at the sound frame rate, which is
+  retail's frozen state and the MixMap's pause input; it never invents a new tick.
+* A committed map replacement now also writes `PlayerAudioWorldChanged`; the host clears queued
+  PCM, the carried observation, buffered front-end ids and the overflow count so nothing from the
+  old world rides into the new one.
+* Shutdown: the worker stops when the observation sender is dropped (`next_observation` returns a
+  disconnect error); device and decoder failures remain non-fatal and logged.
+* Regression tests: `forward_delivers_ticks_pauses_overflows_and_resets`,
+  `a_disconnected_observation_source_stops_the_worker`,
+  `a_completed_fixed_tick_is_published_exactly_once` — part of 427 passing tests in the game
+  binary (125 asset-dependent tests ignored).
+
 ## The runtime image no longer needs a recomp capture
 
 The catalog reads `<assets>/private/stock/audio-runtime-image` as `g_XXXX.bin` guest pages.

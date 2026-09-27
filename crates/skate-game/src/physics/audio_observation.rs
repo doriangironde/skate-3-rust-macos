@@ -21,6 +21,19 @@ pub(crate) struct AudioObservationCursor {
     trace: bool,
 }
 
+impl AudioObservationCursor {
+    /// Record the completed fixed tick. `false` when this tick was already published: presentation
+    /// can run more than once between fixed simulation ticks, and a second copy of the same tick
+    /// must not become a duplicate sound trigger.
+    fn begin_tick(&mut self, tick: u64) -> bool {
+        if self.published_tick == Some(tick) {
+            return false;
+        }
+        self.published_tick = Some(tick);
+        true
+    }
+}
+
 impl Default for AudioObservationCursor {
     fn default() -> Self {
         Self {
@@ -371,10 +384,9 @@ pub(crate) fn publish(
     let Some(output) = physics.exchange.output() else {
         return;
     };
-    if cursor.published_tick == Some(output.tick) {
+    if !cursor.begin_tick(output.tick) {
         return;
     }
-    cursor.published_tick = Some(output.tick);
     let wheel_surface = super::ground_runtime::active_audio_surface(&physics.riding);
     let surface_changed = cursor.last_surface != Some(wheel_surface);
     cursor.last_surface = Some(wheel_surface);
@@ -500,6 +512,14 @@ pub(crate) fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_completed_fixed_tick_is_published_exactly_once() {
+        let mut cursor = AudioObservationCursor::default();
+        assert!(cursor.begin_tick(7), "the tick publishes");
+        assert!(!cursor.begin_tick(7), "a second presentation pass does not republish");
+        assert!(cursor.begin_tick(8), "the next tick publishes");
+    }
 
     #[test]
     fn speed_uses_all_three_physics_axes() {

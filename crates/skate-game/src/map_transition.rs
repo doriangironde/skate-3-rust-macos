@@ -324,6 +324,13 @@ fn commit(world: &mut World, mut prepared: PreparedWorld) -> String {
             generation: prepared.metadata.generation,
         });
     }
+    if let Some(mut messages) =
+        world.get_resource_mut::<Messages<crate::skate_audio::PlayerAudioWorldChanged>>()
+    {
+        messages.write(crate::skate_audio::PlayerAudioWorldChanged {
+            generation: prepared.metadata.generation,
+        });
+    }
     world.insert_resource(prepared.metadata);
     eprintln!(
         "MAP_PUBLISH_TIMING cpu_ms={}",

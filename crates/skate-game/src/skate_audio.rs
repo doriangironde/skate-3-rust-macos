@@ -67,6 +67,14 @@ pub mod player;
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrontEndSoundRequest(pub u64);
 
+/// A committed map replacement. The player-audio host listens for this: the physics bridge and the
+/// previous world's observations are torn down between maps, and a held continuous voice must not
+/// ride into the next map's first frames.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerAudioWorldChanged {
+    pub generation: u64,
+}
+
 #[derive(Message, Clone, Debug, PartialEq)]
 pub struct PlayerAudioObservation {
     pub tick: u64,
