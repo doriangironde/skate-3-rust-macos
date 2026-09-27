@@ -33,6 +33,34 @@ class SetupRecovery(unittest.TestCase):
             finally:
                 alias.rmdir()  # Remove the junction, never its target.
 
+    def test_a_current_installation_gains_player_audio_on_refresh(self):
+        # An installation prepared before player audio existed has every group current but no
+        # banks or runtime image. A plain refresh must stage them without re-preparing groups.
+        from . import install as engine
+        from . import asset_exports
+        with tempfile.TemporaryDirectory() as temp:
+            base, old, source, current, marker = test_versions.AssetVersions().fixture(Path(temp))
+            marker['pipelines'] = dict(current)
+            (base/'installation.json').write_text(json.dumps(marker))
+            audio = source/'data/audio'; audio.mkdir(parents=True)
+            for name in ('audiofiles.big', 'wheels.big', 'grains.big', 'MixMapSK8.mxb'):
+                (audio/name).write_bytes(b'owned stub')
+            calls = []
+            def player_audio(game_root, stage, work, report, audio_image=None):
+                calls.append((Path(game_root), Path(stage), Path(work)))
+                target = Path(stage)/'assets/private/stock/data/audio/audiofiles.big'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b'owned stub')
+            with patch.object(versions, 'fingerprints', return_value=current), \
+                 patch.object(engine, 'run'), \
+                 patch.object(asset_exports, 'player_audio', side_effect=player_audio):
+                installed = engine.install(None, base, Path('unused.exe'), lambda _: None,
+                                           game_root=source, refresh=True)
+            self.assertEqual(installed, old)
+            self.assertTrue(calls, 'a current installation still stages player audio')
+            self.assertEqual(calls[0][0], source)
+            self.assertTrue((old/'assets/private/stock/data/audio/audiofiles.big').is_file())
+
     def test_character_refresh_extracts_over_old_cache_without_touching_live_copy(self):
         from . import install as engine
         from tools.owned_game.big import BigArchive, BigEntry
