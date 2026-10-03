@@ -17,8 +17,10 @@ Editable examples live in `sdk/examples/`; `tools/package_mod.py` validates and 
 
 ## Play
 
-This repository is private on Forgejo. Its CI checks Linux builds and tests but
-publishes no packages; build locally using the instructions below.
+This fork adds native macOS support to
+[pinj/skate-3-rust-linux](https://git.ragusa-it.de/pinj/skate-3-rust-linux),
+based on [SK8-ENGINE/skate-3-rust-engine](https://github.com/SK8-ENGINE/skate-3-rust-engine).
+Build locally using the instructions below. Game assets are not included.
 
 If you have an existing Windows release ZIP, extract it and run
 `skate3rust.exe`. Select your Skate 3 Xbox 360 ISO, or select `default.xex` in an
@@ -28,7 +30,8 @@ starts University. The original scoring and session-marker HUD assets are also
 exported automatically during setup. No Blender, Python or Rust installation is needed.
 ISO extraction needs internet access. The first conversion can take a while.
 
-Use an XInput controller to play. Escape opens graphics, difficulty and map
+Use an XInput controller on Windows, or a macOS/Linux-compatible gamepad on
+those platforms. Escape opens graphics, difficulty and map
 settings. Maps can be switched without restarting the game.
 
 **Skate 3 assets are not included.** Your converted files stay in
@@ -36,10 +39,11 @@ the `data` folder beside your executable. Each freshly unpacked copy runs its
 own setup; it does not adopt another installation. In-place updates refresh
 only changed asset groups.
 
-### Linux first run
+### Linux and macOS first run
 
-Linux builds ship no `skate3setup.exe`. On first launch the game finds
-`tools/setup.py` above the executable and runs it with system `python3`; without
+Linux and macOS builds ship no `skate3setup.exe`. On first launch the game finds
+`tools/setup.py` above the executable and runs it with the checkout's
+`.venv/bin/python` when present, otherwise system `python3`; without
 Tk it asks in the terminal for your extracted Skate 3 `default.xex` (keep its
 `data` folder beside it). If you installed Python dependencies in the virtual
 environment below, run setup explicitly before the first launch:
@@ -50,11 +54,41 @@ environment below, run setup explicitly before the first launch:
 `--source` selects the game and skips the prompt; a folder or `default.xex` is
 equivalent. Tk is optional. ISO extraction is Windows-only, so extract the ISO
 with a trusted tool and select `default.xex`; setup never downloads or runs an
-extractor on Linux. `--assets DIRECTORY` still selects a prepared asset set
+extractor on Linux or macOS. `--assets DIRECTORY` still selects a prepared asset set
 for development. Updating, the character importer and the Steam relay remain
 Windows-only.
 
 ## Build
+
+### macOS
+
+Supports native Apple Silicon (`aarch64-apple-darwin`) and Intel
+(`x86_64-apple-darwin`) builds. macOS uses Metal graphics and the `gilrs`
+controller adapter. Apple Silicon audio uses NEON; the original Intel audio
+path is retained. See [macOS validation and limitations](docs/macos.md).
+
+Install the Xcode Command Line Tools, Rust stable, and Python **3.11 or newer**.
+Homebrew users can install Python and the optional retail-audio decoder with:
+
+    xcode-select --install
+    brew install python@3.13 ffmpeg
+
+If Xcode or its Command Line Tools are already installed, skip the first command.
+Install Rust using [rustup](https://rustup.rs/), then:
+
+    python3.13 -m venv .venv
+    .venv/bin/python -m pip install -r tools/requirements-setup.txt
+    sh scripts/build-macos.sh
+
+For a release build use `sh scripts/build-macos.sh --release`.
+The default binary is `target/debug/skate3rust`; release builds use
+`target/release/skate3rust`. Run the first-run setup command above with your
+own extracted `default.xex` and matching `data` folder. Use `target/release`
+in both paths if you built with `--release`.
+
+The Metal GPU tests run without game assets:
+
+    cargo test --locked -p skate-game --bin skate3rust --no-default-features metal_ -- --ignored --nocapture
 
 ### Linux
 

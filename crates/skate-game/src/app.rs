@@ -15,6 +15,23 @@ use bevy::{
 };
 use skate_data::GameAssets;
 
+/// Use Apple's native graphics API on macOS; keep the existing Vulkan path elsewhere.
+pub(crate) fn renderer_backend() -> Backends {
+    if cfg!(target_os = "macos") {
+        Backends::METAL
+    } else {
+        Backends::VULKAN
+    }
+}
+
+pub(crate) fn renderer_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Metal"
+    } else {
+        "Vulkan"
+    }
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) enum FrameSet {
     Assets,
@@ -70,7 +87,7 @@ pub(crate) fn build(
             })
             .set(RenderPlugin {
                 render_creation: RenderCreation::Automatic(WgpuSettings {
-                    backends: Some(Backends::VULKAN),
+                    backends: Some(renderer_backend()),
                     // Existing machine's validation layer rejects wgpu atomic shaders.
                     // This workaround belongs only to the rendering adapter.
                     instance_flags: InstanceFlags::empty(),
@@ -80,7 +97,7 @@ pub(crate) fn build(
             })
             .build()
             .disable::<bevy::log::LogPlugin>()
-            // Gameplay and menu navigation both use raw XInput. No game system
+            // Gameplay and menus use the platform adapter. No game system
             // consumes Bevy gamepad events/rumble; its second device backend can
             // stall PreUpdate (70.68 ms in the University capture).
             .disable::<bevy::gilrs::GilrsPlugin>(),

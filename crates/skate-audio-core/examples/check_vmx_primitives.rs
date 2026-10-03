@@ -36,7 +36,7 @@
 
 use skate_audio_core::vmx::{self, Fpscr};
 use skate_audio_core::{Guest, Segment};
-use std::arch::x86_64::*;
+use skate_audio_core::simd::*;
 
 /// `compare.py`'s `OPS`, in order. The result file is indexed by this, so it may not be reordered.
 const OPS: [&str; 45] = [
@@ -94,7 +94,7 @@ const RULE_4: [&str; 4] = ["vaddfp128", "vmulfp128", "vmaddfp", "vnmsubfp"];
 /// than a re-spelling of their innards.
 const STAGE: u32 = 0x4000_0000;
 
-#[target_feature(enable = "sse4.1,fma")]
+#[cfg_attr(target_arch = "x86_64", target_feature(enable = "sse4.1,fma"))]
 unsafe fn apply(index: usize, g: &mut Guest, a: __m128i, b: __m128i, c: __m128i) -> __m128i {
     let (ps, si) = (_mm_castsi128_ps, _mm_castps_si128);
     unsafe {

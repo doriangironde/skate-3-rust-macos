@@ -6,3 +6,6 @@ publish = false
 
 [dev-dependencies]
 skate-audio-formats = { path = "../skate-audio-formats" }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+sse2neon = "=0.1.1"

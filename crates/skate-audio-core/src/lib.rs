@@ -13,6 +13,15 @@
 //!
 //! Unsafe is not forbidden crate-wide the way it is in `skate-audio-formats`, because the
 //! DSP modules will scope `unsafe` to intrinsic calls. Nothing in this file needs it.
+//!
+//! Native ARM64 support is provided by [`simd`]. The historical x86 exactness
+//! claims below describe the original reference measurements; they do not claim
+//! bit-for-bit equivalence on ARM64, whose NaN propagation and libm may differ.
+
+/// Architecture adapter for the audio kernels. Intel uses its existing SSE
+/// lowerings; Apple Silicon uses NEON with SSE-compatible edge handling.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub mod simd;
 
 pub mod bitstream;
 pub mod buffers;
@@ -29,7 +38,7 @@ pub mod system;
 
 /// The mixer's buffering and clearing layer.
 ///
-/// Gated on x86_64 for one reason, and it is not SIMD: every body in these two modules emits
+/// The original x86_64 gate was not about SIMD: every body in these two modules emits
 /// `ctx.fpscr.disableFlushModeUnconditional()` where the original does, through [`vmx::Fpscr`],
 /// which models MXCSR. That is load-bearing rather than decorative — `rex/ppc/context.h` carries
 /// flush-to-zero and denormals-are-zero on the **scalar** side too (see [`fp`]'s module note), so a
@@ -39,100 +48,100 @@ pub mod system;
 ///
 /// [`ring::copy_from_ring`] and [`ring::fill_segments`] contain no float work at all and would run
 /// anywhere; they are here because they share a structure with [`ring::fill_tail`], which does.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod mix;
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod ring;
 
 /// The VMX128 layer and the DSP kernels that stand on it.
 ///
-/// Gated on x86_64 because they are a translation of RexGlue's **x86 lowering**, not of Xenon:
+/// Originally gated on x86_64 because they translate RexGlue's **x86 lowering**, not Xenon:
 /// `core::arch::x86_64` has each of RexGlue's SSE4.1/FMA intrinsics one-for-one, which is the
 /// entire reason `docs/vmx128-exactness.md` could measure the translation bit-identical. ARM64 is
 /// out of scope there for the same reason and by the same decision (`docs/PLAN.md` non-goals): its
 /// rule 4 behaviour would have to be re-measured before anything could be claimed about it.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod dsp;
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod vmx;
 
 /// The two-source crossfade and the mix dispatcher that runs it through a stage descriptor.
 ///
 /// Gated with the rest: vector work under the guest's flush mode.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod crossfade;
 /// The per-channel filter stages, which stand on [`dsp::biquad`] and [`mathlib::Trig`].
 ///
 /// Gated with the rest for the same reason: both bodies normalise a cutoff with `fdivs`/`fmuls` and
 /// clear their history with a rodata single, all under the guest's flush mode held through
 /// [`vmx::Fpscr`], and the kernel they call adds a denormal-avoidance bias for that exact reason.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod filters;
 /// The spatial layer, the gain plumbing under it, and the guest math leaves they call.
 ///
-/// Gated on x86_64 for the same reason [`mix`] and [`ring`] are, and it is again not SIMD: every
+/// Originally gated on x86_64 for the same reason [`mix`] and [`ring`] were: every
 /// body in these three modules is scalar float work that runs under the guest's flush mode, held
 /// through [`vmx::Fpscr`]. `sub_82B453D8` and `sub_82B45788` both take a `fsqrts` of a sum that can
 /// be denormal, and `sub_82F4DE80` subtracts two doubles whose difference can be; under Rust's
 /// default MXCSR those would keep a denormal the recomp flushes to zero.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod gains;
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod mathlib;
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod spatial;
 /// The one-pole filter stage and the dispatcher that runs it over a descriptor.
 ///
 /// Gated with the rest: the stage is VMX128 work under the guest's flush mode.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod stage;
 
 /// The scatter-mixer, which composes [`dsp::scale`]'s two kernels and [`mem::memset`].
 ///
 /// Gated with them, because it calls them.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod routing;
 
 /// One contribution's republish into its owner's running total, which reaches the image's log10.
 ///
 /// Gated with the rest: every value it touches is single-rounded float work under the guest's flush
 /// mode, held through [`vmx::Fpscr`].
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod contributions;
 
 /// The output stage — route, interleave, ramp once, clamp — which composes the modules around it.
 ///
 /// Gated with them, because it calls them.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod output;
 
 /// Voice and handle lifecycle, which reaches the gather and the fold's single-rounded adds.
 ///
 /// Gated with them: it calls the x86 modules.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod voices;
 
 /// The bus mixers: a source's channels into bus blocks, and a descriptor's into 1 KB runs.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod bus;
 
 /// A speaker layout's parameter blocks expanded into per-channel slots.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod layout;
 
 /// Per-channel mean-square and peak meters over ring histories, and the tick that runs them.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod meters;
 
 /// A voice's pitch ratio and fractional position, single-rounded float work under the flush mode.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod pitch;
 
 /// Planar channels into interleaved frames, the last shuffle before the driver.
 ///
 /// Gated with the rest because every sample passes through an `lfs`/`stfs` pair under the guest's
 /// flush mode, held through [`vmx::Fpscr`] by the kernels around it.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod interleave;
 
 /// One contiguous span of guest memory.
@@ -435,7 +444,7 @@ pub mod pcm;
 pub mod play;
 /// A continuously pumpable worker fixture for exercising the recovered final output graph on a
 /// host device. It is deliberately a probe signal, not a replacement for authored game voices.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod probe;
 /// SndPlayer1 segment-ring stream pump (`sub_82B31EE0`).
 pub mod pump;
@@ -445,15 +454,15 @@ pub mod runtime;
 pub mod worker;
 
 /// Single-owner authored bank evaluator, voice graphs, decoded streams and Dac output.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod authored;
 
 /// Retail board rolling: the grain player over `grains.big`, its seek reader and the board math.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod grain;
 
 /// The retail MixMap mixer: controller inputs → every gain/pitch/filter output word.
 ///
 /// Gated with the float modules: its evaluation holds the guest flush mode through [`vmx::Fpscr`].
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod mixmap;

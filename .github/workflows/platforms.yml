@@ -1,0 +1,46 @@
+name: Platform builds
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev
+      - name: Install Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - name: Build game
+        run: cargo +stable build --locked -p skate-game --bin skate3rust --no-default-features
+      - name: Audio regressions
+        run: cargo +stable test --locked -p skate-audio-core --lib
+      - name: Controller, setup and shader regressions
+        run: |
+          cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features input::
+          cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features setup::
+          cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features material_shaders_validate
+      - name: First-run setup regressions
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r tools/requirements-setup.txt
+          .venv/bin/python -m unittest tools.test_setup_linux tools.test_setup_assets tools.asset_pipeline.test_setup_recovery -v

@@ -56,9 +56,10 @@ class SetupRecovery(unittest.TestCase):
                  patch.object(asset_exports, 'player_audio', side_effect=player_audio):
                 installed = engine.install(None, base, Path('unused.exe'), lambda _: None,
                                            game_root=source, refresh=True)
-            self.assertEqual(installed, old)
+            # macOS exposes its temp directory through /var -> /private/var.
+            self.assertEqual(installed.resolve(), old.resolve())
             self.assertTrue(calls, 'a current installation still stages player audio')
-            self.assertEqual(calls[0][0], source)
+            self.assertEqual(calls[0][0].resolve(), source.resolve())
             self.assertTrue((old/'assets/private/stock/data/audio/audiofiles.big').is_file())
 
     def test_character_refresh_extracts_over_old_cache_without_touching_live_copy(self):

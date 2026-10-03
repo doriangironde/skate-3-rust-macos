@@ -1,4 +1,4 @@
-//! Device transport. Windows reads raw XInput; Linux maps gilrs controller
+//! Device transport. Windows reads raw XInput; Linux and macOS map gilrs controller
 //! states to Xbox values on a background input worker.
 use skate_core::input::xbox::XboxState;
 
@@ -14,7 +14,7 @@ pub(crate) enum DeviceError {
     #[cfg(windows)]
     State(u32),
     Capabilities(u32),
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     UnsupportedPlatform,
 }
 
@@ -131,8 +131,8 @@ mod windows {
     }
 }
 
-#[cfg(target_os = "linux")]
-mod linux {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod gilrs_backend {
     use super::{CapabilityCache, DeviceError, DevicePacket};
     use gilrs::{Axis, Button, EventType, Gamepad, GilrsBuilder};
     use skate_core::input::xbox::XboxState;
@@ -330,9 +330,9 @@ pub(crate) fn poll_cached(
     assert!(index < 4);
     #[cfg(windows)]
     return windows::poll(index as u32, cache);
-    #[cfg(target_os = "linux")]
-    return linux::poll(index, cache);
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    return gilrs_backend::poll(index, cache);
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     Err(DeviceError::UnsupportedPlatform)
 }
 

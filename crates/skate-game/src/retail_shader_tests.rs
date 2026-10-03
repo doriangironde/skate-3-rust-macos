@@ -1,4 +1,4 @@
-//! Shader composition tests plus opt-in, headless Vulkan regression probes.
+//! Shader composition tests plus opt-in, headless Vulkan and Metal regression probes.
 //! Bevy vertex interfaces are real; unrelated lighting functions/resources use
 //! interface fixtures. These probes do not launch gameplay or the game app.
 use naga_oil::compose::{
@@ -184,29 +184,58 @@ fn material_shaders_validate() {
 #[test]
 #[ignore = "Explicit headless GPU compiler probe; no game or window"]
 fn vulkan_material_pipeline_probe() {
-    gpu_probe(false);
+    gpu_probe(
+        false,
+        wgpu::Backends::VULKAN,
+        std::env::var_os("SKATE_SHADER_PROBE_FALLBACK").is_none(),
+    );
 }
 
 #[test]
 #[ignore = "Explicit headless GPU shadow compiler probe; no game or window"]
 fn vulkan_shadow_pipeline_probe() {
-    gpu_probe(true);
+    gpu_probe(
+        true,
+        wgpu::Backends::VULKAN,
+        std::env::var_os("SKATE_SHADER_PROBE_FALLBACK").is_none(),
+    );
 }
 
-fn gpu_probe(prepass: bool) {
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "Requires a Metal device; validates and renders the retail material without game assets"]
+fn metal_material_pipeline_probe() {
+    gpu_probe(false, wgpu::Backends::METAL, false);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "Requires a Metal device; compiles the retail shadow pipeline without game assets"]
+fn metal_shadow_pipeline_probe() {
+    gpu_probe(true, wgpu::Backends::METAL, false);
+}
+
+fn gpu_probe(prepass: bool, backends: wgpu::Backends, bindless: bool) {
     bevy::tasks::block_on(async {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
+            backends,
             ..Default::default()
         });
         let adapter = instance.request_adapter(&Default::default()).await.unwrap();
         eprintln!("PROBE adapter={:?}", adapter.get_info());
-        let features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-            | wgpu::Features::BUFFER_BINDING_ARRAY
-            | wgpu::Features::TEXTURE_BINDING_ARRAY
-            | wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY
-            | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
-            | wgpu::Features::PARTIALLY_BOUND_BINDING_ARRAY;
+        let mut features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        if bindless {
+            features |= wgpu::Features::BUFFER_BINDING_ARRAY
+                | wgpu::Features::TEXTURE_BINDING_ARRAY
+                | wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
+                | wgpu::Features::PARTIALLY_BOUND_BINDING_ARRAY;
+        }
+        let color_features = adapter.get_texture_format_features(wgpu::TextureFormat::Rgba8Unorm);
+        let samples = [8, 4, 2]
+            .into_iter()
+            .find(|&count| color_features.flags.sample_count_supported(count))
+            .expect("MSAA is required by the material readback probe");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: features,
@@ -215,12 +244,10 @@ fn gpu_probe(prepass: bool) {
             })
             .await
             .unwrap();
-        allocation_reuses_resident_textures(&device);
-        let module = validate(
-            std::env::var_os("SKATE_SHADER_PROBE_FALLBACK").is_none(),
-            prepass,
-            &[],
-        );
+        if bindless {
+            allocation_reuses_resident_textures(&device);
+        }
+        let module = validate(bindless, prepass, &[]);
         let mut groups: Vec<Vec<wgpu::BindGroupLayoutEntry>> = vec![vec![]; 4];
         for (_, variable) in module.global_variables.iter() {
             let Some(binding) = variable.binding else {
@@ -310,7 +337,7 @@ struct Out { @builtin(position) position:vec4<f32>, @location(0) world:vec4<f32>
                 bias: Default::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: if prepass { 1 } else { 8 },
+                count: if prepass { 1 } else { samples },
                 ..Default::default()
             },
             fragment: Some(wgpu::FragmentState {
@@ -328,8 +355,7 @@ struct Out { @builtin(position) position:vec4<f32>, @location(0) world:vec4<f32>
             return;
         }
         // Read back two distinct material slots. This exercises indexed buffer
-        // and texture resources, queue submission and 8x-MSAA resolve on Vulkan.
-        let bindless = std::env::var_os("SKATE_SHADER_PROBE_FALLBACK").is_none();
+        // and texture resources, queue submission and MSAA resolve on the selected backend.
         let buffer = |label| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -502,7 +528,7 @@ struct Out { @builtin(position) position:vec4<f32>, @location(0) world:vec4<f32>
                 view_formats: &[],
             })
         };
-        let msaa = target(8);
+        let msaa = target(samples);
         let output = target(1);
         let msaa_view = msaa.create_view(&Default::default());
         let output_view = output.create_view(&Default::default());

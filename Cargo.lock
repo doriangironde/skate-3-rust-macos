@@ -4722,6 +4722,7 @@ name = "skate-audio-core"
 version = "0.1.0"
 dependencies = [
  "skate-audio-formats",
+ "sse2neon",
 ]
 
 [[package]]
@@ -4924,6 +4925,12 @@ checksum = "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844"
 dependencies = [
  "bitflags 2.13.1",
 ]
+
+[[package]]
+name = "sse2neon"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67628519d91f00e55f17f563d1f91b9018a08fb94f5c3a0c054592ebfbb93c78"
 
 [[package]]
 name = "stable_deref_trait"

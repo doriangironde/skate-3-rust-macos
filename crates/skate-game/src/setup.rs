@@ -63,7 +63,7 @@ pub(crate) fn asset_root() -> Result<PathBuf, String> {
     let mut command = {
         let setup = find_setup_script(root).ok_or_else(||
             "This copy has not been set up. Extract your Skate 3 default.xex, then run tools/setup.py (see README) to prepare assets, or pass --assets DIRECTORY for development.".to_string())?;
-        let mut command = Command::new("python3");
+        let mut command = Command::new(setup_python(&setup));
         command.arg(setup);
         command
     };
@@ -102,6 +102,15 @@ fn find_setup_script(root: &Path) -> Option<PathBuf> {
         directory = directory?.parent();
     }
     None
+}
+
+// Use the checkout's dependencies, including on macOS where /usr/bin/python3
+// can be older than the setup pipeline requires. Windows uses its bundled helper.
+#[cfg(not(windows))]
+fn setup_python(script: &Path) -> PathBuf {
+    let local = script.parent().and_then(Path::parent)
+        .map(|root| root.join(".venv/bin/python"));
+    local.filter(|python| python.is_file()).unwrap_or_else(|| "python3".into())
 }
 
 fn customiser_current(assets: &Path, expected: Option<&str>) -> bool {
@@ -160,6 +169,10 @@ mod tests {
         std::fs::create_dir_all(root.join("tools")).unwrap();
         std::fs::write(root.join("tools/setup.py"), b"").unwrap();
         assert_eq!(find_setup_script(&binary), Some(root.join("tools/setup.py")));
+        assert_eq!(setup_python(&root.join("tools/setup.py")), PathBuf::from("python3"));
+        std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
+        std::fs::write(root.join(".venv/bin/python"), b"").unwrap();
+        assert_eq!(setup_python(&root.join("tools/setup.py")), root.join(".venv/bin/python"));
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
