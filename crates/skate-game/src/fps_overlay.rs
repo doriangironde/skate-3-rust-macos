@@ -67,3 +67,29 @@ fn update(
         *sample = FrameSample::default();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn counter_tracks_render_updates_with_30_hz_physics_and_paused_game_time() {
+        for fps in [30, 60, 120] {
+            let mut app = App::new();
+            app.insert_resource(Time::<Real>::default())
+                .insert_resource(Time::<Fixed>::from_hz(30.0))
+                .insert_resource(Time::<Virtual>::default())
+                .add_systems(Update, update);
+            app.world_mut().resource_mut::<Time<Virtual>>().pause();
+            let label = app.world_mut().spawn((FpsText, Text::new("FPS: --"))).id();
+            for _ in 0..fps * 2 {
+                app.world_mut()
+                    .resource_mut::<Time<Real>>()
+                    .advance_by(Duration::from_secs_f64(1.0 / f64::from(fps)));
+                app.update();
+            }
+            assert_eq!(app.world().get::<Text>(label).unwrap().0, format!("FPS: {fps}"));
+        }
+    }
+}

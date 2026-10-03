@@ -103,6 +103,20 @@ fn program() -> PathBuf {
             }
         }
     }
+    // Finder/Terminal launches may inherit a system-only PATH even when
+    // Homebrew's decoder is installed. Preserve PATH precedence when it works.
+    #[cfg(target_os = "macos")]
+    {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        if !std::env::split_paths(&path).any(|directory| directory.join("ffmpeg").is_file()) {
+            for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"] {
+                let candidate = PathBuf::from(candidate);
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+    }
     PathBuf::from("ffmpeg")
 }
 

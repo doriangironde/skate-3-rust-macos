@@ -38,6 +38,7 @@ jobs:
         run: |
           cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features input::
           cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features setup::
+          cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features fps_overlay::
           cargo +stable test --locked -p skate-game --bin skate3rust --no-default-features material_shaders_validate
       - name: First-run setup regressions
         run: |

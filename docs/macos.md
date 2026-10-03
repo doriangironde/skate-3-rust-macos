@@ -15,6 +15,8 @@ This fork starts at `b2fce60f22b7c7eeaac8a4a07f3d6e60fce4edfd` from
 - Map audio flush/rounding control to ARM FPCR, mask traps during audio work,
   and restore the complete incoming control register after each scope.
 - Prefer the checkout's Python virtual environment during first-run setup.
+- Find Homebrew's FFmpeg on desktop launches whose PATH contains only system
+  tools. Explicit `SKATE_FFMPEG` and available PATH decoders keep precedence.
 - Build the setup-time native helper as a Mac `.dylib`, avoiding the Linux
   `.so` cached in the upstream repository.
 - Add a native build script, Metal rendering probes, and macOS/Intel/Linux CI.
@@ -29,6 +31,12 @@ The setup/player-image suites run 27 tests: 25 pass and two platform or
 owned-game-dependent tests are skipped.
 All audio diagnostic examples compile on ARM64. The native setup-time C helper
 also builds on ARM64 and passes an AES reference-vector check.
+With the owned game and matching TU3 payloads, the full player-audio rolling
+check produces continuous non-silent stereo at 2, 5 and 9 m/s. It also passes
+with a system-only PATH after invalidating a decoded bank, exercising the
+Homebrew decoder fallback. Live playback consumes non-zero audio samples
+without queue underflows. The FPS overlay regression reports 30, 60 and 120
+render updates correctly with 30 Hz physics and paused game time.
 The game tests pass 33 controller/input checks, three Rust setup checks and
 the shader composition check (two asset-dependent input tests are ignored).
 Both headless Metal probes pass on an Apple M5 running macOS 27.2: the retail
