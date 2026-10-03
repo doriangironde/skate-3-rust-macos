@@ -15,6 +15,8 @@ This fork starts at `b2fce60f22b7c7eeaac8a4a07f3d6e60fce4edfd` from
 - Map audio flush/rounding control to ARM FPCR, mask traps during audio work,
   and restore the complete incoming control register after each scope.
 - Prefer the checkout's Python virtual environment during first-run setup.
+- Build the setup-time native helper as a Mac `.dylib`, avoiding the Linux
+  `.so` cached in the upstream repository.
 - Add a native build script, Metal rendering probes, and macOS/Intel/Linux CI.
 
 ## Verification
@@ -23,7 +25,8 @@ The unmodified game failed to compile for `aarch64-apple-darwin` because
 required audio modules were gated to `x86_64`. The port passes native ARM64
 and cross-target Intel macOS compile checks, plus all 780 audio unit tests on
 Apple Silicon, using Rust 1.99.0.
-The setup suite runs 19 tests: 18 pass and one Windows-only test is skipped.
+The setup/player-image suites run 27 tests: 25 pass and two platform or
+owned-game-dependent tests are skipped.
 All audio diagnostic examples compile on ARM64. The native setup-time C helper
 also builds on ARM64 and passes an AES reference-vector check.
 The game tests pass 33 controller/input checks, three Rust setup checks and

@@ -3,7 +3,7 @@
 Decrypts only the caller's own base XEX plus Title Update 3, using the public XEX2
 retail key. Not a general loader and not a gameplay dependency.
 """
-import ctypes, hashlib, os, shutil, struct, subprocess
+import ctypes, hashlib, os, shutil, struct, subprocess, sys
 from pathlib import Path
 
 # Public XEX2 retail key (Xenia). Used only to decrypt the caller's own executable.
@@ -64,7 +64,10 @@ def _native():
         return _LIB
     here = Path(__file__).resolve().parent
     root = here.parents[1]
-    out = here/'.native'/'libplayer_image.so'
+    # The upstream tree contains a Linux .so. Never load that cached ELF on
+    # macOS: build a separate Mach-O library for the current Mac architecture.
+    macos = sys.platform == 'darwin'
+    out = here/'.native'/('libplayer_image.dylib' if macos else 'libplayer_image.so')
     sources = [here/'player_image_native.c', root/'tools/vendor/rijndael/rijndael-alg-fst.c',
                root/'tools/vendor/libmspack/lzxd.c']
     if not out.is_file() or any(src.stat().st_mtime > out.stat().st_mtime for src in sources):
@@ -72,7 +75,7 @@ def _native():
         compiler = shutil.which('cc') or shutil.which('gcc')
         if not compiler:
             raise PlayerImageError('no C compiler for the player-image helper; audio image not extracted')
-        cmd = [compiler, '-O2', '-fPIC', '-shared', '-I', str(root/'tools/vendor/libmspack'),
+        cmd = [compiler, '-O2', '-fPIC', '-dynamiclib' if macos else '-shared', '-I', str(root/'tools/vendor/libmspack'),
                '-I', str(root/'tools/vendor/rijndael'), '-o', str(out), *map(str, sources)]
         run = subprocess.run(cmd, capture_output=True, text=True)
         if run.returncode:

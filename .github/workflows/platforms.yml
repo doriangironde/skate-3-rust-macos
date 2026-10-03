@@ -43,4 +43,4 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -r tools/requirements-setup.txt
-          .venv/bin/python -m unittest tools.test_setup_linux tools.test_setup_assets tools.asset_pipeline.test_setup_recovery -v
+          .venv/bin/python -m unittest tools.test_setup_linux tools.test_setup_assets tools.asset_pipeline.test_setup_recovery tools.asset_pipeline.test_player_image -v

@@ -1,6 +1,7 @@
 """Player-image gate. Retail bytes are optional; rejection paths are not."""
 import hashlib
 import json
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,15 @@ from tools.asset_pipeline.group_receipts import ROOTS, files
 
 
 class PlayerImageGate(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS native setup helper')
+    def test_macos_builds_its_own_library_and_decrypts_a_reference_vector(self):
+        # AES-128 reference block with an all-zero CBC IV, independent of game data.
+        key = bytes.fromhex('000102030405060708090a0b0c0d0e0f')
+        encrypted = bytes.fromhex('69c4e0d86a7b0430d8cdb78070b4c55a')
+        plaintext = bytes.fromhex('00112233445566778899aabbccddeeff')
+        self.assertEqual(image._aes(key, encrypted), plaintext)
+        self.assertTrue(image._native()._name.endswith('.dylib'))
+
     def test_fixture_matches_the_research_indices(self):
         slots = image.load_fixture()
         self.assertEqual(slots[3][3], 'Class_grind')
